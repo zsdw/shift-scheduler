@@ -1,0 +1,2957 @@
+{
+ "version": 1,
+ "rules_version": "2.20",
+ "confirmed_at": "2026-09-30T21:00:00",
+ "plan": {
+  "record_id": "excel-2026-09-04-FM",
+  "kind": "plan",
+  "source_plan_id": null,
+  "confirmed_at": null,
+  "context": {
+   "shift_start_date": "2026-09-04",
+   "night_type": "N2",
+   "requested_mode": "FM",
+   "effective_mode": "FM",
+   "employees": [
+    {
+     "employee_id": "A",
+     "name": "통제"
+    },
+    {
+     "employee_id": "1",
+     "name": "만년"
+    },
+    {
+     "employee_id": "2",
+     "name": "원종"
+    },
+    {
+     "employee_id": "3",
+     "name": "제욱"
+    },
+    {
+     "employee_id": "4",
+     "name": "광희"
+    },
+    {
+     "employee_id": "5",
+     "name": "성호"
+    },
+    {
+     "employee_id": "6",
+     "name": "준호"
+    }
+   ],
+   "attendance": [
+    {
+     "employee_id": "A",
+     "present": true,
+     "is_general_worker": false,
+     "display_number": null,
+     "acts_as_manager": true,
+     "available_slot_indices": null
+    },
+    {
+     "employee_id": "1",
+     "present": true,
+     "is_general_worker": true,
+     "display_number": 4,
+     "acts_as_manager": false,
+     "available_slot_indices": null
+    },
+    {
+     "employee_id": "2",
+     "present": true,
+     "is_general_worker": true,
+     "display_number": 6,
+     "acts_as_manager": false,
+     "available_slot_indices": null
+    },
+    {
+     "employee_id": "3",
+     "present": true,
+     "is_general_worker": true,
+     "display_number": 5,
+     "acts_as_manager": false,
+     "available_slot_indices": null
+    },
+    {
+     "employee_id": "4",
+     "present": true,
+     "is_general_worker": true,
+     "display_number": 3,
+     "acts_as_manager": false,
+     "available_slot_indices": null
+    },
+    {
+     "employee_id": "5",
+     "present": true,
+     "is_general_worker": true,
+     "display_number": 2,
+     "acts_as_manager": false,
+     "available_slot_indices": null
+    },
+    {
+     "employee_id": "6",
+     "present": true,
+     "is_general_worker": true,
+     "display_number": 1,
+     "acts_as_manager": false,
+     "available_slot_indices": null
+    }
+   ],
+   "mode_change_reason": null,
+   "day_instructions": [],
+   "partial_vacancy_profile": false,
+   "flexible_from_slot": null,
+   "manager_handover": null
+  },
+  "assignments": [
+   {
+    "employee_id": "A",
+    "slot": 0,
+    "displayed": [
+     "post",
+     "L3"
+    ],
+    "actual": [
+     "security_standby",
+     "보안실 대기"
+    ],
+    "fatigue": 0,
+    "work": 0,
+    "rest": 1,
+    "posture": "rest-like",
+    "same": false,
+    "continuous": false,
+    "meal": true,
+    "patrol_rest": true,
+    "install": false,
+    "remove": false,
+    "mode": "FM",
+    "refs": [
+     "§4",
+     "§6–§11",
+     "§13",
+     "user-supplement"
+    ]
+   },
+   {
+    "employee_id": "A",
+    "slot": 1,
+    "displayed": [
+     "post",
+     "L3"
+    ],
+    "actual": [
+     "post",
+     "L3"
+    ],
+    "fatigue": 2,
+    "work": 1,
+    "rest": 0,
+    "posture": "standing",
+    "same": true,
+    "continuous": true,
+    "meal": false,
+    "patrol_rest": false,
+    "install": false,
+    "remove": false,
+    "mode": "FM",
+    "refs": [
+     "§4",
+     "§6–§11",
+     "§13",
+     "user-supplement"
+    ]
+   },
+   {
+    "employee_id": "A",
+    "slot": 2,
+    "displayed": [
+     "rest",
+     "휴게"
+    ],
+    "actual": [
+     "rest",
+     "휴게"
+    ],
+    "fatigue": 0,
+    "work": 0,
+    "rest": 1,
+    "posture": "rest-like",
+    "same": false,
+    "continuous": false,
+    "meal": true,
+    "patrol_rest": true,
+    "install": false,
+    "remove": false,
+    "mode": "FM",
+    "refs": [
+     "§4",
+     "§6–§11",
+     "§13",
+     "user-supplement"
+    ]
+   },
+   {
+    "employee_id": "A",
+    "slot": 3,
+    "displayed": [
+     "patrol",
+     "upper"
+    ],
+    "actual": [
+     "patrol",
+     "upper"
+    ],
+    "fatigue": 2,
+    "work": 1,
+    "rest": 0,
+    "posture": "standing",
+    "same": false,
+    "continuous": false,
+    "meal": false,
+    "patrol_rest": false,
+    "install": false,
+    "remove": false,
+    "mode": "FM",
+    "refs": [
+     "§4",
+     "§6–§11",
+     "§13",
+     "user-supplement"
+    ]
+   },
+   {
+    "employee_id": "A",
+    "slot": 4,
+    "displayed": [
+     "rest",
+     "휴게"
+    ],
+    "actual": [
+     "rest",
+     "휴게"
+    ],
+    "fatigue": 0,
+    "work": 0,
+    "rest": 1,
+    "posture": "rest-like",
+    "same": false,
+    "continuous": false,
+    "meal": true,
+    "patrol_rest": true,
+    "install": false,
+    "remove": false,
+    "mode": "FM",
+    "refs": [
+     "§4",
+     "§6–§11",
+     "§13",
+     "user-supplement"
+    ]
+   },
+   {
+    "employee_id": "A",
+    "slot": 5,
+    "displayed": [
+     "post",
+     "I1"
+    ],
+    "actual": [
+     "post",
+     "I1"
+    ],
+    "fatigue": 1,
+    "work": 1,
+    "rest": 0,
+    "posture": "seated",
+    "same": true,
+    "continuous": true,
+    "meal": false,
+    "patrol_rest": false,
+    "install": false,
+    "remove": false,
+    "mode": "FM",
+    "refs": [
+     "§4",
+     "§6–§11",
+     "§13",
+     "user-supplement"
+    ]
+   },
+   {
+    "employee_id": "A",
+    "slot": 6,
+    "displayed": [
+     "post",
+     "G1"
+    ],
+    "actual": [
+     "post",
+     "G1"
+    ],
+    "fatigue": 1,
+    "work": 1,
+    "rest": 0,
+    "posture": "seated",
+    "same": true,
+    "continuous": true,
+    "meal": false,
+    "patrol_rest": false,
+    "install": false,
+    "remove": false,
+    "mode": "FM",
+    "refs": [
+     "§4",
+     "§6–§11",
+     "§13",
+     "user-supplement"
+    ]
+   },
+   {
+    "employee_id": "A",
+    "slot": 7,
+    "displayed": [
+     "post",
+     "I1"
+    ],
+    "actual": [
+     "post",
+     "I1"
+    ],
+    "fatigue": 1,
+    "work": 1,
+    "rest": 0,
+    "posture": "seated",
+    "same": true,
+    "continuous": true,
+    "meal": false,
+    "patrol_rest": false,
+    "install": false,
+    "remove": false,
+    "mode": "FM",
+    "refs": [
+     "§4",
+     "§6–§11",
+     "§13",
+     "user-supplement"
+    ]
+   },
+   {
+    "employee_id": "A",
+    "slot": 8,
+    "displayed": [
+     "post",
+     "L3"
+    ],
+    "actual": [
+     "post",
+     "L3"
+    ],
+    "fatigue": 2,
+    "work": 1,
+    "rest": 0,
+    "posture": "standing",
+    "same": true,
+    "continuous": true,
+    "meal": false,
+    "patrol_rest": false,
+    "install": false,
+    "remove": false,
+    "mode": "FM",
+    "refs": [
+     "§4",
+     "§6–§11",
+     "§13",
+     "user-supplement"
+    ]
+   },
+   {
+    "employee_id": "A",
+    "slot": 9,
+    "displayed": [
+     "patrol",
+     "lower"
+    ],
+    "actual": [
+     "patrol",
+     "lower"
+    ],
+    "fatigue": 1,
+    "work": 1,
+    "rest": 0,
+    "posture": "standing",
+    "same": false,
+    "continuous": false,
+    "meal": false,
+    "patrol_rest": false,
+    "install": false,
+    "remove": false,
+    "mode": "FM",
+    "refs": [
+     "§4",
+     "§6–§11",
+     "§13",
+     "user-supplement"
+    ]
+   },
+   {
+    "employee_id": "A",
+    "slot": 10,
+    "displayed": [
+     "rest",
+     "휴게"
+    ],
+    "actual": [
+     "rest",
+     "휴게"
+    ],
+    "fatigue": 0,
+    "work": 0,
+    "rest": 1,
+    "posture": "rest-like",
+    "same": false,
+    "continuous": false,
+    "meal": true,
+    "patrol_rest": true,
+    "install": false,
+    "remove": false,
+    "mode": "FM",
+    "refs": [
+     "§4",
+     "§6–§11",
+     "§13",
+     "user-supplement"
+    ]
+   },
+   {
+    "employee_id": "A",
+    "slot": 11,
+    "displayed": [
+     "post",
+     "L3"
+    ],
+    "actual": [
+     "post",
+     "L3"
+    ],
+    "fatigue": 2,
+    "work": 1,
+    "rest": 0,
+    "posture": "standing",
+    "same": true,
+    "continuous": true,
+    "meal": false,
+    "patrol_rest": false,
+    "install": false,
+    "remove": false,
+    "mode": "FM",
+    "refs": [
+     "§4",
+     "§6–§11",
+     "§13",
+     "user-supplement"
+    ]
+   },
+   {
+    "employee_id": "A",
+    "slot": 12,
+    "displayed": [
+     "rest",
+     "휴게"
+    ],
+    "actual": [
+     "rest",
+     "휴게"
+    ],
+    "fatigue": 0,
+    "work": 0,
+    "rest": 1,
+    "posture": "rest-like",
+    "same": false,
+    "continuous": false,
+    "meal": true,
+    "patrol_rest": true,
+    "install": false,
+    "remove": false,
+    "mode": "FM",
+    "refs": [
+     "§4",
+     "§6–§11",
+     "§13",
+     "user-supplement"
+    ]
+   },
+   {
+    "employee_id": "A",
+    "slot": 13,
+    "displayed": [
+     "rest",
+     "휴게"
+    ],
+    "actual": [
+     "rest",
+     "휴게"
+    ],
+    "fatigue": 0,
+    "work": 0,
+    "rest": 1,
+    "posture": "rest-like",
+    "same": false,
+    "continuous": false,
+    "meal": true,
+    "patrol_rest": true,
+    "install": false,
+    "remove": false,
+    "mode": "FM",
+    "refs": [
+     "§4",
+     "§6–§11",
+     "§13",
+     "user-supplement"
+    ]
+   },
+   {
+    "employee_id": "1",
+    "slot": 0,
+    "displayed": [
+     "post",
+     "G1"
+    ],
+    "actual": [
+     "post",
+     "G1"
+    ],
+    "fatigue": 2,
+    "work": 1,
+    "rest": 0,
+    "posture": "standing",
+    "same": true,
+    "continuous": true,
+    "meal": false,
+    "patrol_rest": false,
+    "install": false,
+    "remove": false,
+    "mode": "FM",
+    "refs": [
+     "§4",
+     "§6–§11",
+     "§13",
+     "user-supplement"
+    ]
+   },
+   {
+    "employee_id": "1",
+    "slot": 1,
+    "displayed": [
+     "rest",
+     "휴게"
+    ],
+    "actual": [
+     "rest",
+     "휴게"
+    ],
+    "fatigue": 0,
+    "work": 0,
+    "rest": 1,
+    "posture": "rest-like",
+    "same": false,
+    "continuous": false,
+    "meal": true,
+    "patrol_rest": true,
+    "install": false,
+    "remove": false,
+    "mode": "FM",
+    "refs": [
+     "§4",
+     "§6–§11",
+     "§13",
+     "user-supplement"
+    ]
+   },
+   {
+    "employee_id": "1",
+    "slot": 2,
+    "displayed": [
+     "post",
+     "I1"
+    ],
+    "actual": [
+     "post",
+     "I1"
+    ],
+    "fatigue": 1,
+    "work": 1,
+    "rest": 0,
+    "posture": "seated",
+    "same": true,
+    "continuous": true,
+    "meal": false,
+    "patrol_rest": false,
+    "install": false,
+    "remove": false,
+    "mode": "FM",
+    "refs": [
+     "§4",
+     "§6–§11",
+     "§13",
+     "user-supplement"
+    ]
+   },
+   {
+    "employee_id": "1",
+    "slot": 3,
+    "displayed": [
+     "rest",
+     "휴게"
+    ],
+    "actual": [
+     "rest",
+     "휴게"
+    ],
+    "fatigue": 0,
+    "work": 0,
+    "rest": 1,
+    "posture": "rest-like",
+    "same": false,
+    "continuous": false,
+    "meal": true,
+    "patrol_rest": true,
+    "install": false,
+    "remove": false,
+    "mode": "FM",
+    "refs": [
+     "§4",
+     "§6–§11",
+     "§13",
+     "user-supplement"
+    ]
+   },
+   {
+    "employee_id": "1",
+    "slot": 4,
+    "displayed": [
+     "post",
+     "G1"
+    ],
+    "actual": [
+     "post",
+     "G1"
+    ],
+    "fatigue": 2,
+    "work": 1,
+    "rest": 0,
+    "posture": "standing",
+    "same": true,
+    "continuous": true,
+    "meal": false,
+    "patrol_rest": false,
+    "install": false,
+    "remove": false,
+    "mode": "FM",
+    "refs": [
+     "§4",
+     "§6–§11",
+     "§13",
+     "user-supplement"
+    ]
+   },
+   {
+    "employee_id": "1",
+    "slot": 5,
+    "displayed": [
+     "post",
+     "L3"
+    ],
+    "actual": [
+     "post",
+     "L3"
+    ],
+    "fatigue": 2,
+    "work": 1,
+    "rest": 0,
+    "posture": "standing",
+    "same": true,
+    "continuous": true,
+    "meal": false,
+    "patrol_rest": false,
+    "install": false,
+    "remove": false,
+    "mode": "FM",
+    "refs": [
+     "§4",
+     "§6–§11",
+     "§13",
+     "user-supplement"
+    ]
+   },
+   {
+    "employee_id": "1",
+    "slot": 6,
+    "displayed": [
+     "post",
+     "I1"
+    ],
+    "actual": [
+     "post",
+     "I1"
+    ],
+    "fatigue": 1,
+    "work": 1,
+    "rest": 0,
+    "posture": "seated",
+    "same": true,
+    "continuous": true,
+    "meal": false,
+    "patrol_rest": false,
+    "install": false,
+    "remove": false,
+    "mode": "FM",
+    "refs": [
+     "§4",
+     "§6–§11",
+     "§13",
+     "user-supplement"
+    ]
+   },
+   {
+    "employee_id": "1",
+    "slot": 7,
+    "displayed": [
+     "post",
+     "G1"
+    ],
+    "actual": [
+     "post",
+     "G1"
+    ],
+    "fatigue": 1,
+    "work": 1,
+    "rest": 0,
+    "posture": "seated",
+    "same": true,
+    "continuous": true,
+    "meal": false,
+    "patrol_rest": false,
+    "install": false,
+    "remove": false,
+    "mode": "FM",
+    "refs": [
+     "§4",
+     "§6–§11",
+     "§13",
+     "user-supplement"
+    ]
+   },
+   {
+    "employee_id": "1",
+    "slot": 8,
+    "displayed": [
+     "patrol",
+     "middle"
+    ],
+    "actual": [
+     "patrol",
+     "middle"
+    ],
+    "fatigue": 2,
+    "work": 1,
+    "rest": 0,
+    "posture": "standing",
+    "same": false,
+    "continuous": false,
+    "meal": false,
+    "patrol_rest": false,
+    "install": false,
+    "remove": false,
+    "mode": "FM",
+    "refs": [
+     "§4",
+     "§6–§11",
+     "§13",
+     "user-supplement"
+    ]
+   },
+   {
+    "employee_id": "1",
+    "slot": 9,
+    "displayed": [
+     "post",
+     "I1"
+    ],
+    "actual": [
+     "post",
+     "I1"
+    ],
+    "fatigue": 1,
+    "work": 1,
+    "rest": 0,
+    "posture": "seated",
+    "same": true,
+    "continuous": true,
+    "meal": false,
+    "patrol_rest": false,
+    "install": false,
+    "remove": false,
+    "mode": "FM",
+    "refs": [
+     "§4",
+     "§6–§11",
+     "§13",
+     "user-supplement"
+    ]
+   },
+   {
+    "employee_id": "1",
+    "slot": 10,
+    "displayed": [
+     "rest",
+     "휴게"
+    ],
+    "actual": [
+     "rest",
+     "휴게"
+    ],
+    "fatigue": 0,
+    "work": 0,
+    "rest": 1,
+    "posture": "rest-like",
+    "same": false,
+    "continuous": false,
+    "meal": true,
+    "patrol_rest": true,
+    "install": false,
+    "remove": false,
+    "mode": "FM",
+    "refs": [
+     "§4",
+     "§6–§11",
+     "§13",
+     "user-supplement"
+    ]
+   },
+   {
+    "employee_id": "1",
+    "slot": 11,
+    "displayed": [
+     "post",
+     "I1"
+    ],
+    "actual": [
+     "post",
+     "I1"
+    ],
+    "fatigue": 1,
+    "work": 1,
+    "rest": 0,
+    "posture": "seated",
+    "same": true,
+    "continuous": true,
+    "meal": false,
+    "patrol_rest": false,
+    "install": false,
+    "remove": false,
+    "mode": "FM",
+    "refs": [
+     "§4",
+     "§6–§11",
+     "§13",
+     "user-supplement"
+    ]
+   },
+   {
+    "employee_id": "1",
+    "slot": 12,
+    "displayed": [
+     "rest",
+     "휴게"
+    ],
+    "actual": [
+     "rest",
+     "휴게"
+    ],
+    "fatigue": 0,
+    "work": 0,
+    "rest": 1,
+    "posture": "rest-like",
+    "same": false,
+    "continuous": false,
+    "meal": true,
+    "patrol_rest": true,
+    "install": false,
+    "remove": false,
+    "mode": "FM",
+    "refs": [
+     "§4",
+     "§6–§11",
+     "§13",
+     "user-supplement"
+    ]
+   },
+   {
+    "employee_id": "1",
+    "slot": 13,
+    "displayed": [
+     "post",
+     "G1"
+    ],
+    "actual": [
+     "post",
+     "G1"
+    ],
+    "fatigue": 2,
+    "work": 1,
+    "rest": 0,
+    "posture": "standing",
+    "same": true,
+    "continuous": true,
+    "meal": false,
+    "patrol_rest": false,
+    "install": false,
+    "remove": false,
+    "mode": "FM",
+    "refs": [
+     "§4",
+     "§6–§11",
+     "§13",
+     "user-supplement"
+    ]
+   },
+   {
+    "employee_id": "2",
+    "slot": 0,
+    "displayed": [
+     "post",
+     "L3"
+    ],
+    "actual": [
+     "post",
+     "L3"
+    ],
+    "fatigue": 2,
+    "work": 1,
+    "rest": 0,
+    "posture": "standing",
+    "same": true,
+    "continuous": true,
+    "meal": false,
+    "patrol_rest": false,
+    "install": false,
+    "remove": false,
+    "mode": "FM",
+    "refs": [
+     "§4",
+     "§6–§11",
+     "§13",
+     "user-supplement"
+    ]
+   },
+   {
+    "employee_id": "2",
+    "slot": 1,
+    "displayed": [
+     "post",
+     "L3"
+    ],
+    "actual": [
+     "post",
+     "L3"
+    ],
+    "fatigue": 2,
+    "work": 1,
+    "rest": 0,
+    "posture": "standing",
+    "same": true,
+    "continuous": true,
+    "meal": false,
+    "patrol_rest": false,
+    "install": false,
+    "remove": false,
+    "mode": "FM",
+    "refs": [
+     "§4",
+     "§6–§11",
+     "§13",
+     "user-supplement"
+    ]
+   },
+   {
+    "employee_id": "2",
+    "slot": 2,
+    "displayed": [
+     "rest",
+     "휴게"
+    ],
+    "actual": [
+     "rest",
+     "휴게"
+    ],
+    "fatigue": 0,
+    "work": 0,
+    "rest": 1,
+    "posture": "rest-like",
+    "same": false,
+    "continuous": false,
+    "meal": true,
+    "patrol_rest": true,
+    "install": false,
+    "remove": false,
+    "mode": "FM",
+    "refs": [
+     "§4",
+     "§6–§11",
+     "§13",
+     "user-supplement"
+    ]
+   },
+   {
+    "employee_id": "2",
+    "slot": 3,
+    "displayed": [
+     "patrol",
+     "upper"
+    ],
+    "actual": [
+     "patrol",
+     "upper"
+    ],
+    "fatigue": 2,
+    "work": 1,
+    "rest": 0,
+    "posture": "standing",
+    "same": false,
+    "continuous": false,
+    "meal": false,
+    "patrol_rest": false,
+    "install": false,
+    "remove": false,
+    "mode": "FM",
+    "refs": [
+     "§4",
+     "§6–§11",
+     "§13",
+     "user-supplement"
+    ]
+   },
+   {
+    "employee_id": "2",
+    "slot": 4,
+    "displayed": [
+     "rest",
+     "휴게"
+    ],
+    "actual": [
+     "rest",
+     "휴게"
+    ],
+    "fatigue": 0,
+    "work": 0,
+    "rest": 1,
+    "posture": "rest-like",
+    "same": false,
+    "continuous": false,
+    "meal": true,
+    "patrol_rest": true,
+    "install": false,
+    "remove": false,
+    "mode": "FM",
+    "refs": [
+     "§4",
+     "§6–§11",
+     "§13",
+     "user-supplement"
+    ]
+   },
+   {
+    "employee_id": "2",
+    "slot": 5,
+    "displayed": [
+     "post",
+     "I1"
+    ],
+    "actual": [
+     "post",
+     "I1"
+    ],
+    "fatigue": 1,
+    "work": 1,
+    "rest": 0,
+    "posture": "seated",
+    "same": true,
+    "continuous": true,
+    "meal": false,
+    "patrol_rest": false,
+    "install": false,
+    "remove": false,
+    "mode": "FM",
+    "refs": [
+     "§4",
+     "§6–§11",
+     "§13",
+     "user-supplement"
+    ]
+   },
+   {
+    "employee_id": "2",
+    "slot": 6,
+    "displayed": [
+     "post",
+     "G1"
+    ],
+    "actual": [
+     "post",
+     "G1"
+    ],
+    "fatigue": 1,
+    "work": 1,
+    "rest": 0,
+    "posture": "seated",
+    "same": true,
+    "continuous": true,
+    "meal": false,
+    "patrol_rest": false,
+    "install": false,
+    "remove": false,
+    "mode": "FM",
+    "refs": [
+     "§4",
+     "§6–§11",
+     "§13",
+     "user-supplement"
+    ]
+   },
+   {
+    "employee_id": "2",
+    "slot": 7,
+    "displayed": [
+     "post",
+     "I1"
+    ],
+    "actual": [
+     "post",
+     "I1"
+    ],
+    "fatigue": 1,
+    "work": 1,
+    "rest": 0,
+    "posture": "seated",
+    "same": true,
+    "continuous": true,
+    "meal": false,
+    "patrol_rest": false,
+    "install": false,
+    "remove": false,
+    "mode": "FM",
+    "refs": [
+     "§4",
+     "§6–§11",
+     "§13",
+     "user-supplement"
+    ]
+   },
+   {
+    "employee_id": "2",
+    "slot": 8,
+    "displayed": [
+     "post",
+     "L3"
+    ],
+    "actual": [
+     "post",
+     "L3"
+    ],
+    "fatigue": 2,
+    "work": 1,
+    "rest": 0,
+    "posture": "standing",
+    "same": true,
+    "continuous": true,
+    "meal": false,
+    "patrol_rest": false,
+    "install": false,
+    "remove": false,
+    "mode": "FM",
+    "refs": [
+     "§4",
+     "§6–§11",
+     "§13",
+     "user-supplement"
+    ]
+   },
+   {
+    "employee_id": "2",
+    "slot": 9,
+    "displayed": [
+     "patrol",
+     "lower"
+    ],
+    "actual": [
+     "patrol",
+     "lower"
+    ],
+    "fatigue": 1,
+    "work": 1,
+    "rest": 0,
+    "posture": "standing",
+    "same": false,
+    "continuous": false,
+    "meal": false,
+    "patrol_rest": false,
+    "install": false,
+    "remove": false,
+    "mode": "FM",
+    "refs": [
+     "§4",
+     "§6–§11",
+     "§13",
+     "user-supplement"
+    ]
+   },
+   {
+    "employee_id": "2",
+    "slot": 10,
+    "displayed": [
+     "rest",
+     "휴게"
+    ],
+    "actual": [
+     "rest",
+     "휴게"
+    ],
+    "fatigue": 0,
+    "work": 0,
+    "rest": 1,
+    "posture": "rest-like",
+    "same": false,
+    "continuous": false,
+    "meal": true,
+    "patrol_rest": true,
+    "install": false,
+    "remove": false,
+    "mode": "FM",
+    "refs": [
+     "§4",
+     "§6–§11",
+     "§13",
+     "user-supplement"
+    ]
+   },
+   {
+    "employee_id": "2",
+    "slot": 11,
+    "displayed": [
+     "post",
+     "L3"
+    ],
+    "actual": [
+     "post",
+     "L3"
+    ],
+    "fatigue": 2,
+    "work": 1,
+    "rest": 0,
+    "posture": "standing",
+    "same": true,
+    "continuous": true,
+    "meal": false,
+    "patrol_rest": false,
+    "install": false,
+    "remove": false,
+    "mode": "FM",
+    "refs": [
+     "§4",
+     "§6–§11",
+     "§13",
+     "user-supplement"
+    ]
+   },
+   {
+    "employee_id": "2",
+    "slot": 12,
+    "displayed": [
+     "rest",
+     "휴게"
+    ],
+    "actual": [
+     "rest",
+     "휴게"
+    ],
+    "fatigue": 0,
+    "work": 0,
+    "rest": 1,
+    "posture": "rest-like",
+    "same": false,
+    "continuous": false,
+    "meal": true,
+    "patrol_rest": true,
+    "install": false,
+    "remove": false,
+    "mode": "FM",
+    "refs": [
+     "§4",
+     "§6–§11",
+     "§13",
+     "user-supplement"
+    ]
+   },
+   {
+    "employee_id": "2",
+    "slot": 13,
+    "displayed": [
+     "post",
+     "G2"
+    ],
+    "actual": [
+     "post",
+     "G2"
+    ],
+    "fatigue": 2,
+    "work": 1,
+    "rest": 0,
+    "posture": "standing",
+    "same": true,
+    "continuous": true,
+    "meal": false,
+    "patrol_rest": false,
+    "install": false,
+    "remove": false,
+    "mode": "FM",
+    "refs": [
+     "§4",
+     "§6–§11",
+     "§13",
+     "user-supplement"
+    ]
+   },
+   {
+    "employee_id": "3",
+    "slot": 0,
+    "displayed": [
+     "post",
+     "I1"
+    ],
+    "actual": [
+     "post",
+     "L3"
+    ],
+    "fatigue": 2,
+    "work": 1,
+    "rest": 0,
+    "posture": "standing",
+    "same": true,
+    "continuous": true,
+    "meal": false,
+    "patrol_rest": false,
+    "install": false,
+    "remove": false,
+    "mode": "FM",
+    "refs": [
+     "§4",
+     "§6–§11",
+     "§13",
+     "user-supplement"
+    ]
+   },
+   {
+    "employee_id": "3",
+    "slot": 1,
+    "displayed": [
+     "post",
+     "I1"
+    ],
+    "actual": [
+     "post",
+     "I1"
+    ],
+    "fatigue": 1,
+    "work": 1,
+    "rest": 0,
+    "posture": "seated",
+    "same": true,
+    "continuous": true,
+    "meal": false,
+    "patrol_rest": false,
+    "install": false,
+    "remove": false,
+    "mode": "FM",
+    "refs": [
+     "§4",
+     "§6–§11",
+     "§13",
+     "user-supplement"
+    ]
+   },
+   {
+    "employee_id": "3",
+    "slot": 2,
+    "displayed": [
+     "security_standby",
+     "보안실 대기"
+    ],
+    "actual": [
+     "barrier_only",
+     "barrier_install"
+    ],
+    "fatigue": 1,
+    "work": 1,
+    "rest": 0,
+    "posture": null,
+    "same": false,
+    "continuous": false,
+    "meal": true,
+    "patrol_rest": false,
+    "install": true,
+    "remove": false,
+    "mode": "FM",
+    "refs": [
+     "§4",
+     "§6–§11",
+     "§13",
+     "user-supplement"
+    ]
+   },
+   {
+    "employee_id": "3",
+    "slot": 3,
+    "displayed": [
+     "post",
+     "G1"
+    ],
+    "actual": [
+     "post",
+     "G1"
+    ],
+    "fatigue": 2,
+    "work": 1,
+    "rest": 0,
+    "posture": "standing",
+    "same": true,
+    "continuous": true,
+    "meal": false,
+    "patrol_rest": false,
+    "install": false,
+    "remove": false,
+    "mode": "FM",
+    "refs": [
+     "§4",
+     "§6–§11",
+     "§13",
+     "user-supplement"
+    ]
+   },
+   {
+    "employee_id": "3",
+    "slot": 4,
+    "displayed": [
+     "patrol",
+     "middle"
+    ],
+    "actual": [
+     "patrol",
+     "middle"
+    ],
+    "fatigue": 2,
+    "work": 1,
+    "rest": 0,
+    "posture": "standing",
+    "same": false,
+    "continuous": false,
+    "meal": false,
+    "patrol_rest": false,
+    "install": false,
+    "remove": false,
+    "mode": "FM",
+    "refs": [
+     "§4",
+     "§6–§11",
+     "§13",
+     "user-supplement"
+    ]
+   },
+   {
+    "employee_id": "3",
+    "slot": 5,
+    "displayed": [
+     "rest",
+     "휴게"
+    ],
+    "actual": [
+     "rest",
+     "휴게"
+    ],
+    "fatigue": 0,
+    "work": 0,
+    "rest": 1,
+    "posture": "rest-like",
+    "same": false,
+    "continuous": false,
+    "meal": true,
+    "patrol_rest": true,
+    "install": false,
+    "remove": false,
+    "mode": "FM",
+    "refs": [
+     "§4",
+     "§6–§11",
+     "§13",
+     "user-supplement"
+    ]
+   },
+   {
+    "employee_id": "3",
+    "slot": 6,
+    "displayed": [
+     "rest",
+     "휴게"
+    ],
+    "actual": [
+     "rest",
+     "휴게"
+    ],
+    "fatigue": 0,
+    "work": 0,
+    "rest": 1,
+    "posture": "rest-like",
+    "same": false,
+    "continuous": false,
+    "meal": true,
+    "patrol_rest": true,
+    "install": false,
+    "remove": false,
+    "mode": "FM",
+    "refs": [
+     "§4",
+     "§6–§11",
+     "§13",
+     "user-supplement"
+    ]
+   },
+   {
+    "employee_id": "3",
+    "slot": 7,
+    "displayed": [
+     "post",
+     "L3"
+    ],
+    "actual": [
+     "post",
+     "L3"
+    ],
+    "fatigue": 2,
+    "work": 1,
+    "rest": 0,
+    "posture": "standing",
+    "same": true,
+    "continuous": true,
+    "meal": false,
+    "patrol_rest": false,
+    "install": false,
+    "remove": false,
+    "mode": "FM",
+    "refs": [
+     "§4",
+     "§6–§11",
+     "§13",
+     "user-supplement"
+    ]
+   },
+   {
+    "employee_id": "3",
+    "slot": 8,
+    "displayed": [
+     "post",
+     "I1"
+    ],
+    "actual": [
+     "post",
+     "I1"
+    ],
+    "fatigue": 1,
+    "work": 1,
+    "rest": 0,
+    "posture": "seated",
+    "same": true,
+    "continuous": true,
+    "meal": false,
+    "patrol_rest": false,
+    "install": false,
+    "remove": false,
+    "mode": "FM",
+    "refs": [
+     "§4",
+     "§6–§11",
+     "§13",
+     "user-supplement"
+    ]
+   },
+   {
+    "employee_id": "3",
+    "slot": 9,
+    "displayed": [
+     "post",
+     "G1"
+    ],
+    "actual": [
+     "post",
+     "G1"
+    ],
+    "fatigue": 1,
+    "work": 1,
+    "rest": 0,
+    "posture": "seated",
+    "same": true,
+    "continuous": true,
+    "meal": false,
+    "patrol_rest": false,
+    "install": false,
+    "remove": false,
+    "mode": "FM",
+    "refs": [
+     "§4",
+     "§6–§11",
+     "§13",
+     "user-supplement"
+    ]
+   },
+   {
+    "employee_id": "3",
+    "slot": 10,
+    "displayed": [
+     "post",
+     "L3"
+    ],
+    "actual": [
+     "post",
+     "L3"
+    ],
+    "fatigue": 2,
+    "work": 1,
+    "rest": 0,
+    "posture": "standing",
+    "same": true,
+    "continuous": true,
+    "meal": false,
+    "patrol_rest": false,
+    "install": false,
+    "remove": false,
+    "mode": "FM",
+    "refs": [
+     "§4",
+     "§6–§11",
+     "§13",
+     "user-supplement"
+    ]
+   },
+   {
+    "employee_id": "3",
+    "slot": 11,
+    "displayed": [
+     "rest",
+     "휴게"
+    ],
+    "actual": [
+     "rest",
+     "휴게"
+    ],
+    "fatigue": 0,
+    "work": 0,
+    "rest": 1,
+    "posture": "rest-like",
+    "same": false,
+    "continuous": false,
+    "meal": true,
+    "patrol_rest": true,
+    "install": false,
+    "remove": false,
+    "mode": "FM",
+    "refs": [
+     "§4",
+     "§6–§11",
+     "§13",
+     "user-supplement"
+    ]
+   },
+   {
+    "employee_id": "3",
+    "slot": 12,
+    "displayed": [
+     "post",
+     "G1"
+    ],
+    "actual": [
+     "post",
+     "G1"
+    ],
+    "fatigue": 2,
+    "work": 1,
+    "rest": 0,
+    "posture": "standing",
+    "same": true,
+    "continuous": true,
+    "meal": false,
+    "patrol_rest": false,
+    "install": false,
+    "remove": false,
+    "mode": "FM",
+    "refs": [
+     "§4",
+     "§6–§11",
+     "§13",
+     "user-supplement"
+    ]
+   },
+   {
+    "employee_id": "3",
+    "slot": 13,
+    "displayed": [
+     "post",
+     "L3"
+    ],
+    "actual": [
+     "post",
+     "L3"
+    ],
+    "fatigue": 2,
+    "work": 1,
+    "rest": 0,
+    "posture": "standing",
+    "same": true,
+    "continuous": true,
+    "meal": false,
+    "patrol_rest": false,
+    "install": false,
+    "remove": false,
+    "mode": "FM",
+    "refs": [
+     "§4",
+     "§6–§11",
+     "§13",
+     "user-supplement"
+    ]
+   },
+   {
+    "employee_id": "4",
+    "slot": 0,
+    "displayed": [
+     "post",
+     "G2"
+    ],
+    "actual": [
+     "post",
+     "G2"
+    ],
+    "fatigue": 2,
+    "work": 1,
+    "rest": 0,
+    "posture": "standing",
+    "same": true,
+    "continuous": true,
+    "meal": false,
+    "patrol_rest": false,
+    "install": false,
+    "remove": false,
+    "mode": "FM",
+    "refs": [
+     "§4",
+     "§6–§11",
+     "§13",
+     "user-supplement"
+    ]
+   },
+   {
+    "employee_id": "4",
+    "slot": 1,
+    "displayed": [
+     "rest",
+     "휴게"
+    ],
+    "actual": [
+     "rest",
+     "휴게"
+    ],
+    "fatigue": 0,
+    "work": 0,
+    "rest": 1,
+    "posture": "rest-like",
+    "same": false,
+    "continuous": false,
+    "meal": true,
+    "patrol_rest": true,
+    "install": false,
+    "remove": false,
+    "mode": "FM",
+    "refs": [
+     "§4",
+     "§6–§11",
+     "§13",
+     "user-supplement"
+    ]
+   },
+   {
+    "employee_id": "4",
+    "slot": 2,
+    "displayed": [
+     "post",
+     "G1"
+    ],
+    "actual": [
+     "post",
+     "G1"
+    ],
+    "fatigue": 2,
+    "work": 1,
+    "rest": 0,
+    "posture": "standing",
+    "same": true,
+    "continuous": true,
+    "meal": false,
+    "patrol_rest": false,
+    "install": false,
+    "remove": false,
+    "mode": "FM",
+    "refs": [
+     "§4",
+     "§6–§11",
+     "§13",
+     "user-supplement"
+    ]
+   },
+   {
+    "employee_id": "4",
+    "slot": 3,
+    "displayed": [
+     "post",
+     "L3"
+    ],
+    "actual": [
+     "post",
+     "L3"
+    ],
+    "fatigue": 2,
+    "work": 1,
+    "rest": 0,
+    "posture": "standing",
+    "same": true,
+    "continuous": true,
+    "meal": false,
+    "patrol_rest": false,
+    "install": false,
+    "remove": false,
+    "mode": "FM",
+    "refs": [
+     "§4",
+     "§6–§11",
+     "§13",
+     "user-supplement"
+    ]
+   },
+   {
+    "employee_id": "4",
+    "slot": 4,
+    "displayed": [
+     "post",
+     "I1"
+    ],
+    "actual": [
+     "post",
+     "I1"
+    ],
+    "fatigue": 1,
+    "work": 1,
+    "rest": 0,
+    "posture": "seated",
+    "same": true,
+    "continuous": true,
+    "meal": false,
+    "patrol_rest": false,
+    "install": false,
+    "remove": false,
+    "mode": "FM",
+    "refs": [
+     "§4",
+     "§6–§11",
+     "§13",
+     "user-supplement"
+    ]
+   },
+   {
+    "employee_id": "4",
+    "slot": 5,
+    "displayed": [
+     "post",
+     "G1"
+    ],
+    "actual": [
+     "post",
+     "G1"
+    ],
+    "fatigue": 2,
+    "work": 1,
+    "rest": 0,
+    "posture": "standing",
+    "same": true,
+    "continuous": true,
+    "meal": false,
+    "patrol_rest": false,
+    "install": false,
+    "remove": false,
+    "mode": "FM",
+    "refs": [
+     "§4",
+     "§6–§11",
+     "§13",
+     "user-supplement"
+    ]
+   },
+   {
+    "employee_id": "4",
+    "slot": 6,
+    "displayed": [
+     "post",
+     "L3"
+    ],
+    "actual": [
+     "post",
+     "L3"
+    ],
+    "fatigue": 2,
+    "work": 1,
+    "rest": 0,
+    "posture": "standing",
+    "same": true,
+    "continuous": true,
+    "meal": false,
+    "patrol_rest": false,
+    "install": false,
+    "remove": false,
+    "mode": "FM",
+    "refs": [
+     "§4",
+     "§6–§11",
+     "§13",
+     "user-supplement"
+    ]
+   },
+   {
+    "employee_id": "4",
+    "slot": 7,
+    "displayed": [
+     "patrol",
+     "upper"
+    ],
+    "actual": [
+     "patrol",
+     "upper"
+    ],
+    "fatigue": 2,
+    "work": 1,
+    "rest": 0,
+    "posture": "standing",
+    "same": false,
+    "continuous": false,
+    "meal": false,
+    "patrol_rest": false,
+    "install": false,
+    "remove": false,
+    "mode": "FM",
+    "refs": [
+     "§4",
+     "§6–§11",
+     "§13",
+     "user-supplement"
+    ]
+   },
+   {
+    "employee_id": "4",
+    "slot": 8,
+    "displayed": [
+     "rest",
+     "휴게"
+    ],
+    "actual": [
+     "rest",
+     "휴게"
+    ],
+    "fatigue": 0,
+    "work": 0,
+    "rest": 1,
+    "posture": "rest-like",
+    "same": false,
+    "continuous": false,
+    "meal": true,
+    "patrol_rest": true,
+    "install": false,
+    "remove": false,
+    "mode": "FM",
+    "refs": [
+     "§4",
+     "§6–§11",
+     "§13",
+     "user-supplement"
+    ]
+   },
+   {
+    "employee_id": "4",
+    "slot": 9,
+    "displayed": [
+     "rest",
+     "휴게"
+    ],
+    "actual": [
+     "rest",
+     "휴게"
+    ],
+    "fatigue": 0,
+    "work": 0,
+    "rest": 1,
+    "posture": "rest-like",
+    "same": false,
+    "continuous": false,
+    "meal": true,
+    "patrol_rest": true,
+    "install": false,
+    "remove": false,
+    "mode": "FM",
+    "refs": [
+     "§4",
+     "§6–§11",
+     "§13",
+     "user-supplement"
+    ]
+   },
+   {
+    "employee_id": "4",
+    "slot": 10,
+    "displayed": [
+     "post",
+     "G1"
+    ],
+    "actual": [
+     "post",
+     "G1"
+    ],
+    "fatigue": 1,
+    "work": 1,
+    "rest": 0,
+    "posture": "seated",
+    "same": true,
+    "continuous": true,
+    "meal": false,
+    "patrol_rest": false,
+    "install": false,
+    "remove": false,
+    "mode": "FM",
+    "refs": [
+     "§4",
+     "§6–§11",
+     "§13",
+     "user-supplement"
+    ]
+   },
+   {
+    "employee_id": "4",
+    "slot": 11,
+    "displayed": [
+     "security_standby",
+     "보안실 대기"
+    ],
+    "actual": [
+     "security_standby",
+     "보안실 대기"
+    ],
+    "fatigue": 0,
+    "work": 0,
+    "rest": 1,
+    "posture": "rest-like",
+    "same": false,
+    "continuous": false,
+    "meal": true,
+    "patrol_rest": true,
+    "install": false,
+    "remove": false,
+    "mode": "FM",
+    "refs": [
+     "§4",
+     "§6–§11",
+     "§13",
+     "user-supplement"
+    ]
+   },
+   {
+    "employee_id": "4",
+    "slot": 12,
+    "displayed": [
+     "post",
+     "L3"
+    ],
+    "actual": [
+     "post",
+     "L3"
+    ],
+    "fatigue": 2,
+    "work": 1,
+    "rest": 0,
+    "posture": "standing",
+    "same": true,
+    "continuous": true,
+    "meal": false,
+    "patrol_rest": false,
+    "install": false,
+    "remove": false,
+    "mode": "FM",
+    "refs": [
+     "§4",
+     "§6–§11",
+     "§13",
+     "user-supplement"
+    ]
+   },
+   {
+    "employee_id": "4",
+    "slot": 13,
+    "displayed": [
+     "post",
+     "I1"
+    ],
+    "actual": [
+     "post",
+     "I1"
+    ],
+    "fatigue": 1,
+    "work": 1,
+    "rest": 0,
+    "posture": "seated",
+    "same": true,
+    "continuous": true,
+    "meal": false,
+    "patrol_rest": false,
+    "install": false,
+    "remove": false,
+    "mode": "FM",
+    "refs": [
+     "§4",
+     "§6–§11",
+     "§13",
+     "user-supplement"
+    ]
+   },
+   {
+    "employee_id": "5",
+    "slot": 0,
+    "displayed": [
+     "rest",
+     "휴게"
+    ],
+    "actual": [
+     "rest",
+     "휴게"
+    ],
+    "fatigue": 0,
+    "work": 0,
+    "rest": 1,
+    "posture": "rest-like",
+    "same": false,
+    "continuous": false,
+    "meal": true,
+    "patrol_rest": true,
+    "install": false,
+    "remove": false,
+    "mode": "FM",
+    "refs": [
+     "§4",
+     "§6–§11",
+     "§13",
+     "user-supplement"
+    ]
+   },
+   {
+    "employee_id": "5",
+    "slot": 1,
+    "displayed": [
+     "post",
+     "G1"
+    ],
+    "actual": [
+     "post",
+     "G1"
+    ],
+    "fatigue": 2,
+    "work": 1,
+    "rest": 0,
+    "posture": "standing",
+    "same": true,
+    "continuous": true,
+    "meal": false,
+    "patrol_rest": false,
+    "install": false,
+    "remove": false,
+    "mode": "FM",
+    "refs": [
+     "§4",
+     "§6–§11",
+     "§13",
+     "user-supplement"
+    ]
+   },
+   {
+    "employee_id": "5",
+    "slot": 2,
+    "displayed": [
+     "post",
+     "L3"
+    ],
+    "actual": [
+     "post",
+     "L3"
+    ],
+    "fatigue": 2,
+    "work": 1,
+    "rest": 0,
+    "posture": "standing",
+    "same": true,
+    "continuous": true,
+    "meal": false,
+    "patrol_rest": false,
+    "install": false,
+    "remove": false,
+    "mode": "FM",
+    "refs": [
+     "§4",
+     "§6–§11",
+     "§13",
+     "user-supplement"
+    ]
+   },
+   {
+    "employee_id": "5",
+    "slot": 3,
+    "displayed": [
+     "post",
+     "I1"
+    ],
+    "actual": [
+     "post",
+     "I1"
+    ],
+    "fatigue": 1,
+    "work": 1,
+    "rest": 0,
+    "posture": "seated",
+    "same": true,
+    "continuous": true,
+    "meal": false,
+    "patrol_rest": false,
+    "install": false,
+    "remove": false,
+    "mode": "FM",
+    "refs": [
+     "§4",
+     "§6–§11",
+     "§13",
+     "user-supplement"
+    ]
+   },
+   {
+    "employee_id": "5",
+    "slot": 4,
+    "displayed": [
+     "post",
+     "L3"
+    ],
+    "actual": [
+     "post",
+     "L3"
+    ],
+    "fatigue": 2,
+    "work": 1,
+    "rest": 0,
+    "posture": "standing",
+    "same": true,
+    "continuous": true,
+    "meal": false,
+    "patrol_rest": false,
+    "install": false,
+    "remove": false,
+    "mode": "FM",
+    "refs": [
+     "§4",
+     "§6–§11",
+     "§13",
+     "user-supplement"
+    ]
+   },
+   {
+    "employee_id": "5",
+    "slot": 5,
+    "displayed": [
+     "patrol",
+     "lower"
+    ],
+    "actual": [
+     "patrol",
+     "lower"
+    ],
+    "fatigue": 1,
+    "work": 1,
+    "rest": 0,
+    "posture": "standing",
+    "same": false,
+    "continuous": false,
+    "meal": false,
+    "patrol_rest": false,
+    "install": false,
+    "remove": false,
+    "mode": "FM",
+    "refs": [
+     "§4",
+     "§6–§11",
+     "§13",
+     "user-supplement"
+    ]
+   },
+   {
+    "employee_id": "5",
+    "slot": 6,
+    "displayed": [
+     "rest",
+     "휴게"
+    ],
+    "actual": [
+     "rest",
+     "휴게"
+    ],
+    "fatigue": 0,
+    "work": 0,
+    "rest": 1,
+    "posture": "rest-like",
+    "same": false,
+    "continuous": false,
+    "meal": true,
+    "patrol_rest": true,
+    "install": false,
+    "remove": false,
+    "mode": "FM",
+    "refs": [
+     "§4",
+     "§6–§11",
+     "§13",
+     "user-supplement"
+    ]
+   },
+   {
+    "employee_id": "5",
+    "slot": 7,
+    "displayed": [
+     "rest",
+     "휴게"
+    ],
+    "actual": [
+     "rest",
+     "휴게"
+    ],
+    "fatigue": 0,
+    "work": 0,
+    "rest": 1,
+    "posture": "rest-like",
+    "same": false,
+    "continuous": false,
+    "meal": true,
+    "patrol_rest": true,
+    "install": false,
+    "remove": false,
+    "mode": "FM",
+    "refs": [
+     "§4",
+     "§6–§11",
+     "§13",
+     "user-supplement"
+    ]
+   },
+   {
+    "employee_id": "5",
+    "slot": 8,
+    "displayed": [
+     "post",
+     "G1"
+    ],
+    "actual": [
+     "post",
+     "G1"
+    ],
+    "fatigue": 1,
+    "work": 1,
+    "rest": 0,
+    "posture": "seated",
+    "same": true,
+    "continuous": true,
+    "meal": false,
+    "patrol_rest": false,
+    "install": false,
+    "remove": false,
+    "mode": "FM",
+    "refs": [
+     "§4",
+     "§6–§11",
+     "§13",
+     "user-supplement"
+    ]
+   },
+   {
+    "employee_id": "5",
+    "slot": 9,
+    "displayed": [
+     "post",
+     "L3"
+    ],
+    "actual": [
+     "post",
+     "L3"
+    ],
+    "fatigue": 2,
+    "work": 1,
+    "rest": 0,
+    "posture": "standing",
+    "same": true,
+    "continuous": true,
+    "meal": false,
+    "patrol_rest": false,
+    "install": false,
+    "remove": false,
+    "mode": "FM",
+    "refs": [
+     "§4",
+     "§6–§11",
+     "§13",
+     "user-supplement"
+    ]
+   },
+   {
+    "employee_id": "5",
+    "slot": 10,
+    "displayed": [
+     "post",
+     "I1"
+    ],
+    "actual": [
+     "post",
+     "I1"
+    ],
+    "fatigue": 1,
+    "work": 1,
+    "rest": 0,
+    "posture": "seated",
+    "same": true,
+    "continuous": true,
+    "meal": false,
+    "patrol_rest": false,
+    "install": false,
+    "remove": false,
+    "mode": "FM",
+    "refs": [
+     "§4",
+     "§6–§11",
+     "§13",
+     "user-supplement"
+    ]
+   },
+   {
+    "employee_id": "5",
+    "slot": 11,
+    "displayed": [
+     "post",
+     "G1"
+    ],
+    "actual": [
+     "post",
+     "G1"
+    ],
+    "fatigue": 2,
+    "work": 1,
+    "rest": 0,
+    "posture": "standing",
+    "same": true,
+    "continuous": true,
+    "meal": false,
+    "patrol_rest": false,
+    "install": false,
+    "remove": false,
+    "mode": "FM",
+    "refs": [
+     "§4",
+     "§6–§11",
+     "§13",
+     "user-supplement"
+    ]
+   },
+   {
+    "employee_id": "5",
+    "slot": 12,
+    "displayed": [
+     "post",
+     "I1"
+    ],
+    "actual": [
+     "post",
+     "I1"
+    ],
+    "fatigue": 1,
+    "work": 1,
+    "rest": 0,
+    "posture": "seated",
+    "same": true,
+    "continuous": true,
+    "meal": false,
+    "patrol_rest": false,
+    "install": false,
+    "remove": false,
+    "mode": "FM",
+    "refs": [
+     "§4",
+     "§6–§11",
+     "§13",
+     "user-supplement"
+    ]
+   },
+   {
+    "employee_id": "5",
+    "slot": 13,
+    "displayed": [
+     "post",
+     "G2"
+    ],
+    "actual": [
+     "post",
+     "G2"
+    ],
+    "fatigue": 2,
+    "work": 1,
+    "rest": 0,
+    "posture": "standing",
+    "same": true,
+    "continuous": true,
+    "meal": false,
+    "patrol_rest": false,
+    "install": false,
+    "remove": false,
+    "mode": "FM",
+    "refs": [
+     "§4",
+     "§6–§11",
+     "§13",
+     "user-supplement"
+    ]
+   },
+   {
+    "employee_id": "6",
+    "slot": 0,
+    "displayed": [
+     "post",
+     "I1"
+    ],
+    "actual": [
+     "post",
+     "L3"
+    ],
+    "fatigue": 2,
+    "work": 1,
+    "rest": 0,
+    "posture": "standing",
+    "same": true,
+    "continuous": true,
+    "meal": false,
+    "patrol_rest": false,
+    "install": false,
+    "remove": false,
+    "mode": "FM",
+    "refs": [
+     "§4",
+     "§6–§11",
+     "§13",
+     "user-supplement"
+    ]
+   },
+   {
+    "employee_id": "6",
+    "slot": 1,
+    "displayed": [
+     "post",
+     "I1"
+    ],
+    "actual": [
+     "post",
+     "I1"
+    ],
+    "fatigue": 1,
+    "work": 1,
+    "rest": 0,
+    "posture": "seated",
+    "same": true,
+    "continuous": true,
+    "meal": false,
+    "patrol_rest": false,
+    "install": false,
+    "remove": false,
+    "mode": "FM",
+    "refs": [
+     "§4",
+     "§6–§11",
+     "§13",
+     "user-supplement"
+    ]
+   },
+   {
+    "employee_id": "6",
+    "slot": 2,
+    "displayed": [
+     "security_standby",
+     "보안실 대기"
+    ],
+    "actual": [
+     "barrier_only",
+     "barrier_install"
+    ],
+    "fatigue": 1,
+    "work": 1,
+    "rest": 0,
+    "posture": null,
+    "same": false,
+    "continuous": false,
+    "meal": true,
+    "patrol_rest": false,
+    "install": true,
+    "remove": false,
+    "mode": "FM",
+    "refs": [
+     "§4",
+     "§6–§11",
+     "§13",
+     "user-supplement"
+    ]
+   },
+   {
+    "employee_id": "6",
+    "slot": 3,
+    "displayed": [
+     "post",
+     "G1"
+    ],
+    "actual": [
+     "post",
+     "G1"
+    ],
+    "fatigue": 2,
+    "work": 1,
+    "rest": 0,
+    "posture": "standing",
+    "same": true,
+    "continuous": true,
+    "meal": false,
+    "patrol_rest": false,
+    "install": false,
+    "remove": false,
+    "mode": "FM",
+    "refs": [
+     "§4",
+     "§6–§11",
+     "§13",
+     "user-supplement"
+    ]
+   },
+   {
+    "employee_id": "6",
+    "slot": 4,
+    "displayed": [
+     "patrol",
+     "middle"
+    ],
+    "actual": [
+     "patrol",
+     "middle"
+    ],
+    "fatigue": 2,
+    "work": 1,
+    "rest": 0,
+    "posture": "standing",
+    "same": false,
+    "continuous": false,
+    "meal": false,
+    "patrol_rest": false,
+    "install": false,
+    "remove": false,
+    "mode": "FM",
+    "refs": [
+     "§4",
+     "§6–§11",
+     "§13",
+     "user-supplement"
+    ]
+   },
+   {
+    "employee_id": "6",
+    "slot": 5,
+    "displayed": [
+     "rest",
+     "휴게"
+    ],
+    "actual": [
+     "rest",
+     "휴게"
+    ],
+    "fatigue": 0,
+    "work": 0,
+    "rest": 1,
+    "posture": "rest-like",
+    "same": false,
+    "continuous": false,
+    "meal": true,
+    "patrol_rest": true,
+    "install": false,
+    "remove": false,
+    "mode": "FM",
+    "refs": [
+     "§4",
+     "§6–§11",
+     "§13",
+     "user-supplement"
+    ]
+   },
+   {
+    "employee_id": "6",
+    "slot": 6,
+    "displayed": [
+     "rest",
+     "휴게"
+    ],
+    "actual": [
+     "rest",
+     "휴게"
+    ],
+    "fatigue": 0,
+    "work": 0,
+    "rest": 1,
+    "posture": "rest-like",
+    "same": false,
+    "continuous": false,
+    "meal": true,
+    "patrol_rest": true,
+    "install": false,
+    "remove": false,
+    "mode": "FM",
+    "refs": [
+     "§4",
+     "§6–§11",
+     "§13",
+     "user-supplement"
+    ]
+   },
+   {
+    "employee_id": "6",
+    "slot": 7,
+    "displayed": [
+     "post",
+     "L3"
+    ],
+    "actual": [
+     "post",
+     "L3"
+    ],
+    "fatigue": 2,
+    "work": 1,
+    "rest": 0,
+    "posture": "standing",
+    "same": true,
+    "continuous": true,
+    "meal": false,
+    "patrol_rest": false,
+    "install": false,
+    "remove": false,
+    "mode": "FM",
+    "refs": [
+     "§4",
+     "§6–§11",
+     "§13",
+     "user-supplement"
+    ]
+   },
+   {
+    "employee_id": "6",
+    "slot": 8,
+    "displayed": [
+     "post",
+     "I1"
+    ],
+    "actual": [
+     "post",
+     "I1"
+    ],
+    "fatigue": 1,
+    "work": 1,
+    "rest": 0,
+    "posture": "seated",
+    "same": true,
+    "continuous": true,
+    "meal": false,
+    "patrol_rest": false,
+    "install": false,
+    "remove": false,
+    "mode": "FM",
+    "refs": [
+     "§4",
+     "§6–§11",
+     "§13",
+     "user-supplement"
+    ]
+   },
+   {
+    "employee_id": "6",
+    "slot": 9,
+    "displayed": [
+     "post",
+     "G1"
+    ],
+    "actual": [
+     "post",
+     "G1"
+    ],
+    "fatigue": 1,
+    "work": 1,
+    "rest": 0,
+    "posture": "seated",
+    "same": true,
+    "continuous": true,
+    "meal": false,
+    "patrol_rest": false,
+    "install": false,
+    "remove": false,
+    "mode": "FM",
+    "refs": [
+     "§4",
+     "§6–§11",
+     "§13",
+     "user-supplement"
+    ]
+   },
+   {
+    "employee_id": "6",
+    "slot": 10,
+    "displayed": [
+     "post",
+     "L3"
+    ],
+    "actual": [
+     "post",
+     "L3"
+    ],
+    "fatigue": 2,
+    "work": 1,
+    "rest": 0,
+    "posture": "standing",
+    "same": true,
+    "continuous": true,
+    "meal": false,
+    "patrol_rest": false,
+    "install": false,
+    "remove": false,
+    "mode": "FM",
+    "refs": [
+     "§4",
+     "§6–§11",
+     "§13",
+     "user-supplement"
+    ]
+   },
+   {
+    "employee_id": "6",
+    "slot": 11,
+    "displayed": [
+     "rest",
+     "휴게"
+    ],
+    "actual": [
+     "rest",
+     "휴게"
+    ],
+    "fatigue": 0,
+    "work": 0,
+    "rest": 1,
+    "posture": "rest-like",
+    "same": false,
+    "continuous": false,
+    "meal": true,
+    "patrol_rest": true,
+    "install": false,
+    "remove": false,
+    "mode": "FM",
+    "refs": [
+     "§4",
+     "§6–§11",
+     "§13",
+     "user-supplement"
+    ]
+   },
+   {
+    "employee_id": "6",
+    "slot": 12,
+    "displayed": [
+     "post",
+     "G1"
+    ],
+    "actual": [
+     "post",
+     "G1"
+    ],
+    "fatigue": 2,
+    "work": 1,
+    "rest": 0,
+    "posture": "standing",
+    "same": true,
+    "continuous": true,
+    "meal": false,
+    "patrol_rest": false,
+    "install": false,
+    "remove": false,
+    "mode": "FM",
+    "refs": [
+     "§4",
+     "§6–§11",
+     "§13",
+     "user-supplement"
+    ]
+   },
+   {
+    "employee_id": "6",
+    "slot": 13,
+    "displayed": [
+     "post",
+     "L3"
+    ],
+    "actual": [
+     "post",
+     "L3"
+    ],
+    "fatigue": 2,
+    "work": 1,
+    "rest": 0,
+    "posture": "standing",
+    "same": true,
+    "continuous": true,
+    "meal": false,
+    "patrol_rest": false,
+    "install": false,
+    "remove": false,
+    "mode": "FM",
+    "refs": [
+     "§4",
+     "§6–§11",
+     "§13",
+     "user-supplement"
+    ]
+   }
+  ]
+ },
+ "edits": [],
+ "note": "엑셀 '26년 근무표 편성표' A조 야간 시트에서 옮긴 실제 기록 (전부 FM 기준, 포스트에 없는 시간은 휴게로 처리).\n제욱·원종 교육(동행): 원종은 통제, 제욱은 준호와 짝으로 같은 근무를 섰음 → 짝과 같은 근무로 기록.\n차단봉: 20시·04시 보안실/대기 칸 인원을 설치·철수자로 추정. 순찰 구역은 시간표 기준으로 추정(엑셀에 구역 없음).\n룰북 비교: 교육 동행으로 한 포스트에 2명이 서 있어 인원·순찰 배분 검사는 의미가 없어 생략.\n룰북과 다른 점: 통제 피로도가 일반근무자보다 3점 이상 낮음 (광희, 만년, 성호, 원종, 제욱, 준호); 초저녁 같은 포스트 연속 (원종); 5시간 연속근무(또는 4시간 연속에 좌식 없음) (광희, 만년, 성호, 원종, 통제); 순찰 뒤 2시간 안에 휴게 없음 (만년, 원종, 통제); 통제와 일반근무자 실근무 차이 2시간 초과 (성호, 제욱, 준호); 통제 00~05시 3시간 연속 근무; 순찰 직후 휴게 표기가 없음 (만년, 원종, 통제); 통제 05시 휴게가 아님(근무).",
+ "source": "excel:26년 근무표 편성표7월12월.xlsx"
+}

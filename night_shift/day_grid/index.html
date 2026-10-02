@@ -1,0 +1,142 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<style>
+  body { margin: 0; font-family: "Source Sans Pro", "Noto Sans KR", sans-serif; color: #111827; background: transparent; }
+  /* 누를 수 있는 시간 칸: 평소에도 파란 바탕·밑줄로 드러냄 */
+  .dsheet th.hour { cursor: pointer; background-color: #dbeafe; color: #1e3a8a; text-decoration: underline dotted; }
+  .dsheet th.hour:hover, .dsheet th.hour:focus-visible { outline: 2px solid #2563eb; outline-offset: -2px; }
+  .dsheet th.preview { background-image: repeating-linear-gradient(135deg, rgba(37,99,235,.35) 0 2px, transparent 2px 7px) !important; }
+  .dsheet th.pending { background-color: #dbeafe !important;
+    background-image: repeating-linear-gradient(135deg, rgba(29,78,216,.45) 0 2px, transparent 2px 7px) !important;
+    color: #1e3a8a; }
+  .dsheet td.pick { cursor: pointer; background-color: #fef9c3 !important; box-shadow: inset 0 0 0 2px #eab308; font-weight: 700; }
+  .dsheet td.pick:hover { background-color: #fde68a !important; }
+  .dsheet td.off { color: #9ca3af; }
+  :focus-visible { outline: 3px solid #2563eb; outline-offset: -3px; }
+  /* 사람 강조: 마우스를 올리거나 눌러 고정하면 그 사람 칸만 또렷하게 */
+  [data-who] { cursor: pointer; transition: opacity .12s; }
+  .hovering [data-who]:not(.hl) { opacity: .3; }
+  td.hl, th.hl { outline: 3px solid #1d4ed8; outline-offset: -3px; }
+  span.hl { background: #1d4ed8; color: #fff !important; border-radius: 3px; padding: 0 3px; }
+  #menu { position: absolute; display: none; background: #fff; border: 1px solid #cbd5e1; border-radius: 8px;
+          box-shadow: 0 6px 20px rgba(0,0,0,.18); padding: 6px; z-index: 10; min-width: 200px; }
+  #menu .who { font-size: .8rem; color: #475569; padding: 4px 8px 6px; border-bottom: 1px solid #e2e8f0; margin-bottom: 4px; }
+  #menu button { display: block; width: 100%; min-height: 38px; text-align: left; border: 0; background: none;
+                 padding: 9px 10px; border-radius: 6px; font-size: .9rem; cursor: pointer; }
+  #menu button:hover, #menu button:focus-visible { background: #eff6ff; }
+  #menu button.cancel { color: #64748b; }
+</style>
+</head>
+<body>
+<div id="sheet"></div><div id="menu" role="menu"></div>
+<script>
+  function send(type, payload) {
+    window.parent.postMessage(Object.assign({ isStreamlitMessage: true, apiVersion: 1, type: type }, payload || {}), "*");
+  }
+  function setHeight() { send("streamlit:setFrameHeight", { height: document.body.scrollHeight + 70 }); }
+  function emit(value) {
+    value.nonce = Date.now() + "-" + Math.random().toString(36).slice(2);
+    send("streamlit:setComponentValue", { value: value, dataType: "json" });
+  }
+  function esc(s) { return String(s).replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c])); }
+  const sheet = document.getElementById("sheet");
+  const menu = document.getElementById("menu");
+  let opener = null;
+  function hideMenu() {
+    if (menu.style.display === "none") return;
+    menu.style.display = "none";
+    if (opener) { opener.focus(); opener = null; }
+  }
+  // 키보드: Enter·Space로 누르기 (시간 칸·이름 칸)
+  function pressable(el) {
+    el.addEventListener("keydown", e => {
+      if (e.key === "Enter" || e.key === " ") { e.preventDefault(); el.click(); }
+    });
+  }
+
+  // ---- 사람 강조 (마우스 올림 / 눌러서 고정 / 키보드 포커스)
+  let pinned = null;
+  function highlight(pid) {
+    sheet.querySelectorAll(".hl").forEach(e => e.classList.remove("hl"));
+    sheet.classList.toggle("hovering", !!pid);
+    if (!pid) return;
+    sheet.querySelectorAll("[data-who]").forEach(e => { if (e.dataset.who === pid) e.classList.add("hl"); });
+  }
+  sheet.addEventListener("mouseover", e => {
+    const el = e.target.closest("[data-who]");
+    if (el) highlight(el.dataset.who); else highlight(pinned);
+  });
+  sheet.addEventListener("mouseleave", () => highlight(pinned));
+  sheet.addEventListener("focusin", e => { const el = e.target.closest("[data-who]"); if (el) highlight(el.dataset.who); });
+  sheet.addEventListener("focusout", () => highlight(pinned));
+  sheet.addEventListener("click", e => {
+    const el = e.target.closest("[data-who]");
+    if (!el || el.classList.contains("pick")) return;
+    pinned = pinned === el.dataset.who ? null : el.dataset.who;
+    highlight(pinned);
+  });
+
+  function render(data) {
+    sheet.innerHTML = data.html;
+    menu.style.display = "none";
+    opener = null;
+    if (pinned && !sheet.querySelector("[data-who='" + CSS.escape(pinned) + "']")) pinned = null;
+    highlight(pinned);
+    const hours = Array.from(sheet.querySelectorAll("th.hour"));
+    hours.forEach(el => {
+      const t = Number(el.dataset.t);
+      el.addEventListener("mouseenter", () => {
+        hours.forEach(h => h.classList.toggle("preview", Number(h.dataset.t) <= t && !h.classList.contains("pending")));
+      });
+      el.addEventListener("mouseleave", () => hours.forEach(h => h.classList.remove("preview")));
+      el.addEventListener("click", () => emit({ kind: "hour", t: t }));
+      pressable(el);
+    });
+    sheet.querySelectorAll("td.pick").forEach(el => {
+      pressable(el);
+      el.addEventListener("click", e => {
+        e.stopPropagation();
+        const pid = el.dataset.pid;
+        const options = (data.menus || {})[pid] || [];
+        menu.innerHTML = "<div class='who'>" + esc(el.textContent) + "</div>" +
+          options.map(o => "<button role='menuitem' data-v='" + esc(o.value) + "'>" + esc(o.label) + "</button>").join("") +
+          "<button role='menuitem' class='cancel'>취소</button>";
+        menu.querySelectorAll("button").forEach(b => b.addEventListener("click", ev => {
+          ev.stopPropagation();
+          hideMenu();
+          if (b.dataset.v) emit({ kind: "person", pid: pid, choice: b.dataset.v });
+        }));
+        const r = el.getBoundingClientRect();
+        menu.style.display = "block";
+        // 오른쪽 끝 이름도 메뉴가 잘리지 않게 화면 안쪽으로 붙인다
+        const left = Math.min(r.left, document.documentElement.clientWidth - menu.offsetWidth - 4);
+        menu.style.left = (Math.max(0, left) + window.scrollX) + "px";
+        menu.style.top = (r.bottom + window.scrollY + 4) + "px";
+        opener = el;
+        menu.querySelector("button").focus();
+      });
+    });
+    setHeight();
+  }
+  document.addEventListener("click", e => { if (!menu.contains(e.target)) hideMenu(); });
+  document.addEventListener("keydown", e => {
+    if (e.key === "Escape") hideMenu();
+    if (menu.style.display === "block" && (e.key === "ArrowDown" || e.key === "ArrowUp")) {
+      const items = Array.from(menu.querySelectorAll("button"));
+      const i = items.indexOf(document.activeElement);
+      items[(i + (e.key === "ArrowDown" ? 1 : items.length - 1)) % items.length].focus();
+      e.preventDefault();
+    }
+  });
+  window.addEventListener("message", event => {
+    const msg = event.data;
+    if (!msg || msg.type !== "streamlit:render") return;
+    render(msg.args.data);
+  });
+  send("streamlit:componentReady");
+  window.addEventListener("resize", setHeight);
+</script>
+</body>
+</html>

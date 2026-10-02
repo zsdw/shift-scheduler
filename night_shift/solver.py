@@ -1,0 +1,973 @@
+"""Stage 5. CP-SAT first-trial solver, N1/six general workers/A, no history.
+
+Balance targets are optional feasibility probes, never relaxed hard rules.
+No claim of global multiobjective optimality is made for this first trial.
+"""
+from dataclasses import dataclass, replace
+from itertools import permutations
+from math import lcm
+from ortools.sat.python import cp_model
+from .models import mode_at, AssignmentKind as K, HistoryInput, Mode, Posture, RecordKind, ShiftRecord
+from .common import compile_common_policy, forbidden_same_post_pair, _actual_key
+from .profiles import options_for
+from .soft_history import debt_weight
+
+
+@dataclass
+class SolveResult:
+    status: str
+    record: ShiftRecord | None
+    attempts: list[dict]
+    targets_met: bool
+
+
+def _flexible_delta(row, slot):
+    """FM 회계 → 유도리 회계 차이 (피로도, 실근무). 10-1 I1 00~03시 휴게성, 10-5 04시는 I1이 철수."""
+    label = row.displayed_assignment.label
+    if label == "I1" and 6 <= slot <= 9 and row.actual_post_or_work_type.kind == K.POST:
+        return -row.fatigue_value, -row.actual_work_time_value
+    if slot == 10 and row.barrier_remove_flag and label == "보안실 대기":
+        return -row.fatigue_value, -row.actual_work_time_value
+    return 0, 0
+
+
+def _add_dual_flexible_constraints(model, opts, variables, policy, context, people, partial_general_ids, *,
+                                   gap_rule, fatigue_rule, fatigue_band, skip_partial, balance=False):
+    """FM 표를 유도리로 계산했을 때의 A 격차·차단봉 조건 (룰북 0-2-1).
+
+    balance=True면 17장 당일 목표(전일 일반근무자 피로도 최대-최소 1점 이하, 실휴게 1시간 이하)를
+    FM 기준과 유도리 기준 모두에서 지키게 한다 (0-2-1 1단계).
+    """
+    from .profiles import _installer_post
+    manager = policy.manager_id
+    flex_context = replace(context, requested_mode=Mode.FLEXIBLE, effective_mode=Mode.FLEXIBLE)
+    installer = _installer_post(policy, flex_context)
+
+    def total(p, attribute, index):
+        return sum((getattr(r, attribute) + _flexible_delta(r, t)[index]) * v
+                   for t in range(14) for r, v in zip(opts[p, t], variables[p, t]))
+    work = {p: total(p, "actual_work_time_value", 1) for p in people}
+    fatigue = {p: total(p, "fatigue_value", 0) for p in people}
+    low, high = fatigue_band
+    for p in policy.general_ids:
+        if skip_partial and p in partial_general_ids:
+            continue
+        if gap_rule:                                            # H-15
+            model.add(work[p] - work[manager] <= 2)
+            model.add(work[manager] - work[p] <= 2)
+        if fatigue_rule:                                        # 8-4-2
+            model.add(fatigue[p] - fatigue[manager] >= low)
+            model.add(fatigue[p] - fatigue[manager] <= high)
+    for p in people:                                            # §15-2: 유도리 20시 설치자는 04시 철수(I1) 불가
+        install = sum(v for r, v in zip(opts[p, 2], variables[p, 2])
+                      if r.displayed_assignment.label == installer or r.barrier_install_flag)
+        remove = sum(v for r, v in zip(opts[p, 10], variables[p, 10]) if r.displayed_assignment.label == "I1")
+        model.add(install + remove <= 1)
+    if balance:                                                 # 17장 당일 목표를 두 기준 모두에서
+        full = [p for p in policy.general_ids if p not in partial_general_ids]
+        for flexible in (False, True):
+            for attribute, index, sign in (("fatigue_value", 0, 1), ("actual_rest_time_value", 1, -1)):
+                totals = [sum((getattr(r, attribute) + (sign * _flexible_delta(r, t)[index] if flexible else 0)) * v
+                              for t in range(14) for r, v in zip(opts[p, t], variables[p, t])) for p in full]
+                if len(totals) < 2:
+                    continue
+                hi, lo = model.new_int_var(0, 60, ""), model.new_int_var(0, 60, "")
+                model.add_max_equality(hi, totals)
+                model.add_min_equality(lo, totals)
+                model.add(hi - lo <= 1)
+
+
+def manager_objectives(manager_work, manager_fatigue, *, rules_v217, manager_is_proxy):
+    """Ordered manager-favouring objectives (§0-5, §8-4, §8-4-1).
+
+    v2.17: with A on duty only A's actual work time is minimized; A's fatigue
+    is not a manager tie-breaker. When 준호 acts as manager (A absent), actual
+    work -> fatigue is kept. Before v2.17 both cases used work -> fatigue.
+    This is an objective policy only; no hard rule depends on it.
+    """
+    objectives = [("manager_work", manager_work)]
+    if not rules_v217 or manager_is_proxy:
+        objectives.append(("manager_fatigue", manager_fatigue))
+    return objectives
+
+
+def planned_vacancy(context):
+    """v2.18 §0-4-1 facts: (effective absence, slot hours with the minimum).
+
+    Effective absence counts the minimum number of present people available in
+    any slot, so one full-day leave plus one half-day leave is 2.
+    """
+    per_slot = [sum(a.is_available(t) for a in context.attendance) for t in range(14)]
+    fewest = min(per_slot)
+    return 7 - fewest, tuple(t for t, n in enumerate(per_slot) if n == fewest)
+
+
+# Measured 2026-10-01: these history-balance stages can use the full limit
+# (13~45 s each) while every other stage finishes in < 2 s. They keep their best
+# value as an upper bound when capped, so later stages still run.
+STAGE_TIME_CAPS = {
+    "history_patrol_fatigue_spread": 6.0,
+    "duty_3cycle_balance": 6.0,
+    "history_standing_spread": 8.0,
+    "history_seated_spread": 8.0,
+}
+
+
+def solve_first_trial(context, history: HistoryInput, seconds=30, *, dual_flexible=False, dual_balance=False, preference_weights=None, avoid_cells=(), refinement=False, baseline_assignments=None, exclude_assignments=None, locked_assignments=None, historical_totals=None, historical_nights=None, prioritize_history_within_daily_targets=False, forbid_install_ids=(), forbid_last_rest_ids=(), forbid_patrol_exclusion_ids=(), patrol_rotation_priority_ids=(), soft_debt=None, previous_install_ids=(), previous_remove_ids=(), minimize_a=False, rules_v22=False, vacancy_policy=False, rules_v26=False, rules_v27=False, rules_v29=False, rules_v210=False, rules_v212=False, rules_v213=False, rules_v215=False, rules_v216=False, rules_v217=False, rules_v218=False, rules_v219=False, rules_v220=False, diagnostic_relaxation_level=0, diagnostic_relaxed_families=None, forced_rest_cells=(), duty_rates=None):
+    if rules_v220:
+        rules_v219 = True
+    if rules_v219:
+        rules_v218 = True
+    if rules_v218:
+        rules_v217 = True
+    if rules_v217:
+        rules_v216 = True
+    if rules_v216:
+        rules_v215 = True
+    if rules_v215:
+        rules_v213 = True
+    if rules_v213:
+        rules_v212 = True
+    if rules_v212:
+        rules_v210 = True
+    if rules_v210:
+        rules_v29 = True
+    if rules_v29:
+        rules_v27 = True
+    if rules_v27:
+        rules_v26 = True
+    if rules_v26:
+        refinement = minimize_a = rules_v22 = vacancy_policy = True
+        if baseline_assignments is not None:
+            raise ValueError("v2.6 requires its own ordered objectives")
+    if history.actual_nights != () or history.barrier_entries != ():
+        raise NotImplementedError("This trial requires explicitly empty history")
+    role_general_count = sum(a.present and a.is_general_worker for a in context.attendance)
+    present_manager = next((a.employee_id for a in context.attendance if a.present and a.acts_as_manager), None)
+    manager_is_proxy = present_manager is not None and next(a for a in context.attendance if a.employee_id == present_manager).display_number is not None
+    headcount = role_general_count + int(manager_is_proxy)
+    if headcount < 6 and not vacancy_policy:
+        raise NotImplementedError("4/5 worker scenarios require the explicit vacancy policy")
+    absence_count = 7 - sum(a.present for a in context.attendance)
+    if rules_v218 and locked_assignments is None and not context.partial_vacancy_profile:
+        # v2.18 §0-4-1 is decided at planning time only.  Emergency
+        # re-optimization keeps the original plan's mode and profile.
+        effective_absence, short_slots = planned_vacancy(context)
+        if effective_absence > 2:
+            raise NotImplementedError("가용 일반근무자가 3명 이하인 시간대가 있어 지원 범위를 벗어납니다 (§0-4-1)")
+        if effective_absence == 2 and absence_count < 2:
+            hours = ", ".join(f"{(18 + t) % 24:02d}시" for t in short_slots)
+            context = replace(context, partial_vacancy_profile=True, effective_mode=Mode.FLEXIBLE,
+                              mode_change_reason=f"§0-4-1: 반차 등으로 가용 일반근무자 4명인 시간대({hours})가 있어 회차 전체를 유도리·결원 2명 규칙으로 편성")
+    profile_absence = 2 if context.partial_vacancy_profile else absence_count
+    if absence_count == 2 and context.requested_mode == Mode.FM:
+        context = replace(context, effective_mode=Mode.FLEXIBLE, mode_change_reason="§0-4: FM with four general workers automatically switches to flexible")
+    # v2.20 §0-4-2: emergency switch of the unlocked remainder to flexible +
+    # vacancy-2 rules (set by the service before re-optimization).
+    switch_slot = context.flexible_from_slot
+    if switch_slot is not None and not rules_v220:
+        raise ValueError("Mid-shift flexible switch requires rules v2.20")
+    # v2.18 §8-7: on vacancy-2 days the manager has no minimum-burden privilege.
+    manager_vacancy_policy = rules_v218 and (profile_absence == 2 or switch_slot is not None)
+
+    def relaxed(level):
+        """21-8 diagnosis: a rule family is relaxed only for diagnostic probes."""
+        if diagnostic_relaxed_families is not None:
+            return level in diagnostic_relaxed_families
+        return diagnostic_relaxation_level >= level
+    policy = compile_common_policy(context)
+    people = (*policy.general_ids, policy.manager_id)
+    attendance_by_id = {a.employee_id: a for a in context.attendance}
+    available_counts = {
+        p: sum(attendance_by_id[p].is_available(t) for t in range(14)) for p in people
+    }
+    partial_general_ids = tuple(p for p in policy.general_ids if available_counts[p] < 14)
+    # v2.18 §8-3-1: N1/N3 07 needs five general-or-manager bodies; with four
+    # available general workers the manager works 07 on L3 or I1.
+    manager_works_07 = (rules_v218 and context.night_type.value in ("N1", "N3")
+                        and sum(attendance_by_id[p].is_available(13) for p in policy.general_ids) == 4)
+    full_general_ids = tuple(p for p in policy.general_ids if available_counts[p] == 14)
+    attempts = []
+    # Optional all-target probe first. Fallback preserves every hard rule.
+    for target_probe in ((False,) if rules_v26 else (True, False)):
+        model = cp_model.CpModel()
+        opts, variables = {}, {}
+        for p in people:
+            for t in range(14):
+                opts[p, t] = options_for(context, p, t, patrol_standing=rules_v210)
+                variables[p, t] = [model.new_bool_var(f"{p}_{t}_{i}") for i in range(len(opts[p, t]))]
+                model.add_exactly_one(variables[p, t])
+
+        def expression(p, t, predicate):
+            return sum(v for r, v in zip(opts[p, t], variables[p, t]) if predicate(r))
+
+        # v2.15 §21-7: assignments already performed or in progress are facts,
+        # not preferences.  Pin the exact recorded option so every downstream
+        # whole-shift constraint also crosses the LOCK/reoptimization boundary.
+        if locked_assignments:
+            seen = set()
+            for old in locked_assignments:
+                key = (old.employee_id, old.slot.index)
+                if key in seen or key not in variables:
+                    raise ValueError(f"Invalid locked assignment: {key}")
+                seen.add(key)
+                matches = [v for r, v in zip(opts[key], variables[key]) if r == old]
+                if len(matches) != 1:
+                    raise ValueError(f"Locked assignment is unavailable in the new context: {key}")
+                model.add(matches[0] == 1)
+
+        for p, t in forced_rest_cells:
+            if (p, t) in variables:
+                model.add(expression(p, t, lambda r: r.actual_work_time_value == 0) == 1)
+        for p in forbid_install_ids:
+            if p in people:
+                model.add(expression(p, 2, lambda r:r.barrier_install_flag) == 0)
+        for p in forbid_last_rest_ids:
+            if p in policy.general_ids:
+                model.add(expression(p, 13, lambda r:r.actual_rest_time_value == 1) == 0)
+        if rules_v212 and absence_count == 0 and not manager_is_proxy:
+            for p in forbid_patrol_exclusion_ids:
+                if p in policy.general_ids:
+                    model.add(sum(expression(p, t, lambda r:r.actual_post_or_work_type.kind == K.PATROL) for t in range(14)) == 1)
+
+        if exclude_assignments is not None:
+            # Backwards compatible with the old single flat payload while the
+            # UI can now exclude every previously generated schedule at once.
+            excluded_schedules = ((exclude_assignments,)
+                                  if exclude_assignments and isinstance(exclude_assignments[0], dict)
+                                  else exclude_assignments)
+            expected = {(p, t) for p in people for t in range(14)}
+
+            def old_matches(record, old):
+                displayed = old["displayed_assignment"]
+                actual = old.get("actual_post_or_work_type")
+                posture = old.get("posture_or_mode")
+                return (
+                    record.displayed_assignment.label == displayed["label"]
+                    and ("kind" not in displayed
+                         or record.displayed_assignment.kind.value == displayed["kind"])
+                    and (actual is None or (
+                        record.actual_post_or_work_type.label == actual["label"]
+                        and record.actual_post_or_work_type.kind.value == actual["kind"]))
+                    and ("posture_or_mode" not in old
+                         or (record.posture_or_mode.value if record.posture_or_mode else None) == posture)
+                    and ("actual_work_time_value" not in old
+                         or record.actual_work_time_value == old["actual_work_time_value"])
+                    and ("actual_rest_time_value" not in old
+                         or record.actual_rest_time_value == old["actual_rest_time_value"])
+                    and ("fatigue_value" not in old
+                         or record.fatigue_value == old["fatigue_value"])
+                    and ("counts_for_continuous_work_restriction" not in old
+                         or record.counts_for_continuous_work_restriction
+                         == old["counts_for_continuous_work_restriction"])
+                    and record.barrier_install_flag == old["barrier_install_flag"]
+                    and record.barrier_remove_flag == old["barrier_remove_flag"]
+                )
+
+            for excluded_index, excluded in enumerate(excluded_schedules):
+                previous = {(r["employee_id"], r["slot"]["index"]): r for r in excluded}
+                if set(previous) != expected or len(excluded) != len(expected):
+                    raise ValueError(
+                        "Excluded schedule must contain exactly one assignment per present employee and slot")
+
+                general_ids = tuple(policy.general_ids)
+                if rules_v219:
+                    # Name-invariant difference: however the previous
+                    # general-worker rows are matched to the new people, at
+                    # least three people must each differ in three or more
+                    # hourly assignments.  Shuffling rows between names plus a
+                    # single swap is not a different schedule.
+                    seen_row_orders = set()
+                    for perm_index, old_order in enumerate(permutations(general_ids)):
+                        row_order = tuple(
+                            tuple((previous[old_id, t]["displayed_assignment"]["label"],
+                                   previous[old_id, t]["barrier_install_flag"],
+                                   previous[old_id, t]["barrier_remove_flag"])
+                                  for t in range(14))
+                            for old_id in old_order
+                        )
+                        if row_order in seen_row_orders:
+                            continue
+                        seen_row_orders.add(row_order)
+                        old_for_new = dict(zip(general_ids, old_order))
+                        old_for_new[policy.manager_id] = policy.manager_id
+                        changed_people = []
+                        for p in people:
+                            same = []
+                            for t in range(14):
+                                old = previous[old_for_new[p], t]
+                                same.extend(v for r, v in zip(opts[p, t], variables[p, t])
+                                            if old_matches(r, old))
+                            changed = model.new_bool_var(
+                                f"invariant_change_{excluded_index}_{perm_index}_{p}")
+                            model.add(14 - sum(same) >= 3).only_enforce_if(changed)
+                            model.add(14 - sum(same) <= 2).only_enforce_if(changed.Not())
+                            changed_people.append(changed)
+                        model.add(sum(changed_people) >= 3)
+                    continue
+
+                # A candidate is materially different only when at least three
+                # people each have at least three changed hourly assignments.
+                # Apply this independently against every previously generated
+                # schedule, not merely the most recently selected one.
+                materially_changed_people = []
+                for p in people:
+                    matching_slots = []
+                    for t in range(14):
+                        old = previous[p, t]
+                        matching_slots.extend(
+                            v for r, v in zip(opts[p, t], variables[p, t])
+                            if old_matches(r, old)
+                        )
+                    changed_slots = 14 - sum(matching_slots)
+                    changed_three = model.new_bool_var(
+                        f"material_change_{excluded_index}_{p}"
+                    )
+                    model.add(changed_slots >= 3).only_enforce_if(changed_three)
+                    model.add(changed_slots <= 2).only_enforce_if(changed_three.Not())
+                    materially_changed_people.append(changed_three)
+                model.add(sum(materially_changed_people) >= 3)
+
+                # Reject both the exact employee mapping and every mere
+                # permutation of complete general-worker rows. Changing only
+                # visible numbers or moving the same row patterns to different
+                # names is not a genuinely different schedule.
+                seen_row_orders = set()
+                for old_order in permutations(general_ids):
+                    row_order = tuple(
+                        tuple((previous[old_id, t]["displayed_assignment"]["label"],
+                               previous[old_id, t]["barrier_install_flag"],
+                               previous[old_id, t]["barrier_remove_flag"])
+                              for t in range(14))
+                        for old_id in old_order
+                    )
+                    if row_order in seen_row_orders:
+                        continue
+                    seen_row_orders.add(row_order)
+                    old_for_new = dict(zip(general_ids, old_order))
+                    old_for_new[policy.manager_id] = policy.manager_id
+                    exact_matches = []
+                    for p in people:
+                        old_p = old_for_new[p]
+                        for t in range(14):
+                            old = previous[old_p, t]
+                            exact_matches.extend(
+                                v for r, v in zip(opts[p, t], variables[p, t])
+                                if old_matches(r, old)
+                            )
+                    model.add(sum(exact_matches) <= len(expected) - 1)
+
+        if rules_v22:
+            if context.night_type.value in ("N1", "N2"):
+                for p in people:
+                    evening_gate = sum(expression(p, t, lambda r: r.displayed_assignment.label in ("G2", "G3")) for t in range(3))
+                    model.add(evening_gate <= (0 if p == policy.manager_id else 1))
+            work_totals = {p: sum(int(r.actual_work_time_value) * v for t in range(14)
+                                  for r, v in zip(opts[p, t], variables[p, t])) for p in people}
+            if not relaxed(2) and not manager_vacancy_policy:
+                for p in full_general_ids if rules_v215 else policy.general_ids:
+                    model.add(work_totals[p] - work_totals[policy.manager_id] <= 2)
+                    model.add(work_totals[policy.manager_id] - work_totals[p] <= 2)
+            if headcount in (5, 6) and profile_absence < 2 and switch_slot is None:
+                fatigue_totals = {p: sum(int(r.fatigue_value) * v for t in range(14)
+                                        for r, v in zip(opts[p, t], variables[p, t])) for p in people}
+                if not relaxed(2):
+                    for p in full_general_ids if rules_v215 else policy.general_ids:
+                        if rules_v219 and not manager_is_proxy:
+                            # v2.19 §8-4-2: with A on duty and at most one
+                            # absence, A's total fatigue is not above any
+                            # full-time general worker and at most 2 below.
+                            model.add(fatigue_totals[policy.manager_id] <= fatigue_totals[p])
+                            model.add(fatigue_totals[p] - fatigue_totals[policy.manager_id] <= 2)
+                        else:
+                            model.add(fatigue_totals[policy.manager_id] >= fatigue_totals[p] - 4)
+                            model.add(fatigue_totals[p] >= fatigue_totals[policy.manager_id] - 4)
+
+        for req in policy.requirements:
+            def matches(r):
+                return r.displayed_assignment.kind == K.POST and r.displayed_assignment.label == req.displayed_post
+            model.add(sum(expression(p, req.slot_index, matches) for p in people) == req.total_count)
+            if req.general_count is not None:
+                model.add(sum(expression(p, req.slot_index, matches) for p in policy.general_ids) == req.general_count)
+            if req.fixed_employee_id:
+                model.add(expression(req.fixed_employee_id, req.slot_index, matches) == 1)
+        for patrol in policy.patrols:
+            model.add(sum(expression(p, patrol.slot_index, lambda r: r.actual_post_or_work_type.label == patrol.area) for p in people) == 1)
+        model.add(expression(policy.manager_id, 3, lambda r: r.actual_post_or_work_type.label == "upper") == 1)
+        patrol_total = {p: sum(expression(p, t, lambda r: r.actual_post_or_work_type.kind == K.PATROL) for t in range(14)) for p in people}
+        switch_double_patrols = []
+        if switch_slot is not None:
+            # v2.20 §14-3-1: after an emergency switch the remaining patrols
+            # follow the vacancy-2 rule: at most two per person, one per half,
+            # everyone available all night patrols at least once.
+            for p in people:
+                model.add(patrol_total[p] <= 2)
+                for half in ((3, 4, 5), (7, 8, 9)):
+                    model.add(sum(expression(p, t, lambda r: r.actual_post_or_work_type.kind == K.PATROL) for t in half) <= 1)
+                if available_counts[p] == 14:
+                    model.add(patrol_total[p] >= 1)
+                if p != policy.manager_id:
+                    double = model.new_bool_var(f"switch_double_{p}")
+                    model.add(patrol_total[p] >= 2).only_enforce_if(double)
+                    model.add(patrol_total[p] <= 1).only_enforce_if(double.Not())
+                    switch_double_patrols.append(double)
+        elif headcount == 6:
+            model.add(sum(expression(policy.manager_id, t, lambda r: r.actual_post_or_work_type.kind == K.PATROL) for t in range(14)) == 1)
+            if manager_is_proxy:
+                for p in policy.general_ids:
+                    model.add(sum(expression(p, t, lambda r: r.actual_post_or_work_type.kind == K.PATROL) for t in range(14)) == 1)
+        if headcount >= 5 and not manager_is_proxy and switch_slot is None:
+            for p in policy.general_ids:
+                patrol_count = sum(expression(p, t, lambda r: r.actual_post_or_work_type.kind == K.PATROL) for t in range(14))
+                model.add(patrol_count <= 1)
+                if headcount == 5:
+                    model.add(patrol_count == 1)
+            if headcount == 5:
+                model.add(sum(expression(policy.manager_id, t, lambda r: r.actual_post_or_work_type.kind == K.PATROL) for t in range(14)) == 1)
+        if rules_v26 and (headcount == 4 or manager_is_proxy and headcount < 6) and switch_slot is None:
+            for p in people:
+                n = sum(expression(p, t, lambda r: r.actual_post_or_work_type.kind == K.PATROL) for t in range(14))
+                model.add(n >= 1)
+                model.add(n <= 2)
+                for half in ((3,4,5), (7,8,9)):
+                    model.add(sum(expression(p,t,lambda r:r.actual_post_or_work_type.kind == K.PATROL) for t in half) <= 1)
+        model.add(expression(policy.manager_id, 11, lambda r: r.actual_work_time_value == 0 and r.actual_rest_time_value == 1) == 1)
+        # §8-3: v2.15 makes N1/N3 manager 07 rest-like time a hard rule.
+        if manager_works_07:
+            model.add(expression(policy.manager_id, 13, lambda r: r.actual_work_time_value == 1 and r.displayed_assignment.label in ("L3", "I1")) == 1)
+        elif rules_v215 and context.night_type.value in ("N1", "N3"):
+            model.add(expression(policy.manager_id, 13, lambda r: r.actual_rest_time_value == 1) == 1)
+        else:
+            model.add(expression(policy.manager_id, 13, lambda r: r.actual_work_time_value == 0 or r.displayed_assignment.label in ("L3", "I1")) == 1)
+        if target_probe and headcount >= 5 and not rules_v215:
+            model.add(expression(policy.manager_id, 13, lambda r: r.actual_work_time_value == 0) == 1)
+        if refinement:
+            # User revision: one explicitly displayed standby; remaining off-duty = rest.
+            for t in range(14):
+                standby_count = sum(expression(p, t, lambda r: r.displayed_assignment.label == "보안실 대기") for p in people)
+                if rules_v26:
+                    if t in (2, 10):
+                        model.add(standby_count >= 1)
+                    if rules_v212 and t == 10:
+                        model.add(standby_count == 1)
+                    if rules_v212 and t == 2:
+                        available = len(people) - sum(req.total_count for req in policy.requirements if req.slot_index == t)
+                        model.add(standby_count == min(2, available))
+                elif vacancy_policy and headcount < 6 and t not in (2, 10):
+                    model.add(standby_count <= 1)
+                else:
+                    model.add(standby_count == 1)
+            # Six-worker A: at most two consecutive actual working hours in 00–05.
+            if profile_absence == 0 and switch_slot is None and not relaxed(2):
+                for t in range(6, 10):
+                    model.add(sum(expression(policy.manager_id, j, lambda r: r.actual_work_time_value == 1) for j in range(t, t + 3)) <= 2)
+            if target_probe:
+                # Prefer I1 if working at 04; do not force an extra working hour.
+                model.add(expression(policy.manager_id, 10, lambda r: r.actual_work_time_value == 0 or r.displayed_assignment.label == "I1") == 1)
+
+        patrol_recovery_costs = []
+        for p in people:
+            if any(attendance_by_id[p].is_available(t) for t in (0, 1, 2)):
+                model.add(sum(expression(p, t, lambda r: r.counts_as_meal_opportunity) for t in (0, 1, 2)) >= 1)
+            for t in range(13):
+                for a, ra in enumerate(opts[p, t]):
+                    for b, rb in enumerate(opts[p, t + 1]):
+                        forbidden = forbidden_same_post_pair(ra, rb, allow_manager_weekend_first_pair=(context.night_type.value in ("N3", "N4") and p == policy.manager_id))
+                        protects_g1 = ra.displayed_assignment.label == "G1" or rb.displayed_assignment.label == "G1"
+                        if forbidden and (not relaxed(2) or protects_g1):
+                            model.add(variables[p, t][a] + variables[p, t + 1][b] <= 1)
+            if not relaxed(2):
+                for t in (range(12) if rules_v26 else range(5, 10)):
+                    keys = {_actual_key(r) for j in range(t, t + 3) for r in opts[p, j]} - {None}
+                    for key in keys:
+                        model.add(sum(expression(p, j, lambda r: _actual_key(r) == key) for j in range(t, t + 3)) <= 2)
+            standing = lambda r: r.actual_work_time_value == 1 and r.posture_or_mode == Posture.STANDING
+            for t in range(12):
+                count = sum(expression(p, j, standing) for j in range(t, t + 3))
+                if t == 11:
+                    gates = sum(expression(p, j, lambda r: r.displayed_assignment.label in ("G2", "G3")) for j in range(11, 14))
+                    model.add(count <= 2 + gates)
+                elif not rules_v27:
+                    model.add(count <= 2)
+            if rules_v26:
+                counted = lambda r: r.counts_for_continuous_work_restriction or r.actual_post_or_work_type.kind == K.PATROL
+                if not relaxed(5):
+                    for start in range(10):
+                        model.add(sum(expression(p,j,counted) for j in range(start,start+5)) <= 4)
+                if not relaxed(4):
+                    for start in range(11):
+                        model.add(sum(expression(p,j,counted) for j in range(start,start+4)) <=
+                                  3 + sum(expression(p,j,lambda r:r.actual_work_time_value == 1 and r.posture_or_mode == Posture.SEATED) for j in range(start,start+4)))
+            else:
+                model.add(sum(expression(p, t, lambda r: r.counts_for_continuous_work_restriction) for t in range(10, 14)) <= 3)
+            protected_flags = []
+            for patrol in policy.patrols:
+                t = patrol.slot_index
+                is_patrol = expression(p, t, lambda r: r.actual_post_or_work_type.kind == K.PATROL)
+                relaxed_patrol_rest = profile_absence == 2 or (switch_slot is not None and t + 2 >= switch_slot)
+                if relaxed(3):
+                    continue
+                if relaxed_patrol_rest:
+                    rest_flags = []
+                    seated_flags = []
+                    if rules_v220:
+                        # v2.20 H-11-2: one "protected" patrol per patroller
+                        # keeps the H-11 recovery; a double patroller's other
+                        # patrol is ordinary standing work.
+                        guard = model.new_bool_var(f"protected_patrol_{p}_{t}")
+                        model.add(guard <= is_patrol)
+                        protected_flags.append((t, guard))
+                    else:
+                        guard = None
+                    for j in (t + 1, t + 2):
+                        legal_rest = lambda r: r.counts_as_post_patrol_rest and r.actual_work_time_value == 0 and not r.barrier_install_flag and not r.barrier_remove_flag
+                        rest_flags.append(expression(p, j, legal_rest))
+                        seated_flags.append(expression(p, j, lambda r: r.actual_work_time_value == 1 and r.posture_or_mode == Posture.SEATED))
+                        if t >= 7:
+                            i1_or_rest = expression(p, j, lambda r: r.actual_work_time_value == 0 or r.displayed_assignment.label == "I1")
+                            if guard is None:
+                                model.add(is_patrol <= i1_or_rest)
+                            else:
+                                model.add(i1_or_rest == 1).only_enforce_if(guard)
+                    if guard is None:
+                        model.add(is_patrol <= sum(rest_flags))
+                    else:
+                        model.add(sum(rest_flags) >= 1).only_enforce_if(guard)
+                        # Ladder: rest+rest 0 < rest+seated 3 < rest+standing 6;
+                        # a double patroller protecting the early patrol +1.
+                        quality = model.new_int_var(0, 12, f"patrol_recovery_{p}_{t}")
+                        model.add(quality >= 3 * (4 - 2 * sum(rest_flags) - sum(seated_flags)) - 12 * (1 - guard))
+                        patrol_recovery_costs.append(quality)
+                    if rules_v29:
+                        stood_before = expression(p, t - 1, lambda r: r.actual_work_time_value == 1 and r.posture_or_mode == Posture.STANDING)
+                        bad_after = expression(p, t + 1, lambda r: r.actual_work_time_value == 1 and r.posture_or_mode != Posture.SEATED)
+                        model.add(stood_before + is_patrol + bad_after <= 2)
+                else:
+                    for j in (t + 1, t + 2):
+                        legal_rest = lambda r, j=j: r.counts_as_post_patrol_rest and (mode_at(context, j) != Mode.FM or r.displayed_assignment.label == "휴게")
+                        model.add(is_patrol <= expression(p, j, legal_rest))
+                    if rules_v220:
+                        guard = model.new_bool_var(f"protected_patrol_{p}_{t}")
+                        model.add(guard == is_patrol)
+                        protected_flags.append((t, guard))
+            if protected_flags:
+                has_patrol = model.new_bool_var(f"has_patrol_ladder_{p}")
+                model.add(patrol_total[p] >= 1).only_enforce_if(has_patrol)
+                model.add(patrol_total[p] == 0).only_enforce_if(has_patrol.Not())
+                model.add(sum(g for _, g in protected_flags) >= 1).only_enforce_if(has_patrol)
+                double = model.new_bool_var(f"double_ladder_{p}")
+                model.add(patrol_total[p] >= 2).only_enforce_if(double)
+                model.add(patrol_total[p] <= 1).only_enforce_if(double.Not())
+                for t, g in protected_flags:
+                    if t in (3, 4, 5):
+                        early = model.new_bool_var(f"early_protected_{p}_{t}")
+                        model.add(early >= g + double - 1)
+                        patrol_recovery_costs.append(early)
+            install = expression(p, 2, lambda r: r.barrier_install_flag)
+            remove = expression(p, 10, lambda r: r.barrier_remove_flag)
+            model.add(install + remove <= 1)
+            if target_probe:
+                for t, barrier in ((2, install), (10, remove)):
+                    # Soft preference: avoid a barrier-only job between actual posts.
+                    standalone = expression(p, t, lambda r: r.actual_post_or_work_type.kind == K.BARRIER_ONLY)
+                    before = expression(p, t - 1, lambda r: r.actual_work_time_value == 1)
+                    after = expression(p, t + 1, lambda r: r.actual_work_time_value == 1)
+                    model.add(standalone + before + after <= 2)
+        model.add(sum(expression(p, 2, lambda r: r.barrier_install_flag) for p in people) == (1 if mode_at(context, 2) == Mode.FM else 2))
+        if mode_at(context, 2) == Mode.FLEXIBLE:
+            # §10-4: exactly one of the two flexible installers is the 20:00 보안실 대기.
+            model.add(sum(expression(p, 2, lambda r: r.barrier_install_flag and r.displayed_assignment.label == "보안실 대기")
+                          for p in people) == 1)
+        model.add(sum(expression(p, 10, lambda r: r.barrier_remove_flag) for p in people) == 1)
+        if target_probe:
+            totals = {}
+            for attribute in ("fatigue_value", "actual_rest_time_value"):
+                for p in policy.general_ids:
+                    totals[attribute, p] = sum(int(getattr(r, attribute)) * v for t in range(14) for r, v in zip(opts[p, t], variables[p, t]))
+                for i, p in enumerate(policy.general_ids):
+                    for q in policy.general_ids[i + 1:]:
+                        model.add(totals[attribute, p] - totals[attribute, q] <= 1)
+                        model.add(totals[attribute, q] - totals[attribute, p] <= 1)
+        if baseline_assignments is not None:
+            baseline = {(r["employee_id"], r["slot"]["index"]): r for r in baseline_assignments}
+            if set(baseline) != {(p, t) for p in people for t in range(14)} or len(baseline_assignments) != 98:
+                raise ValueError("Baseline must contain one record per employee/slot")
+            def signature(label, install, remove):
+                return ("off" if label in ("휴게", "보안실 대기") else label, install, remove)
+            retained = []
+            for p in people:
+                for t in range(14):
+                    old = baseline[p, t]
+                    sig = signature(old["displayed_assignment"]["label"], old["barrier_install_flag"], old["barrier_remove_flag"])
+                    retained.extend(v for r, v in zip(opts[p, t], variables[p, t]) if signature(r.displayed_assignment.label, r.barrier_install_flag, r.barrier_remove_flag) == sig)
+            model.maximize(sum(retained))
+        if minimize_a:
+            if baseline_assignments is not None:
+                raise ValueError("Choose A minimization or baseline preservation explicitly")
+            a_work = sum(int(r.actual_work_time_value) * v for t in range(14) for r, v in zip(opts[policy.manager_id, t], variables[policy.manager_id, t]))
+            a_fatigue = sum(int(r.fatigue_value) * v for t in range(14) for r, v in zip(opts[policy.manager_id, t], variables[policy.manager_id, t]))
+            # Exact lexical order: fatigue <= 28, so 29 makes one work hour
+            # dominate the entire fatigue range, not an arbitrary tradeoff weight.
+            model.minimize(29 * a_work + a_fatigue)
+            if vacancy_policy and headcount < 6 and not rules_v26:
+                # Exact lexical retention: 00–05 standby before other optional
+                # hours, then minimize A work/fatigue. Bounds fix dominance.
+                absent_mid = sum(1 - sum(expression(p, t, lambda r: r.displayed_assignment.label == "보안실 대기") for p in people) for t in range(6, 12))
+                absent_outer = sum(1 - sum(expression(p, t, lambda r: r.displayed_assignment.label == "보안실 대기") for p in people) for t in (*range(6), 12, 13))
+                model.minimize(3915 * absent_mid + 435 * absent_outer + 29 * a_work + a_fatigue)
+        solver = cp_model.CpSolver()
+        solver.parameters.max_time_in_seconds = seconds
+        solver.parameters.num_search_workers = 8
+        solver.parameters.random_seed = 28
+        if rules_v26:
+            # Exact staged optimization. Never freeze an unproven objective.
+            if manager_vacancy_policy:
+                # v2.18: no manager work/fatigue privilege; strongly prefer
+                # that the manager does not install or remove the barrier.
+                manager_barrier = sum(expression(policy.manager_id, t, lambda r: r.barrier_install_flag or r.barrier_remove_flag) for t in (2, 10))
+                objectives = [("manager_barrier_avoidance", manager_barrier)]
+            else:
+                objectives = manager_objectives(a_work, a_fatigue, rules_v217=rules_v217,
+                                                manager_is_proxy=manager_is_proxy)
+            if switch_double_patrols:
+                # §14-3: prefer as few double patrols as possible, A first.
+                objectives.append(("switch_general_double_patrols", sum(switch_double_patrols)))
+            if patrol_recovery_costs:
+                objectives.append(("patrol_recovery_ladder", sum(patrol_recovery_costs)))
+            # 8-9 [soft, strong, 2026-09-30]: after 00:00 the manager should not
+            # stand L3 in two consecutive hours.
+            manager_l3_pairs = []
+            for t in range(6, 13):
+                pair = model.new_bool_var(f"manager_l3_pair_{t}")
+                model.add(pair >= expression(policy.manager_id, t, lambda r: r.displayed_assignment.label == "L3")
+                          + expression(policy.manager_id, t + 1, lambda r: r.displayed_assignment.label == "L3") - 1)
+                manager_l3_pairs.append(pair)
+            objectives.append(("manager_l3_repeat_after_00", sum(manager_l3_pairs)))
+            spreads=[]
+            for attr in ("fatigue_value", "actual_rest_time_value"):
+                balance_ids = full_general_ids if rules_v215 and partial_general_ids else policy.general_ids
+                totals=[sum(int(getattr(r,attr))*v for t in range(14) for r,v in zip(opts[p,t],variables[p,t])) for p in balance_ids]
+                if len(totals) >= 2:
+                    hi=model.new_int_var(0,40,attr+"_max"); lo=model.new_int_var(0,40,attr+"_min")
+                    model.add_max_equality(hi,totals); model.add_min_equality(lo,totals)
+                    spreads.append(hi-lo)
+            if prioritize_history_within_daily_targets:
+                if historical_totals is None:
+                    raise ValueError("History-priority balance requires historical totals")
+                for spread in spreads:
+                    model.add(spread <= 1)
+            else:
+                objectives.append(("general_balance",sum(spreads)))
+            # 17-1 개인 회피 [강한 소프트, 2026-10-02]: 당일 밸런스 다음, 이력 밸런스·선호 보너스보다 먼저
+            avoid_terms = [expression(p, t, lambda r, label=label: r.displayed_assignment.label == label)
+                           for p, t, label in avoid_cells if p in people]
+            if avoid_terms:
+                objectives.append(("personal_avoid", sum(avoid_terms)))
+            if rules_v212:
+                rest_four=[]
+                actual_five=[]
+                for p in people:
+                    for start in range(11):
+                        n=sum(expression(p,j,lambda r:r.actual_rest_time_value == 1) for j in range(start,start+4))
+                        flag=model.new_bool_var(f"rest_four_{p}_{start}")
+                        model.add(n == 4).only_enforce_if(flag)
+                        model.add(n <= 3).only_enforce_if(flag.Not())
+                        rest_four.append(debt_weight(soft_debt, "H-06-1", p) * flag if rules_v213 else flag)
+                    for start in range(10):
+                        n=sum(expression(p,j,lambda r:r.actual_work_time_value == 1) for j in range(start,start+5))
+                        flag=model.new_bool_var(f"actual_five_{p}_{start}")
+                        model.add(n == 5).only_enforce_if(flag)
+                        model.add(n <= 4).only_enforce_if(flag.Not())
+                        actual_five.append(flag)
+                objectives.append(("rest_4plus_windows",sum(rest_four)))
+                objectives.append(("actual_work_5plus_windows",sum(actual_five)))
+                posture_triples = []
+                for p in people:
+                    for posture in (Posture.STANDING, Posture.SEATED):
+                        for start in range(12):
+                            n = sum(expression(p, j, lambda r: r.actual_work_time_value == 1 and r.posture_or_mode == posture) for j in range(start, start + 3))
+                            flag = model.new_bool_var(f"v212_posture_triple_{p}_{posture}_{start}")
+                            model.add(n == 3).only_enforce_if(flag)
+                            model.add(n <= 2).only_enforce_if(flag.Not())
+                        posture_triples.append(debt_weight(soft_debt, "H-06", p) * flag if rules_v213 else flag)
+                objectives.append(("same_posture_triples", sum(posture_triples)))
+                if previous_install_ids or previous_remove_ids:
+                    recent_role_reversal = sum(expression(p,10,lambda r:r.barrier_remove_flag) for p in previous_install_ids if p in people)
+                    recent_role_reversal += sum(expression(p,2,lambda r:r.barrier_install_flag) for p in previous_remove_ids if p in people)
+                    objectives.append(("previous_barrier_role_reversal",recent_role_reversal))
+                if rules_v213 and patrol_rotation_priority_ids:
+                    missed_rotation=[]
+                    for p in patrol_rotation_priority_ids:
+                        if p not in policy.general_ids:
+                            continue
+                        patrol_count=sum(expression(p,t,lambda r:r.actual_post_or_work_type.kind == K.PATROL) for t in range(14))
+                        lower_count=sum(expression(p,t,lambda r:r.actual_post_or_work_type.kind == K.PATROL and r.actual_post_or_work_type.label == "lower") for t in range(14))
+                        has_patrol=model.new_bool_var(f"has_patrol_{p}")
+                        has_lower=model.new_bool_var(f"has_lower_{p}")
+                        missed=model.new_bool_var(f"missed_lower_rotation_{p}")
+                        model.add(patrol_count >= 1).only_enforce_if(has_patrol)
+                        model.add(patrol_count == 0).only_enforce_if(has_patrol.Not())
+                        model.add(lower_count >= 1).only_enforce_if(has_lower)
+                        model.add(lower_count == 0).only_enforce_if(has_lower.Not())
+                        model.add(missed <= has_patrol)
+                        model.add(missed <= 1-has_lower)
+                        model.add(missed >= has_patrol-has_lower)
+                        missed_rotation.append(debt_weight(soft_debt, "14-7", p) * missed)
+                    if missed_rotation:
+                        objectives.append(("patrol_lower_rotation",sum(missed_rotation)))
+            if historical_totals is not None:
+                if historical_nights is None or set(historical_nights) != set(policy.general_ids):
+                    raise ValueError("Historical attendance counts must identify every present general worker")
+                denominator = {p:int(historical_nights[p])+1 for p in policy.general_ids}
+                if any(n <= 0 for n in denominator.values()):
+                    raise ValueError("Historical attendance counts cannot be negative")
+                scale = lcm(*denominator.values())
+                for attr in ("fatigue_value", "standing", "seated", "actual_work_time_value", "actual_rest_time_value", "patrol_fatigue"):
+                    prior = historical_totals.get(attr)
+                    if prior is None:
+                        continue
+                    if set(prior) != set(policy.general_ids):
+                        raise ValueError(f"Historical {attr} must identify every present general worker")
+                    values = []
+                    for p in policy.general_ids:
+                        if attr == "fatigue_value":
+                            current = sum(int(r.fatigue_value)*v for t in range(14) for r,v in zip(opts[p,t], variables[p,t]))
+                        elif attr == "standing":
+                            current = sum(expression(p,t,lambda r:r.actual_work_time_value == 1 and r.posture_or_mode == Posture.STANDING) for t in range(14))
+                        elif attr == "seated":
+                            current = sum(expression(p,t,lambda r:r.actual_work_time_value == 1 and r.posture_or_mode == Posture.SEATED) for t in range(14))
+                        elif attr in ("actual_work_time_value", "actual_rest_time_value"):
+                            current = sum(int(getattr(r,attr))*v for t in range(14) for r,v in zip(opts[p,t],variables[p,t]))
+                        else:
+                            current = sum(int(r.fatigue_value)*v for t in range(14) for r,v in zip(opts[p,t],variables[p,t]) if r.actual_post_or_work_type.kind == K.PATROL)
+                        values.append((int(prior[p])+current)*(scale//denominator[p]))
+                    hi=model.new_int_var(0,1000,"history_"+attr+"_max")
+                    lo=model.new_int_var(0,1000,"history_"+attr+"_min")
+                    model.add_max_equality(hi, values); model.add_min_equality(lo, values)
+                    objectives.append(("history_"+attr+"_spread",hi-lo))
+            if not rules_v212 and (previous_install_ids or previous_remove_ids):
+                recent_role_reversal = sum(expression(p,10,lambda r:r.barrier_remove_flag) for p in previous_install_ids if p in people)
+                recent_role_reversal += sum(expression(p,2,lambda r:r.barrier_install_flag) for p in previous_remove_ids if p in people)
+                objectives.append(("previous_barrier_role_reversal",recent_role_reversal))
+            if prioritize_history_within_daily_targets:
+                objectives.append(("general_balance",sum(spreads)))
+            if rules_v27 and not rules_v212:
+                posture_triples = []
+                for p in people:
+                    for posture in (Posture.STANDING, Posture.SEATED):
+                        for start in range(12):
+                            n = sum(expression(p, j, lambda r: r.actual_work_time_value == 1 and r.posture_or_mode == posture) for j in range(start, start + 3))
+                            flag = model.new_bool_var(f"posture_triple_{p}_{posture}_{start}")
+                            model.add(n == 3).only_enforce_if(flag)
+                            model.add(n <= 2).only_enforce_if(flag.Not())
+                            posture_triples.append(flag)
+                # H-06 is a strong preference, not a feasibility constraint.
+                objectives.append(("same_posture_triples", sum(posture_triples)))
+            # 15-8/14-8 [soft, 2026-09-30]: over the last 3 cycles (6 nights), give
+            # barrier duty and each patrol zone to whoever has done it least per night.
+            if duty_rates:
+                duty_cost = []
+                duty_preds = {
+                    "barrier": lambda r: r.barrier_install_flag or r.barrier_remove_flag,
+                    "upper": lambda r: r.actual_post_or_work_type.kind == K.PATROL and r.actual_post_or_work_type.label == "upper",
+                    "middle": lambda r: r.actual_post_or_work_type.kind == K.PATROL and r.actual_post_or_work_type.label == "middle",
+                    "lower": lambda r: r.actual_post_or_work_type.kind == K.PATROL and r.actual_post_or_work_type.label == "lower",
+                }
+                for metric, pred in duty_preds.items():
+                    for p in policy.general_ids:
+                        # coarse 0~10 scale: same ordering, far easier to prove optimal
+                        rate = round(int((duty_rates.get(metric) or {}).get(p, 0)) / 10)
+                        if rate:
+                            duty_cost.append(rate * sum(expression(p, t, pred) for t in range(14)))
+                if duty_cost:
+                    objectives.append(("duty_3cycle_balance", sum(duty_cost)))
+            # Soft actual-work burden includes barriers: their exclusion from
+            # H-08 must not make long uninterrupted duty look preferable.
+            actual_long=[]
+            for p in people:
+                for length in range(4,15):
+                    for start in range(15-length):
+                        n=sum(expression(p,j,lambda r:r.actual_work_time_value == 1) for j in range(start,start+length))
+                        flag=model.new_bool_var(f"actual_run_{p}_{start}_{length}")
+                        model.add(n == length).only_enforce_if(flag)
+                        model.add(n < length).only_enforce_if(flag.Not())
+                        actual_long.append(flag)
+            objectives.append(("actual_work_long_runs",sum(actual_long)))
+            four=[]
+            for p in people:
+                for start in range(11):
+                    n=sum(expression(p,j,lambda r:r.counts_for_continuous_work_restriction or r.actual_post_or_work_type.kind == K.PATROL) for j in range(start,start+4))
+                    flag=model.new_bool_var(f"four_{p}_{start}")
+                    model.add(n == 4).only_enforce_if(flag)
+                    model.add(n <= 3).only_enforce_if(flag.Not())
+                    four.append(debt_weight(soft_debt, "H-08", p) * flag if rules_v213 else flag)
+            objectives.append(("four_hour_runs",sum(four)))
+            sandwiches=[]
+            for p in people:
+                for t in (2,10):
+                    n=expression(p,t,lambda r:r.actual_post_or_work_type.kind == K.BARRIER_ONLY)+expression(p,t-1,lambda r:r.actual_work_time_value == 1)+expression(p,t+1,lambda r:r.actual_work_time_value == 1)
+                    flag=model.new_bool_var(f"barrier_between_{p}_{t}")
+                    model.add(n == 3).only_enforce_if(flag)
+                    model.add(n <= 2).only_enforce_if(flag.Not())
+                    sandwiches.append(debt_weight(soft_debt, "15-7", p) * flag if rules_v213 else flag)
+            objectives.append(("avoid_barrier_between_work",sum(sandwiches)))
+            prefer04=expression(policy.manager_id,10,lambda r:r.actual_work_time_value == 1 and r.displayed_assignment.label != "I1")
+            prefer07=expression(policy.manager_id,13,lambda r:r.actual_work_time_value == 1)
+            objectives.append(("manager_post_preferences",prefer04+prefer07))
+            if rules_v215 and partial_general_ids:
+                ratio_ids = tuple(p for p in policy.general_ids if available_counts[p] > 0)
+                scale = lcm(*(available_counts[p] for p in ratio_ids))
+                rates = [sum(int(r.actual_work_time_value) * v for t in range(14)
+                             for r, v in zip(opts[p, t], variables[p, t]))
+                         * (scale // available_counts[p]) for p in ratio_ids]
+                if len(rates) >= 2:
+                    hi = model.new_int_var(0, scale, "available_work_rate_max")
+                    lo = model.new_int_var(0, scale, "available_work_rate_min")
+                    model.add_max_equality(hi, rates)
+                    model.add_min_equality(lo, rates)
+                    objectives.append(("availability_normalized_workload", hi - lo))
+            if rules_v27 and (headcount == 4 or rules_v210 and headcount == 5):
+                # §14-3: prefer the repeat patrol at 03, then A for that patrol.
+                repeat_at03 = []
+                for p in people:
+                    early = sum(expression(p,t,lambda r:r.actual_post_or_work_type.kind == K.PATROL) for t in (3,4,5))
+                    late = expression(p,9,lambda r:r.actual_post_or_work_type.kind == K.PATROL)
+                    both = model.new_bool_var(f"repeat_at03_{p}")
+                    model.add(early + late == 2).only_enforce_if(both)
+                    model.add(early + late <= 1).only_enforce_if(both.Not())
+                    repeat_at03.append(both)
+                if rules_v210:
+                    manager_patrols = sum(expression(policy.manager_id, t, lambda r:r.actual_post_or_work_type.kind == K.PATROL) for t in (3,4,5,7,8,9))
+                    objectives.append(("prefer_manager_double_patrol", 2-manager_patrols))
+                objectives.append(("repeat_patrol_at03", 1-sum(repeat_at03)))
+                if not rules_v210:
+                    objectives.append(("manager_second_patrol", 1-expression(policy.manager_id,9,lambda r:r.actual_post_or_work_type.kind == K.PATROL)))
+                if rules_v210:
+                    late_two_hour_rest = []
+                    for p in people:
+                        for t in (7,8,9):
+                            patrol = expression(p,t,lambda r:r.actual_post_or_work_type.kind == K.PATROL)
+                            rest1 = expression(p,t+1,lambda r:r.displayed_assignment.label == "휴게")
+                            rest2 = expression(p,t+2,lambda r:r.displayed_assignment.label == "휴게")
+                            flag = model.new_bool_var(f"late_patrol_two_rest_{p}_{t}")
+                            model.add(patrol + rest1 + rest2 == 3).only_enforce_if(flag)
+                            model.add(patrol + rest1 + rest2 <= 2).only_enforce_if(flag.Not())
+                            late_two_hour_rest.append(flag)
+                    objectives.append(("prefer_late_double_patrol_rest", 1-sum(late_two_hour_rest)))
+            # 17-1 공통 선호 보너스 [소프트, 2026-10-02]: 밸런스·룰북 소프트룰을 다 맞춘 뒤 남는 선택지에서
+            # 00~05시 2시간 이상 연속 실휴게, 07시 실휴게를 준다. 최근 3싸이클 손해 본 사람일수록 가중치↑.
+            if preference_weights:
+                missed_preferences = []
+                rest = lambda r: r.actual_rest_time_value == 1  # noqa: E731
+                for p in policy.general_ids:
+                    weight = int(preference_weights.get(p, 0))
+                    if weight <= 0:
+                        continue
+                    pairs = []
+                    for t in range(6, 11):                       # (00·01) … (04·05)
+                        pair = model.new_bool_var(f"pref_rest_pair_{p}_{t}")
+                        model.add(pair <= expression(p, t, rest))
+                        model.add(pair <= expression(p, t + 1, rest))
+                        pairs.append(pair)
+                    long_rest = model.new_bool_var(f"pref_long_rest_{p}")
+                    model.add(long_rest <= sum(pairs))
+                    missed_preferences.append(weight * (1 - long_rest))
+                    missed_preferences.append(weight * (1 - expression(p, 13, rest)))
+                if missed_preferences:
+                    objectives.append(("preference_bonus", sum(missed_preferences)))
+            standby20=sum(expression(p,2,lambda r:r.displayed_assignment.label == "보안실 대기") for p in people)
+            if context.effective_mode == Mode.FM and profile_absence == 0:
+                deficit=model.new_int_var(0,2,"standby20_deficit")
+                excess=model.new_int_var(0,len(people),"standby20_excess")
+                model.add_max_equality(deficit,[0,2-standby20])
+                model.add_max_equality(excess,[0,standby20-2])
+                objectives.append(("optional_second_standby",deficit+excess))
+            # 12장 보완 (2026-10-01): FM 시간(20·04시 제외)에는 비근무자가 2명 이상이면
+            # 정확히 1명을 보안실 대기, 나머지는 휴게. 1명 이하면 보안실 대기 없음.
+            # 보안실 대기는 밤 전체에서 사람마다 고르게 돌린다.
+            fm_slots = [t for t in range(14) if t not in (2, 10) and mode_at(context, t) == Mode.FM]
+            is_standby = lambda r: r.displayed_assignment.label == "보안실 대기"  # noqa: E731
+            is_off = lambda r: r.displayed_assignment.label in ("휴게", "보안실 대기") and r.actual_work_time_value == 0  # noqa: E731
+            missing_standby = []
+            for t in fm_slots:
+                standby_t = sum(expression(p, t, is_standby) for p in people)
+                off_t = sum(expression(p, t, is_off) for p in people)
+                two_off = model.new_bool_var(f"fm_two_off_{t}")
+                model.add(off_t >= 2).only_enforce_if(two_off)
+                model.add(off_t <= 1).only_enforce_if(two_off.Not())
+                model.add(standby_t <= two_off)
+                missing_standby.append(two_off - standby_t)
+            if fm_slots:
+                objectives.append(("fm_one_standby", sum(missing_standby)))
+                counts = [sum(expression(p, t, is_standby) for t in fm_slots) for p in people]
+                if len(counts) >= 2:
+                    hi = model.new_int_var(0, 14, "standby_hi"); lo = model.new_int_var(0, 14, "standby_lo")
+                    model.add_max_equality(hi, counts); model.add_min_equality(lo, counts)
+                    objectives.append(("fm_standby_spread", hi - lo))
+            flexible_slots = [t for t in range(14) if t not in (2, 10) and t not in fm_slots]
+            if flexible_slots:
+                optional=sum(expression(p,t,is_standby) for p in people for t in flexible_slots)
+                objectives.append(("remaining_off_duty_rest",optional))
+            # 룰북 0-2-1 (2026-10-02 사용자 확정): FM을 고르면 먼저 'FM·유도리 모두 만족' 해를 찾는다.
+            # 같은 표시표를 유도리(10-1 I1 00~03시 휴게성, 10-4·10-5 차단봉)로 계산해도 지켜야 하는
+            # 조건 중 FM과 달라지는 것만 더한다: A 격차(H-15·8-4-2)와 유도리 20시 설치자 ≠ 04시 I1(철수).
+            # 최종 판정은 서비스가 유도리로 계산한 표를 독립 Validator로 다시 검사해서 한다.
+            if dual_flexible and context.effective_mode == Mode.FM and switch_slot is None:
+                _add_dual_flexible_constraints(
+                    model, opts, variables, policy, context, people, partial_general_ids,
+                    gap_rule=not manager_vacancy_policy,
+                    fatigue_rule=headcount in (5, 6) and not (rules_v218 and profile_absence == 2),
+                    fatigue_band=(0, 2) if rules_v219 and not manager_is_proxy else (-4, 4),
+                    skip_partial=rules_v215, balance=dual_balance)
+            # A stage that runs out of time keeps its best value as an upper bound
+            # (never frozen as if proven) and later stages still run, warm-started
+            # from the previous solution; the whole staged run shares a time budget.
+            all_vars = [v for key in variables for v in variables[key]]
+            budget = max(seconds * 3, 30)
+            spent = 0.0
+            best_status = None
+            best_values = None
+            for objective_name, objective in objectives:
+                model.minimize(objective)
+                cap = STAGE_TIME_CAPS.get(objective_name, float(seconds))
+                solver.parameters.max_time_in_seconds = max(3.0, min(float(seconds), cap, budget - spent))
+                status=solver.solve(model)
+                spent += solver.wall_time
+                attempts.append({"stage":objective_name,"status":solver.status_name(status),"seconds":solver.wall_time,
+                                 "value":solver.value(objective) if status in (cp_model.OPTIMAL,cp_model.FEASIBLE) else None})
+                if status not in (cp_model.OPTIMAL, cp_model.FEASIBLE):
+                    if best_status is None:
+                        break
+                    status = best_status        # keep the last good solution below
+                    break
+                value = solver.value(objective)
+                best_values = {v.index: solver.value(v) for v in all_vars}
+                model.clear_hints()
+                for v in all_vars:
+                    model.add_hint(v, best_values[v.index])
+                if status == cp_model.OPTIMAL:
+                    model.add(objective == value)
+                else:
+                    model.add(objective <= value)
+                best_status = status
+        else:
+            status = solver.solve(model)
+        name = solver.status_name(status)
+        attempts.append({"balance_target_probe": target_probe, "status": name, "seconds": solver.wall_time,
+                         "refinement": refinement,
+                         "rules_v22": rules_v22,
+                         "vacancy_policy": vacancy_policy,
+                         "minimize_a": minimize_a,
+                         "a_objective_value": solver.objective_value if minimize_a and not rules_v26 and status in (cp_model.OPTIMAL, cp_model.FEASIBLE) else None,
+                         "a_objective_bound": solver.best_objective_bound if minimize_a and not rules_v26 else None,
+                         "unchanged_duty_slots": solver.objective_value if baseline_assignments is not None and status in (cp_model.OPTIMAL, cp_model.FEASIBLE) else None})
+        if status in (cp_model.OPTIMAL, cp_model.FEASIBLE):
+            kept = locals().get("best_values")
+            value_of = (lambda v: kept[v.index]) if kept else solver.value
+            rows = tuple(next(r for r, v in zip(opts[p, t], variables[p, t]) if value_of(v)) for p in people for t in range(14))
+            record = ShiftRecord(f"trial-{context.shift_start_date}-{context.effective_mode.value}", RecordKind.PLAN, context, rows)
+            # OPTIMAL on a satisfaction problem means feasible, not optimal balance.
+            return SolveResult("FEASIBLE", record, attempts, target_probe)
+        if status == cp_model.MODEL_INVALID:
+            return SolveResult("MODEL_INVALID", None, attempts, False)
+    return SolveResult("INFEASIBLE" if status == cp_model.INFEASIBLE else "UNKNOWN", None, attempts, False)

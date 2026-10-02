@@ -1,0 +1,161 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<style>
+  body { margin: 0; font-family: "Source Sans Pro", "Noto Sans KR", sans-serif; color: #111827; background: transparent;
+         overflow: hidden; user-select: none; }
+  .head { display: flex; align-items: center; gap: 4px; margin: 2px 0 6px; }
+  .head select { font: inherit; font-weight: 700; font-size: .92rem; border: 1px solid transparent; border-radius: 6px;
+                 background: transparent; padding: 2px 2px; cursor: pointer; color: #111827; }
+  .head select:hover { border-color: #cbd5e1; background: #fff; }
+  .head .nav { margin-left: auto; display: flex; gap: 2px; }
+  .head button { border: 1px solid #e2e8f0; background: #fff; border-radius: 6px; width: 26px; height: 24px;
+                 cursor: pointer; font-size: .8rem; color: #475569; }
+  .head button:hover { background: #f1f5f9; }
+  .viewport { position: relative; overflow: hidden; }
+  .month { transition: transform .28s ease, opacity .28s ease; }
+  .month.out-up { transform: translateY(-30px); opacity: 0; }
+  .month.out-down { transform: translateY(30px); opacity: 0; }
+  .month.no-anim { transition: none; }
+  table { border-collapse: separate; border-spacing: 2px; width: 100%; table-layout: fixed; font-size: .78rem; }
+  th { padding: 2px; font-weight: 600; color: #475569; }
+  th.red { color: #dc2626; }
+  td { border-radius: 6px; padding: 2px 0; text-align: center; line-height: 1.15; cursor: pointer; }
+  td:hover { filter: brightness(.95); box-shadow: inset 0 0 0 1px #94a3b8; }
+  td.empty { cursor: default; background: transparent !important; box-shadow: none !important; }
+  td.sel { box-shadow: inset 0 0 0 2px #7c3aed !important; }
+  td.today .d { text-decoration: underline; }
+  .d { font-weight: 600; }
+  .d.red { color: #dc2626; }
+  .k { font-size: .62rem; color: #475569; }
+  .dot { color: #16a34a; font-size: .6rem; vertical-align: top; }
+  .legend { font-size: .66rem; color: #475569; margin-top: 4px; line-height: 1.5; }
+  .legend span.b { padding: 0 4px; border-radius: 3px; }
+  .hint { font-size: .62rem; color: #94a3b8; }
+  td { color: #111827; }                       /* 날짜 칸은 밝은 바탕이라 항상 검은 글자 */
+  /* 다크모드 (Streamlit 테마를 받아 body.dark): 칸 밖 글자를 밝게 */
+  body.dark, body.dark .head select { color: #e5e7eb; }
+  body.dark .head select option { background: #1f2937; color: #e5e7eb; }
+  body.dark .head select:hover { background: #1f2937; border-color: #475569; }
+  body.dark .head button { background: #1f2937; border-color: #475569; color: #e5e7eb; }
+  body.dark .head button:hover { background: #374151; }
+  body.dark th { color: #cbd5e1; }
+  body.dark th.red { color: #f87171; }
+  body.dark .legend { color: #cbd5e1; }
+  body.dark .legend span.b { color: #111827; }
+  body.dark .hint { color: #9ca3af; }
+</style>
+</head>
+<body>
+<div class="head">
+  <select id="year"></select><select id="month"></select>
+  <div class="nav"><button id="prev" title="이전 달">▲</button><button id="next" title="다음 달">▼</button></div>
+</div>
+<div class="viewport"><div class="month" id="grid"></div></div>
+<div class="legend">
+  <span class="b" style="background:#FEF3C7">주</span> 주간 · <span class="b" style="background:#DBEAFE">야</span> 야간 ·
+  <span class="b" style="background:#F1F5F9">휴</span> 휴무 · <span style="color:#DC2626">빨간 숫자</span> 주말·공휴일 ·
+  <span style="color:#16A34A">●</span> 저장된 근무표<br><span class="hint">날짜를 누르면 선택 · 달력 위에서 휠을 굴리면 달 이동</span>
+</div>
+<script>
+  function send(type, payload) {
+    window.parent.postMessage(Object.assign({ isStreamlitMessage: true, apiVersion: 1, type: type }, payload || {}), "*");
+  }
+  function setHeight() { send("streamlit:setFrameHeight", { height: document.body.scrollHeight + 6 }); }
+  const COLORS = { "주": "#FEF3C7", "야": "#DBEAFE", "휴": "#F1F5F9" };
+  const PATTERN = ["주", "주", "야", "야", "휴", "휴"];
+  let data = null, viewY = null, viewM = null, lastSelected = null, busy = false, wheelAcc = 0;
+
+  const iso = (y, m, d) => y + "-" + String(m).padStart(2, "0") + "-" + String(d).padStart(2, "0");
+  function utc(s) { const [y, m, d] = s.split("-").map(Number); return Date.UTC(y, m - 1, d); }
+  function kind(s) {
+    const diff = Math.round((utc(s) - utc(data.pattern_start)) / 86400000);
+    return PATTERN[((diff % 6) + 6) % 6];
+  }
+  function fillSelectors() {
+    const ys = document.getElementById("year"), ms = document.getElementById("month");
+    if (!ys.options.length) {
+      for (let y = data.year_from; y <= data.year_to; y++) ys.add(new Option(y + "년", y));
+      for (let m = 1; m <= 12; m++) ms.add(new Option(m + "월", m));
+      ys.onchange = () => go(Number(ys.value), viewM, 0);
+      ms.onchange = () => go(viewY, Number(ms.value), 0);
+    }
+    ys.value = viewY; ms.value = viewM;
+  }
+  function draw() {
+    fillSelectors();
+    const saved = new Set(data.saved || []);
+    const first = new Date(Date.UTC(viewY, viewM - 1, 1)).getUTCDay();   // 0 = Sunday
+    const days = new Date(Date.UTC(viewY, viewM, 0)).getUTCDate();
+    let html = "<table><tr>" + "일월화수목금토".split("").map((d, i) =>
+      "<th class='" + (i === 0 || i === 6 ? "red" : "") + "'>" + d + "</th>").join("") + "</tr><tr>";
+    let col = 0;
+    for (let i = 0; i < first; i++, col++) html += "<td class='empty'></td>";
+    for (let d = 1; d <= days; d++, col++) {
+      if (col && col % 7 === 0) html += "</tr><tr>";
+      const s = iso(viewY, viewM, d), k = kind(s), dow = col % 7;
+      const holiday = data.holidays[s];
+      const red = dow === 0 || dow === 6 || holiday;
+      const cls = [s === data.selected ? "sel" : "", s === data.today ? "today" : ""].join(" ");
+      html += "<td class='" + cls + "' data-date='" + s + "' style='background:" + COLORS[k] + "' title='" +
+              (holiday || "") + "'><div class='d" + (red ? " red" : "") + "'>" + d +
+              (saved.has(s) ? "<span class='dot'>●</span>" : "") + "</div><div class='k'>" + k + "</div></td>";
+    }
+    while (col % 7) { html += "<td class='empty'></td>"; col++; }
+    html += "</tr></table>";
+    const grid = document.getElementById("grid");
+    grid.innerHTML = html;
+    grid.querySelectorAll("td[data-date]").forEach(td => td.addEventListener("click", () => {
+      data.selected = td.dataset.date; lastSelected = td.dataset.date; draw();
+      send("streamlit:setComponentValue", { value: { date: td.dataset.date,
+        nonce: Date.now() + "-" + Math.random().toString(36).slice(2) }, dataType: "json" });
+    }));
+    setHeight();
+  }
+  function go(y, m, dir) {
+    while (m > 12) { m -= 12; y += 1; }
+    while (m < 1) { m += 12; y -= 1; }
+    if (y < data.year_from || y > data.year_to) { fillSelectors(); return; }
+    const grid = document.getElementById("grid");
+    if (!dir) { viewY = y; viewM = m; draw(); return; }
+    busy = true;
+    grid.classList.remove("no-anim");
+    grid.classList.add(dir > 0 ? "out-up" : "out-down");
+    setTimeout(() => {
+      viewY = y; viewM = m; draw();
+      grid.classList.add("no-anim");
+      grid.classList.remove("out-up", "out-down");
+      grid.classList.add(dir > 0 ? "out-down" : "out-up");
+      void grid.offsetHeight;
+      grid.classList.remove("no-anim");
+      grid.classList.remove("out-up", "out-down");
+      setTimeout(() => { busy = false; }, 280);
+    }, 180);
+  }
+  document.getElementById("prev").onclick = () => go(viewY, viewM - 1, -1);
+  document.getElementById("next").onclick = () => go(viewY, viewM + 1, 1);
+  window.addEventListener("wheel", e => {
+    e.preventDefault();                 // keep the page from scrolling while over the calendar
+    if (busy) return;
+    wheelAcc += e.deltaY;
+    if (Math.abs(wheelAcc) < 40) return;
+    const dir = wheelAcc > 0 ? 1 : -1;  // down = next month, up = previous month
+    wheelAcc = 0;
+    go(viewY, viewM + dir, dir);
+  }, { passive: false });
+  window.addEventListener("message", event => {
+    const msg = event.data;
+    if (!msg || msg.type !== "streamlit:render") return;
+    document.body.classList.toggle("dark", !!(msg.theme && msg.theme.base === "dark"));
+    data = msg.args.data;
+    if (viewY === null || data.selected !== lastSelected) {
+      const [y, m] = data.selected.split("-").map(Number);
+      viewY = y; viewM = m; lastSelected = data.selected;
+    }
+    draw();
+  });
+  send("streamlit:componentReady");
+</script>
+</body>
+</html>

@@ -1,0 +1,214 @@
+{
+ "version": 1,
+ "kind": "day",
+ "date": "2026-10-13",
+ "people": [
+  {
+   "pid": "원종",
+   "name": "원종",
+   "status": "출근",
+   "number": 2,
+   "leave_from": null
+  },
+  {
+   "pid": "도운",
+   "name": "도운",
+   "status": "출근",
+   "number": 5,
+   "leave_from": null
+  },
+  {
+   "pid": "준형",
+   "name": "준형",
+   "status": "출근",
+   "number": 4,
+   "leave_from": null
+  },
+  {
+   "pid": "만년",
+   "name": "만년",
+   "status": "출근",
+   "number": 9,
+   "leave_from": null
+  },
+  {
+   "pid": "용주",
+   "name": "용주",
+   "status": "출근",
+   "number": 1,
+   "leave_from": null
+  },
+  {
+   "pid": "제욱",
+   "name": "제욱",
+   "status": "출근",
+   "number": 8,
+   "leave_from": null
+  },
+  {
+   "pid": "광희",
+   "name": "광희",
+   "status": "출근",
+   "number": 3,
+   "leave_from": null
+  },
+  {
+   "pid": "준호",
+   "name": "준호",
+   "status": "출근",
+   "number": 7,
+   "leave_from": null
+  },
+  {
+   "pid": "성욱",
+   "name": "성욱",
+   "status": "출근",
+   "number": 6,
+   "leave_from": null
+  },
+  {
+   "pid": "성호",
+   "name": "성호",
+   "status": "연차",
+   "number": null,
+   "leave_from": null
+  }
+ ],
+ "grid": {
+  "원종": [
+   "G2",
+   "휴게",
+   "G3",
+   "L1",
+   "휴게",
+   "L2",
+   "C1",
+   "순찰",
+   "G1",
+   "G2"
+  ],
+  "도운": [
+   "L2",
+   "C1",
+   "순찰",
+   "G1",
+   "G2",
+   "대기",
+   "G3",
+   "L1",
+   "휴게",
+   "L2"
+  ],
+  "준형": [
+   "L1",
+   "대기",
+   "L2",
+   "C1",
+   "휴게",
+   "G1",
+   "G2",
+   "대기",
+   "G3",
+   "L1"
+  ],
+  "만년": [
+   "휴게",
+   "L2",
+   "C1",
+   "대기",
+   "G1",
+   "G2",
+   "교육",
+   "G3",
+   "L1",
+   "순찰"
+  ],
+  "용주": [
+   "G1",
+   "G2",
+   "교육",
+   "G3",
+   "L1",
+   "휴게",
+   "L2",
+   "C1",
+   "순찰",
+   "G1"
+  ],
+  "제욱": [
+   "대기",
+   "G3",
+   "L1",
+   "휴게",
+   "L2",
+   "C1",
+   "순찰",
+   "G1",
+   "G2",
+   "휴게"
+  ],
+  "광희": [
+   "G3",
+   "L1",
+   "교육",
+   "L2",
+   "C1",
+   "휴게",
+   "G1",
+   "G2",
+   "대기",
+   "G3"
+  ],
+  "준호": [
+   "순찰",
+   "G1",
+   "G2",
+   "휴게",
+   "G3",
+   "L1",
+   "교육",
+   "L2",
+   "C1",
+   "대기"
+  ],
+  "성욱": [
+   "C1",
+   "순찰",
+   "G1",
+   "G2",
+   "대기",
+   "G3",
+   "L1",
+   "휴게",
+   "L2",
+   "C1"
+  ],
+  "성호": [
+   null,
+   null,
+   null,
+   null,
+   null,
+   null,
+   null,
+   null,
+   null,
+   null
+  ]
+ },
+ "shuttle": {
+  "0": "성욱",
+  "3": "준형",
+  "5": "제욱",
+  "8": "준호"
+ },
+ "control": true,
+ "control_patrol": 3,
+ "strict": false,
+ "fixed_template": 9,
+ "locked_through": null,
+ "emergency": null,
+ "fill": {},
+ "confirmed_at": "2026-10-01T22:29:14",
+ "note": ""
+}
