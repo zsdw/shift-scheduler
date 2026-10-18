@@ -27,6 +27,38 @@ class WeekendFormTests(unittest.TestCase):
     def tearDown(self):
         self.tmp.cleanup()
 
+    def test_full_day_proxy_number_is_consistent_in_table_and_field_form(self):
+        from copy import deepcopy
+        from dataclasses import replace
+        import re
+        from weekend_day_ui import sheet_html
+        from night_shift.weekend_day import display_numbers, stats
+        names = {**NAMES, 'A': '준호 대행', '1': '만년'}
+        s = replace(self.s, names=names)
+        before = deepcopy(s)
+        mapping = display_numbers(s)
+        self.assertEqual((mapping['A'], mapping['1']), ('1', '2'))
+        for compact in (False, True):
+            html = sheet_html(s, compact=compact)
+            text = re.sub('<[^>]+>', '', html)
+            self.assertIn('1준호', text)
+            self.assertNotIn('통제A(준호', text)
+            self.assertNotIn('대행', text)
+            self.assertRegex(html, r"<td data-who='A'[^>]*data-col='G2'[^>]*>1</td>")
+            self.assertRegex(html, r"<td data-who='1'[^>]*data-col='G1'[^>]*>2</td>")
+            self.assertRegex(html, r"<span data-who='A'[^>]*>1</span>")
+        top, _, hours = wf.cells_for(s, self.store, {})
+        self.assertEqual(top[:2], ['1준호', '2만년'])
+        self.assertEqual(hours[9]['G2'], '1')
+        self.assertEqual(hours[8]['G1'], '2')
+        self.assertEqual(hours[8]['휴게'], '1.3')
+        self.assertIn('1 · 준호', [r['직원'] for r in stats(s, 'FM')])
+        self.assertEqual(s, before)  # 표시만 바꾸고 저장 ID·배정·대행 조건은 보존
+
+    def test_normal_control_keeps_original_numbers(self):
+        from night_shift.weekend_day import display_numbers
+        self.assertEqual(display_numbers(self.s), {p: p for p in self.s.grid})
+
     def test_cells_match_original_sheet(self):
         v = wf.build_spec(self.s, self.store, CP)["values"]
         self.assertEqual(v["A3"], "2026년 09월 19일 토요일 근무조 : A조")

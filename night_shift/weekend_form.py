@@ -107,18 +107,23 @@ def cells_for(schedule, store, cp: dict | None, review: dict | None = None):
                 hour[label] = text
             hours[8 + t] = hour
     else:
+        from .weekend_day import display_numbers, display_name
+        displayed = display_numbers(schedule)
+        numbered_proxy = displayed.get('A') == '1'
         numbers = sorted((p for p in schedule.grid if p != "A"), key=int)
-        names = {int(p): schedule.names.get(p, p) for p in numbers}
+        names = {int(displayed[p]): display_name(schedule, p) for p in numbers}
+        if numbered_proxy:
+            names[1] = display_name(schedule, 'A')
         cps = cp or {}
-        controls = [control] if "A" in schedule.grid else []
+        controls = [control] if "A" in schedule.grid and not numbered_proxy else []
         cp_text = _cp_hours(store, day, cps)
         hours = {}
         for t in range(10):
             col = {p: row[t] for p, row in schedule.grid.items()}
 
             def who(label):
-                lead = [control] if col.get("A") == label else []
-                return lead + [p for p in numbers if col[p] == label]
+                lead = [displayed['A'] if numbered_proxy else control] if col.get("A") == label else []
+                return lead + [displayed[p] for p in numbers if col[p] == label]
             g2 = who("G2")
             hour = {"G1": who("G1"), "G2": g2[:1], "G3": g2[1:], "I1": who("I1"), "L1": who("L1"),
                     "순찰": who("순찰"), "대기": who("대기"), "휴게": who("휴게")}   # 대기: 2026-10-18 보안실 대기

@@ -60,6 +60,27 @@ class WeekendSchedule:
 PLANNED_OFF = {'오후반차': range(5, 10), '오전반차': range(0, 5)}
 
 
+def display_numbers(schedule):
+    """전일 대행은 1번부터 표시한다. 내부 역할 ID와 저장된 배정은 보존한다."""
+    people = list(schedule.grid)
+    if '대행' in schedule.names.get('A', '') and 'A' in people:
+        order = ['A'] + sorted((p for p in people if p != 'A'), key=int)
+        return {p: str(i + 1) for i, p in enumerate(order)}
+    return {p: p for p in people}
+
+
+def display_name(schedule, pid):
+    name = schedule.names.get(pid, pid)
+    return name.replace(' 대행', '').strip() if pid == 'A' and display_numbers(schedule).get(pid) == '1' else name
+
+
+def person_label(schedule, pid):
+    number = display_numbers(schedule).get(pid, pid)
+    if number == 'A':
+        return '통제E' if schedule.names.get(pid, '').startswith('통제E') else '통제A'
+    return f'{number}{display_name(schedule, pid)}'
+
+
 def off_slots(schedule, pid):
     """근무불가 칸 (미리 정한 반차 + 긴급 반차·이탈, 통제A 반차 포함)."""
     out = set(PLANNED_OFF.get(schedule.half_days.get(pid), ()))
@@ -102,7 +123,7 @@ def stats(schedule, mode):
         patrol = sum(PATROL.get(t, ('', 0))[1] for t, v in enumerate(row) if v == '순찰')
         work = standing + seated + row.count('순찰')
         rest = 10 - work - row.count(OFF)
-        name = f'{pid} · {schedule.names[pid]}' + (f' ({leave_text(schedule, pid)})' if leave_text(schedule, pid) else '')
+        name = f'{display_numbers(schedule)[pid]} · {display_name(schedule, pid)}' + (f' ({leave_text(schedule, pid)})' if leave_text(schedule, pid) else '')
         extra = sum(int(a.get('fatigue', 0)) for a in getattr(schedule, 'annotations', ()) if a.get('pid') == pid)
         out.append({'직원': name, '실근무': work, '실휴게': rest,
                     '피로도': standing*2+seated+patrol+extra, '입식': standing, '좌식': seated,
@@ -168,7 +189,7 @@ def repeats_of(schedule):
     for pid, row in schedule.grid.items():
         for t in range(9):
             if row[t] in LABELS[:4] and row[t] == row[t + 1]:
-                out.append(f"{'통제A' if pid == 'A' else pid + '번'} {8+t}~{10+t}시 {row[t]}")
+                out.append(f"{person_label(schedule, pid)} {8+t}~{10+t}시 {row[t]}")
     return out
 
 

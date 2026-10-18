@@ -11,7 +11,7 @@ from day_ui import (_DAY_GRID, _ROSTER_PICKER, NIGHT_TEAM, WEEKDAYS, HATCH, _num
 from night_shift.patrol_history import load_events
 from night_shift.weekend_day import (generate, validate, advisories, repeats_of, reoptimize, emergency_candidates,
                                      stats, save, load, leave_text, half_rest_hours, partial_people, LABELS, PATROL, OFF, HALF_DAY_LEAVE, KINDS, STANDBY,
-                                     history_debt, emergency_gap, diagnose)
+                                     history_debt, emergency_gap, diagnose, display_numbers, display_name, person_label)
 
 STORE = day_store_dir().parent/'weekend_day'
 STATUSES = ('출근', '연차', '오전반차', '오후반차', '기타')   # 반차는 평일과 같은 시간 (2026-10-05)
@@ -86,11 +86,12 @@ def _marks(s, pid, t):
 def _cell(s, pid, t, col, zone='', changed=frozenset()):
     """번호 칸 (끌어서 교환용 data-who·data-t·data-col). changed: 저장본과 달라진 (사람, 시간)."""
     mark = _marks(s, pid, t)
-    if pid == 'A':
+    number = display_numbers(s)[pid]
+    if number == 'A':
         edge = CHANGED if (pid, t) in changed else ''
         return (f"<td data-who='A' data-t='{t}' data-col='{escape(col)}' title='통제A' style='font-weight:800;{edge}'>"
                 f"A{mark}{zone}</td>")
-    html = _num_cell(int(pid), pid=pid, name=s.names[pid], t=t, col=col)
+    html = _num_cell(int(number), pid=pid, name=display_name(s, pid), t=t, col=col)
     if (pid, t) in changed:
         html = html.replace("style='", f"style='{CHANGED}", 1)
     return html.replace('</td>', f'{mark}{zone}</td>') if zone or mark else html
@@ -135,7 +136,7 @@ def sheet_html(s, pending_lock=None, clickable=(), eligible=(), compact=False, c
     eligible = set(eligible)
 
     def name_cell(p):
-        text = f"{p}{s.names[p]}" + (f" ({leave_text(s, p)})" if leave_text(s, p) else '')
+        text = person_label(s, p) + (f" ({leave_text(s, p)})" if leave_text(s, p) else '')
         style = f" style='{HATCH}'" if p in partial_people(s) else ''
         if pending_lock is not None and p in eligible:
             return (f"<td class='name pick' data-who='{escape(p)}' data-pid='{escape(p)}' role='button' "
@@ -147,7 +148,8 @@ def sheet_html(s, pending_lock=None, clickable=(), eligible=(), compact=False, c
     control = ("통제E" if str(s.names.get('A', '')).startswith('통제E') else
                f"통제A({escape(s.names['A'])})" if '대행' in str(s.names.get('A', '')) else "통제A")
     a_note = f" ({escape(leave_text(s, 'A'))})" if leave_text(s, 'A') else ''      # 통제A 오전·오후반차 (10/18)
-    names = [f"<td class='name' style='font-weight:700'>{control}{a_note}</td>"] + [name_cell(p) for p in people]
+    names = ([name_cell('A')] if display_numbers(s).get('A') == '1' else
+             [f"<td class='name' style='font-weight:700'>{control}{a_note}</td>"]) + [name_cell(p) for p in people]
     try:
         cps = cp_schedule.for_day(store_dir(), _date.fromisoformat(str(s.day)), 'day')
     except (ValueError, OSError):
@@ -207,11 +209,11 @@ def sheet_html(s, pending_lock=None, clickable=(), eligible=(), compact=False, c
         rest = sorted((p for p, v in column.items() if v == '휴게'), key=lambda p: (p != 'A', p))
         off = [p for p, v in column.items() if v == OFF]
         cells.append(f"<td data-t='{t}' data-col='휴게'>" + ".".join(
-            f"<span data-who='{escape(p)}' data-t='{t}' title='{escape(s.names[p])}'"
+            f"<span data-who='{escape(p)}' data-t='{t}' title='{escape(person_label(s, p))}'"
             + (" style='outline:2px solid #dc2626;outline-offset:1px'" if (p, t) in changed else '')
-            + f">{escape(p)}{_marks(s, p, t)}</span>"
+            + f">{escape(display_numbers(s)[p])}{_marks(s, p, t)}</span>"
             for p in rest) + (("." if rest else "") + ".".join(cp_rest) if cp_rest else "")
-            + (f" <span style='color:#9ca3af' title='반차·이탈 근무불가'>{'.'.join(off)}×</span>"
+            + (f" <span style='color:#9ca3af' title='반차·이탈 근무불가'>{'.'.join(display_numbers(s)[p] for p in off)}×</span>"
                if off else '') + "</td>")
         rows.append("<tr>" + "".join(cells) + "</tr>")
     note = ('G2 미운영 · FM·유도리 구분 없음' if not g2_open(s) else
@@ -541,8 +543,8 @@ def weekend_notes(s, field=False, view=None):
             lines.append('💒 웨딩 있는 날 (연차일정 탭에서 입력)')
     except ValueError:
         pass
-    control = '통제E' if str(s.names.get('A', '')).startswith('통제E') else '통제A'
-    name = lambda p: control if p == 'A' else f'{p}{s.names[p]}'
+    control = person_label(s, 'A')
+    name = lambda p: person_label(s, p)
     proxy = getattr(s, 'proxy', None) if getattr(s, 'a_half', None) else None
     off = [f"{name(p)} {leave_text(s, p)}" for p in s.grid if leave_text(s, p) and p not in ('A', proxy)]
     if off:
@@ -553,7 +555,7 @@ def weekend_notes(s, field=False, view=None):
             if s.a_half == '오전반차' else
             f"13시 퇴근 · {name(proxy)}가 마지막 2시간 규칙 계승(16시 {s.grid[proxy][8]} · 17시 {s.grid[proxy][9]})"))
     elif '대행' in str(s.names.get('A', '')):
-        lines.append(f"통제A 연차: {s.names['A']} (통제A 자리, 나머지 근무자 기준 결원 1명 더)")
+        lines.append(f"통제A 연차: {control} (나머지 근무자 기준 결원 1명 더)")
     if not g2_open(s):
         lines.append('결원 2명: G2 미운영 (FM·유도리 같음)')
     a = s.grid['A']
@@ -598,7 +600,7 @@ def long_run_text(s, views=None):
             for t, label in enumerate(row):
                 run = 0 if label in ('휴게', STANDBY, OFF) or (view == '유도리' and label == 'G2') else run + 1
                 if run == 4:
-                    who = '통제A' if p == 'A' else f'{p}{s.names[p]}'
+                    who = person_label(s, p)
                     found.append(f"{view} {who} {8 + t - 3}~{8 + t + 1}시")
     if not found:
         return ''
@@ -615,7 +617,7 @@ def history_text(s, view=None):
     view = view or ('FM' if s.mode == 'FM' else '유도리')
     today = {p: r['피로도'] for p, r in zip(s.grid, stats(s, view))}
     order = sorted(full, key=lambda p: -debt.get(s.names[p], 0))
-    parts = [f"{p}{s.names[p]} {debt.get(s.names[p], 0):+.1f}→{today[p]}점" for p in order]
+    parts = [f"{person_label(s, p)} {debt.get(s.names[p], 0):+.1f}→{today[p]}점" for p in order]
     span = f"{days[-1][5:].replace('-', '/')}~{days[0][5:].replace('-', '/')} {len(days)}회"
     return (f"  \n📜 최근 주말 주간 {span} 손해 피로도(+ 많이 함) → 오늘 피로도({view}): " + ' · '.join(parts)
             + " — 남는 차이는 손해 본 사람이 덜 받게 (n빵·2연속 다음 순위)")
@@ -876,7 +878,7 @@ def _records(day):
             view = 'FM' if s.mode == 'FM' else '유도리'
             col = iso[5:].replace('-', '/')
             for p, r in zip(s.grid, stats(s, view)):
-                who = '통제A' if p == 'A' else s.names[p]
+                who = display_name(s, p) if p != 'A' or display_numbers(s).get(p) == '1' else '통제A'
                 part = f" ({leave_text(s, p)})" if leave_text(s, p) else ''
                 table.setdefault(who, {})[col] = f"{r['피로도']}점·{r['실근무']}h{part}"
             source = '엑셀 원본' if str(data.get('source', '')).startswith(('excel', 'image')) else '프로그램 생성'
@@ -902,7 +904,7 @@ def _actual_editor(s, slot, key, changed, dirty):
     st.caption('✋ 같은 시간 두 번호 끌기 = 실제 근무 교환 · 빨간 테두리 = 저장본과 달라진 칸 · 📝 = 피로도·사유 기록')
     with st.expander('✏️ 칸 직접 수정 · 피로도·사유 기록', expanded=False):
         people = list(s.grid)
-        label = lambda p: '통제A' if p == 'A' else f'{p}번 {s.names[p]}'
+        label = lambda p: person_label(s, p)
         with st.form(key + '_actual_form'):
             c1, c2 = st.columns(2)
             t = c1.selectbox('시간', range(10), format_func=lambda t: f'{8 + t:02d}시', key=key + '_ae_t')
@@ -1067,8 +1069,7 @@ def person_hours(s, pid, view):
 
 def _person_detail(s, key, view):
     """직원 한 명의 시간대별 업무·피로도 (야간 '직원 상세분석'과 같은 뜻, PC·폰 공통)."""
-    control = '통제E' if str(s.names.get('A', '')).startswith('통제E') else '통제A'
-    label = lambda p: control if p == 'A' else f'{p}번 {s.names[p]}' + (f' ({leave_text(s, p)})' if leave_text(s, p) else '')
+    label = lambda p: person_label(s, p) + (f' ({leave_text(s, p)})' if leave_text(s, p) else '')
     pid = st.selectbox('직원', list(s.grid), format_func=label, key=key + '_detail_person')
     row = next(r for p, r in zip(s.grid, stats(s, view)) if p == pid)
     st.caption(f"{view} 기준 · 실근무 {row['실근무']}시간 · 실휴게 {row['실휴게']}시간 · 피로도 {row['피로도']}점 "
@@ -1088,7 +1089,7 @@ def _mobile_emergency(s, key, results, view_key):
     people = emergency_candidates(s, start)
     if not people:
         st.caption('빠질 수 있는 일반근무자가 없습니다.'); return
-    pid = st.selectbox('② 빠지는 사람', people, format_func=lambda p: f'{p}번 {s.names[p]}', key=key + '_mpid')
+    pid = st.selectbox('② 빠지는 사람', people, format_func=lambda p: person_label(s, p), key=key + '_mpid')
     kinds = (['half'] if start <= HALF_DAY_LEAVE and pid not in s.half_days else []) + ['leave']
     labels = {'half': '오후반차 (13시 퇴근)', 'leave': f'긴급 이탈 ({8 + start}시부터)'}
     kind = st.radio('③ 종류', kinds, format_func=labels.get, horizontal=True, key=key + '_mkind')
@@ -1106,13 +1107,13 @@ def _show(s, key, status, results, view_key, mobile, index):
     if s.leavers:
         st.info(f"긴급 재편성표 · {8 + s.locked_through:02d}시까지 기존 배정 LOCK · "
                 f"{8 + s.locked_through + 1:02d}시부터 다시 편성  \n빠진 사람: "
-                + ', '.join(f'{p}번 {s.names[p]} {leave_text(s, p)}' + (
+                + ', '.join(f'{person_label(s, p)} {leave_text(s, p)}' + (
                     ' · 나온 5시간 중 휴게 ' + ' / '.join(f'{v} {half_rest_hours(s, p, v)}시간' for v in views_of(s))
                     + ' (목표 1시간, 다른 근무자 밸런스 다음)' if s.leavers[p]['kind'] == 'half' else '')
                     for p in s.leavers))
     if s.half_days:
         st.info('반차: ' + ', '.join(
-            f"{p}번 {s.names[p]} {v} ({'08~12시 근무' if v == '오후반차' else '13~17시 근무'}) · 휴게 "
+            f"{person_label(s, p)} {v} ({'08~12시 근무' if v == '오후반차' else '13~17시 근무'}) · 휴게 "
             + ' / '.join(f'{m} {half_rest_hours(s, p, m)}시간' for m in views_of(s)) + ' (목표 1시간)'
             for p, v in s.half_days.items()))
     st.markdown(nbbang_text(s, status))
@@ -1288,6 +1289,6 @@ def _show(s, key, status, results, view_key, mobile, index):
         st.rerun()
     if st.session_state.get('flash_wd'):
         st.success(st.session_state.pop('flash_wd'))
-    rows = [{'시간':f'{8+t:02}~{9+t:02}', **{v:' · '.join(p for p,row in s.grid.items() if row[t] == v) for v in LABELS + (STANDBY, OFF)}} for t in range(10)]
+    rows = [{'시간':f'{8+t:02}~{9+t:02}', **{v:' · '.join(display_numbers(s)[p] for p,row in s.grid.items() if row[t] == v) for v in LABELS + (STANDBY, OFF)}} for t in range(10)]
     st.download_button('근무표 CSV 다운로드', pd.DataFrame(rows).to_csv(index=False).encode('utf-8-sig'),
                        file_name=f'{s.day}_공휴일주간.csv', mime='text/csv', key=key+'_csv')
