@@ -543,9 +543,11 @@ def revalidate(result: "ServiceResult", record: ShiftRecord) -> "ServiceResult":
         patrol_events=result.prepared_inputs.patrol_events,
         last_rest_records=result.prepared_inputs.last_rest_records,
         post_cap=not result.post_cap_relaxed and result.rules_version == "2.20",
-        half_day_ids=(None if result.rebalance_info is None else tuple(   # H-09-1: 재편성표는 빠진 사람 제외
+        half_day_ids=(None if result.rebalance_info is None and not record.context.manager_handover else tuple(
+            # H-09-1: 재편성표는 빠진 사람, 관리자 교대표(미리 정한 통제A 반차 포함, 10/18)는 대행자 제외
             a.employee_id for a in record.context.attendance if a.present and a.is_general_worker
-            and a.employee_id != result.rebalance_info.unavailable_employee_id
+            and a.employee_id != (result.rebalance_info.unavailable_employee_id if result.rebalance_info else None)
+            and a.employee_id != (record.context.manager_handover[1] if record.context.manager_handover else None)
             and not all(a.is_available(t) for t in range(14)))),
         **validator_flags_for(result.rules_version, result.rebalance_info is not None))
     if record.context.manager_handover and not errors:
@@ -838,7 +840,7 @@ def _reoptimize_core(base: ServiceResult, reoptimization_start_index: int,
                      unavailable_employee_id: str, unavailable_from_index: int,
                      history: HistorySelection | None = None,
                      options: SolveOptions | None = None,
-                     reason: str = "긴급 반차", exclude=None, forced_rest=()) -> ServiceResult:
+                     reason: str = "긴급 반차", exclude=None, forced_rest=(), extra_locked=()) -> ServiceResult:
     """Lock the performed prefix and optimize the remaining v2.15+ shift.
 
     The returned record still contains all 14 slots, so the ordinary independent
@@ -884,7 +886,7 @@ def _reoptimize_core(base: ServiceResult, reoptimization_start_index: int,
                 mode_change_reason=(f"§0-4-2: 긴급 인원변동으로 {hour} 이후 가용 일반근무자가 4명이 되어 "
                                     f"{hour}부터 유도리·결원 2명 규칙으로 전환"))
     locked = tuple(row for row in base.record.assignments
-                   if row.slot.index < reoptimization_start_index)
+                   if row.slot.index < reoptimization_start_index) + tuple(extra_locked)
     config = options if options is not None else SolveOptions(rules_version=base.rules_version)
     if config.rules_version not in ("2.15", "2.16", "2.17", "2.18", "2.19", "2.20"):
         raise ValueError("긴급 부분고정 재편성은 룰북 v2.15 이상에서만 지원합니다.")
@@ -1045,6 +1047,14 @@ def run_reoptimization(base: ServiceResult, reoptimization_start_index: int,
         raise ValueError("준호가 반차라서 관리자 대행을 끝까지 맡을 수 없습니다.")
     label = f"{reason} · {_hour(k)}부터 준호 관리자 대행"
     manager = _manager_id(base.context)
+    # 2026-10-18 사용자 확정(권장, 하드 아님): 긴급 통제A 이탈로 준호가 대행이 되어도, 원래 표에서 준호가 맡은 차단봉
+    # (20시 설치·04시 철수)은 가능하면 그대로 → 자리 형태에서 그 칸을 관리자 자리 칸으로 고정(LOCK이라 통제A 04시
+    # 철수 금지 규칙은 적용 안 됨). 그렇게 해가 없으면 고정 없이 다시 찾는다(차단봉은 다른 사람에게).
+    keep_barrier = tuple(replace(row, employee_id=manager) for row in base.record.assignments
+                         if row.employee_id == proxy and row.slot.index >= max(k, reoptimization_start_index)
+                         and (row.barrier_install_flag or row.barrier_remove_flag))
+    if keep_barrier:
+        label += f" · 준호 차단봉 {'·'.join(_hour(r.slot.index) for r in keep_barrier)} 그대로"
     last = None
     # Boundary ladder: plain → seat rests at k → seat rests at k and k+1.
     for forced in ((), (k,), (k, k + 1)):
@@ -1053,11 +1063,74 @@ def run_reoptimization(base: ServiceResult, reoptimization_start_index: int,
             break
         last_cells = cells
         seat = _reoptimize_core(base, reoptimization_start_index, proxy, k, history, options, label,
-                                exclude, forced_rest=cells)
+                                exclude, forced_rest=cells, extra_locked=keep_barrier)
+        if keep_barrier and seat.record is None:      # 차단봉 유지는 권장(10/18 사용자): 안 되면 원래대로 옮겨 다시
+            keep_barrier = ()
+            label = label.split(" · 준호 차단봉")[0]
+            seat = _reoptimize_core(base, reoptimization_start_index, proxy, k, history, options, label,
+                                    exclude, forced_rest=cells)
         shown = _to_display(seat, k, proxy)
         shown = replace(shown, rebalance_info=(replace(shown.rebalance_info, unavailable_employee_id=manager)
                                                if shown.rebalance_info else None))
         if seat.record is None or seat.validation_errors:
+            return shown if last is None else last
+        issues = handover_boundary_issues(shown.record, proxy, k)
+        if not issues:
+            return shown
+        last = replace(shown, validation_errors=tuple(
+            {"rule": "handover", "detail": f"{proxy}/{k}: 교대 시점 {issue}"} for issue in issues))
+    return last
+
+
+MANAGER_HALF_SLOT = 7          # 통제A 반차 경계 = 01시 (일반근무자 전반부·후반부 반차와 같음)
+
+
+def _seat_exclusions(exclude, manager: str, proxy: str, k: int):
+    """화면(표시 형태) 근무표 제외 목록을 자리 형태로: k 이후 A·준호 줄 교체."""
+    if not exclude:
+        return exclude
+    other = {manager: proxy, proxy: manager}
+
+    def swap(row):
+        if isinstance(row, dict) and row.get("slot", {}).get("index", -1) >= k and row.get("employee_id") in other:
+            return {**row, "employee_id": other[row["employee_id"]]}
+        return row
+    if exclude and isinstance(exclude[0], dict):
+        return tuple(swap(r) for r in exclude)
+    return tuple(tuple(swap(r) for r in plan) for plan in exclude)
+
+
+def run_schedule_manager_half(request: ShiftRequest, history: HistorySelection | None = None,
+                              options: SolveOptions | None = None) -> ServiceResult:
+    """미리 정한 통제A 후반부 반차(01시 퇴근) (2026-10-18 사용자 확정, 야간 중도 인계와 같은 자리 방식).
+
+    엔진은 '관리자 자리 밤새 + 준호는 01시까지 일반근무'로 풀고, 화면은 01시부터 A·준호 줄을 바꿔 보여 준다
+    (A는 01시부터 ×, 준호가 관리자 대행). 01시 이후 통제A 규칙(04시 대기·I1·철수 금지, 07시 실근무 없음,
+    다음날 공휴일 06시 G1 금지 등)은 준호가 계승한다. 통제A 본인 규칙(I1 최소 1번·대기 최대 2회)은 00시까지만."""
+    k, proxy = MANAGER_HALF_SLOT, HANDOVER_PROXY_ID
+    context = build_context(request)
+    attendance = {a.employee_id: a for a in context.attendance}
+    manager, successor = attendance.get("A"), attendance.get(proxy)
+    if manager is None or not manager.present or not manager.acts_as_manager:
+        raise ValueError("통제A 반차는 통제A가 출근(반나절)하는 날만 고를 수 있습니다.")
+    if (successor is None or not successor.present or not successor.is_general_worker
+            or not all(successor.is_available(t) for t in range(14))):
+        raise ValueError("준호가 하루 전체 출근이 아니라 01시부터 관리자 대행을 맡을 수 없습니다.")
+    seat = replace(context, attendance=tuple(
+        replace(a, available_slot_indices=tuple(range(k))) if a.employee_id == proxy else a
+        for a in context.attendance))
+    config = options if options is not None else SolveOptions(rules_version="2.20")
+    # H-09-1 반차자 규칙은 진짜 반차자만 (자리 형태의 준호 '01시 퇴근'은 대행이라 제외)
+    half_ids = tuple(a.employee_id for a in seat.attendance if a.present and a.is_general_worker
+                     and a.employee_id != proxy and not all(a.is_available(t) for t in range(14)))
+    config = replace(config, manager_a_end_slot=k, half_day_ids=half_ids,
+                     exclude_assignments=_seat_exclusions(config.exclude_assignments, "A", proxy, k))
+    last = None
+    # 교대 경계: 그대로 → 01시 자리 휴게 → 01·02시 자리 휴게 (긴급 중도 인계와 같은 사다리)
+    for forced in ((), (k,), (k, k + 1)):
+        result = run_schedule(seat, history, replace(config, forced_rest_cells=tuple(("A", t) for t in forced)))
+        shown = _to_display(result, k, proxy)
+        if result.record is None or result.validation_errors:
             return shown if last is None else last
         issues = handover_boundary_issues(shown.record, proxy, k)
         if not issues:

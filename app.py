@@ -90,7 +90,11 @@ from night_shift.service import (
     StaffInput,
     run_reoptimization,
     run_schedule,
+    run_schedule_manager_half,
 )
+# 관리자 상태 (2026-10-18: 통제A 후반부 반차 추가 — 01시부터 준호가 관리자 대행, 야간 중도 인계와 같은 방식)
+MANAGER_STATES = ("A 출근", "A 후반부 반차 (01시 퇴근)", "A 결근 (준호 대행)")
+MANAGER_LATE_HALF = MANAGER_STATES[1]
 from night_shift.soft_history import TRACKED_SOFT_RULES
 from night_shift.schedule_edit import explain_errors, grid_payload, swap_person_schedules, swap_schedule_cells
 from night_shift.service import (calculate_all_stats, prepare_engine_inputs, revalidate, rulebook_label,
@@ -283,9 +287,10 @@ def apply_night_leave_defaults(day: date) -> None:
         if name in names and status in NIGHT_STATUSES:
             statuses[names[name]] = status
     manager = defaults.get("A")
-    if manager and manager[0] not in ("연차", OTHER_STATUS):
-        notices.append(f"통제A {manager[0]}: 관리자 상태에는 반차가 없어 출근으로 둡니다. 필요하면 직접 바꾸세요.")
+    if manager and manager[0] not in ("연차", OTHER_STATUS) and not manager[0].startswith("후반부"):
+        notices.append(f"통제A {manager[0]}: 관리자 상태에 전반부 반차는 아직 없어 출근으로 둡니다. 필요하면 직접 바꾸세요.")
     st.session_state["manager_state"] = ("A 결근 (준호 대행)" if manager and manager[0] in ("연차", OTHER_STATUS)
+                                         else MANAGER_LATE_HALF if manager and manager[0].startswith("후반부")
                                          else "A 출근")
     saved = leave_schedule.load_notes(store_dir()).get(day.isoformat(), {}).get("night", {})
     st.session_state["night_other_notes"] = {
@@ -333,7 +338,7 @@ def night_known_presence(a_present: bool, statuses: dict[str, str]) -> dict[str,
 
 
 def rotate_display_numbers() -> None:
-    a_present = st.session_state.get("manager_state", "A 출근") == "A 출근"
+    a_present = st.session_state.get("manager_state", "A 출근") != "A 결근 (준호 대행)"
     presence = night_known_presence(a_present, st.session_state.get("night_statuses", {}))
     st.session_state["display_numbers"] = random_display_numbers(a_present, presence)
 
@@ -1632,8 +1637,10 @@ def _night_page(mobile: bool, side, title_slot, badge_slot) -> None:
         night_name = st.selectbox("야간 유형", tuple(n.value for n in NightType),
                                   format_func=night_type_label, key="night_type_select",
                                   help="날짜를 고르면 평일/주말·공휴일에 맞춰 자동으로 정해집니다. 필요하면 바꿀 수 있습니다.")
-        manager = st.radio("관리자 상태", ("A 출근", "A 결근 (준호 대행)"), key="manager_state")
-        a_present = manager == "A 출근"
+        manager = st.radio("관리자 상태", MANAGER_STATES, key="manager_state",
+                           help="A 후반부 반차: A는 00시까지, 01시부터 준호가 관리자 대행(04시 대기·I1·철수 금지 등 통제A 규칙 계승)")
+        a_present = manager != "A 결근 (준호 대행)"        # 후반부 반차도 A 출근(00시까지)
+        late_half = manager == MANAGER_LATE_HALF
         st.subheader("야간 근무자")
         # 주간과 같은 표: 이름·상태·역할. 상태만 고치고, 상태는 session_state["night_statuses"]에 보관.
         statuses = st.session_state.setdefault("night_statuses", {})
@@ -1641,19 +1648,21 @@ def _night_page(mobile: bool, side, title_slot, badge_slot) -> None:
         def night_role(employee_id, name):
             if employee_id == "6" and not a_present:
                 return "관리자 대행"
+            if employee_id == "6" and late_half:
+                return "관리자 대행 (01시~)"
             return "선임" if name == "준호" else "일반"   # 준호 = 선임 (룰북 8-8)
         if mobile:
             new_statuses = {eid: statuses.get(eid, NIGHT_STATUSES[0]) for eid, _ in ROSTER}
-            if not a_present:
+            if not a_present or late_half:
                 new_statuses["6"] = NIGHT_STATUSES[0]
             event = _ROSTER_PICKER(rows=[{
                 "id": eid, "name": name, "status": new_statuses[eid],
-                "role": night_role(eid, name), "locked": eid == "6" and not a_present
+                "role": night_role(eid, name), "locked": eid == "6" and (not a_present or late_half)
             } for eid, name in ROSTER], options=NIGHT_STATUSES, key="night_roster", default=None)
             if isinstance(event, dict) and event.get("nonce") != st.session_state.get("night_roster_nonce"):
                 st.session_state["night_roster_nonce"] = event.get("nonce")
                 eid, status = event.get("employee"), event.get("status")
-                if eid in new_statuses and status in NIGHT_STATUSES and (a_present or eid != "6"):
+                if eid in new_statuses and status in NIGHT_STATUSES and ((a_present and not late_half) or eid != "6"):
                     new_statuses[eid] = status
                     st.session_state["night_statuses"] = new_statuses
                     st.rerun()
@@ -1665,8 +1674,8 @@ def _night_page(mobile: bool, side, title_slot, badge_slot) -> None:
                 column_config={"상태": st.column_config.SelectboxColumn(options=NIGHT_STATUSES, required=True)})
             new_statuses = {employee_id: (row["상태"] or "출근")
                             for (employee_id, _), (_, row) in zip(ROSTER, edited.iterrows())}
-        if not a_present and new_statuses["6"] != "출근":
-            st.warning("A 결근이면 준호가 관리자 대행이라 출근으로 고정합니다.")
+        if (not a_present or late_half) and new_statuses["6"] != "출근":
+            st.warning("A 결근·후반부 반차면 준호가 관리자 대행이라 출근으로 고정합니다.")
             new_statuses["6"] = "출근"
         st.session_state["night_statuses"] = new_statuses
         presence = {employee_id: status == "출근" for employee_id, status in new_statuses.items()}
@@ -1705,7 +1714,7 @@ def _night_page(mobile: bool, side, title_slot, badge_slot) -> None:
                            extra_south_slots=extra_south)
     options = SolveOptions(rules_version="2.20", seconds=seconds,
                            prioritize_history_within_daily_targets=prioritize_history)
-    signature = condition_signature(request, history, options)
+    signature = (condition_signature(request, history, options), st.session_state.get("manager_state"))
     if st.session_state.get("input_signature") != signature:
         st.session_state["input_signature"] = signature
         st.session_state["schedule_results"] = []
@@ -1729,8 +1738,9 @@ def _night_page(mobile: bool, side, title_slot, badge_slot) -> None:
         started = perf_counter()
         try:
             with st.spinner("근무표 생성 및 하드룰 검증 중입니다…"):
-                outcome = run_schedule(request, history,
-                                       replace(options, exclude_assignments=excluded))
+                runner = (run_schedule_manager_half if st.session_state.get("manager_state") == MANAGER_LATE_HALF
+                          else run_schedule)               # A 후반부 반차: 01시부터 준호 관리자 대행 (10/18)
+                outcome = runner(request, history, replace(options, exclude_assignments=excluded))
             st.session_state["elapsed"] = perf_counter() - started
             if outcome.valid:
                 st.session_state["schedule_results"] = [*prior_results, outcome]
