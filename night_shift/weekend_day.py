@@ -240,6 +240,12 @@ def _check(schedule, base):
                 errors.append(f'{8+t}시 {post} 인원 오류')
         if cells.count('순찰') != int(t in PATROL):
             errors.append(f'{8+t}시 순찰 인원 오류')
+    # 누구든 연속된 시간의 순찰 금지. 이미 두 칸 모두 LOCK된 과거는 보존.
+    for pid, row in grid.items():
+        for t in range(9):
+            if row[t:t+2] == ['순찰', '순찰'] and not (
+                    schedule.locked_through is not None and t + 1 <= schedule.locked_through):
+                errors.append(f'{person_label(schedule, pid)} {8+t}·{9+t}시 연속 순찰 금지')
     # 통제A 반차 날 (2026-10-18 사용자 확정): 오후반차면 마지막 2시간 규칙을 대행 준호가, 오전반차면 08·09시를 대행 준호가
     a_half, proxy = schedule.a_half, schedule.proxy
     if a_half and proxy not in grid:
@@ -456,6 +462,12 @@ def generate(day, names, mode='FM', *, seconds=30, seed=0, exclude=None,
         for p in ids:
             for t in range(locked_through + 1):
                 m.Add(x[p,t,base.grid[p][t]] == 1)
+    # 하루 두 번 순찰은 허용하되 인접 시간은 금지 (통제A·준호 대행·일반 공통).
+    for p in ids:
+        for t in range(9):
+            if base is not None and locked_through is not None and t + 1 <= locked_through:
+                continue
+            m.Add(x[p,t,'순찰'] + x[p,t+1,'순찰'] <= 1)
     for t in range(10):
         for v in LABELS[:5]:
             count = int(t in PATROL) if v == '순찰' else int(not (v == 'G2' and absent[t] >= 2))
