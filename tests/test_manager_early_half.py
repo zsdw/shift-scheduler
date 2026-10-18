@@ -2,7 +2,7 @@
 import unittest
 from dataclasses import replace, asdict
 
-from tests.test_manager_late_half import request
+from tests.test_manager_late_half import request, check_proxy_succession
 from night_shift.models import AssignmentKind, Mode
 from night_shift.history_store import record_to_json, record_from_json
 from night_shift.service import (HistorySelection, SolveOptions, run_schedule_manager_early_half,
@@ -28,7 +28,19 @@ class ManagerEarlyHalfTests(unittest.TestCase):
         self.assertLessEqual(sum(rows['A', t].displayed_assignment.label == '보안실 대기' for t in range(7, 14)), 2)
         self.assertNotIn(rows['A', 10].displayed_assignment.label, ('I1', '보안실 대기'))
         self.assertFalse(rows['A', 10].barrier_remove_flag)
+        # 01~04시 네 칸 중 기존 관리자 3연속 실근무 금지 아래 최대 세 칸 근무.
+        self.assertEqual(sum(rows['A', t].actual_work_time_value for t in range(7, 11)), 3)
+        stage = next(a for a in r.solve_result.attempts if a.get('stage') == 'manager_early_active_work_max')
+        self.assertEqual((stage['status'], stage['value']), ('OPTIMAL', -3))
         self.assertTrue(revalidate(r, r.record).valid)
+
+    def test_proxy_day_total_gets_two_point_privilege(self):
+        # 2026-10-18 사용자 확정: 전반부 반차 준호 하루 합계(대행 18~00시 + 자기 01~07시)는 피로도 2점 우대로 n빵
+        r = self.result
+        self.assertTrue(r.valid, r.validation_errors)
+        s = r.employee_stats
+        values = [s[p].fatigue_value for p in ('1', '2', '3', '4', '5')] + [s['6'].fatigue_value + 2]
+        self.assertLessEqual(max(values) - min(values), 1, values)
 
     def test_serialization_and_seat_roundtrip_keep_reverse_direction(self):
         r = self.result
@@ -57,6 +69,9 @@ class ManagerEarlyHalfTests(unittest.TestCase):
             self.assertFalse(bad.valid)
             if t == 10:
                 self.assertTrue(any('8-10' in e['rule'] for e in bad.validation_errors), bad.validation_errors)
+
+    def test_proxy_succession_fatigue_and_patrol(self):
+        check_proxy_succession(self, self.result, range(7, 14))
 
     def test_proxy_must_work_full_night(self):
         with self.assertRaises(ValueError):

@@ -26,7 +26,8 @@ def _expected_operation(context, label, t, mode):
     return chosen
 
 
-def validate_first_trial(record, history, *, refinement=False, rules_v22=False, vacancy_policy=False, rules_v26=False, rules_v27=False, rules_v29=False, rules_v210=False, rules_v212=False, rules_v215=False, rules_v216=False, rules_v218=False, rules_v219=False, rules_v220=False, reoptimization=False, forbid_patrol_exclusion_ids=(), post_cap=None, work_spread=True, half_day_ids=None, locked_cells=(), manager_a_end_slot=14, manager_a_start_slot=0, patrol_actuals=(), patrol_events=(), last_rest_records=()):
+def validate_first_trial(record, history, *, refinement=False, rules_v22=False, vacancy_policy=False, rules_v26=False, rules_v27=False, rules_v29=False, rules_v210=False, rules_v212=False, rules_v215=False, rules_v216=False, rules_v218=False, rules_v219=False, rules_v220=False, reoptimization=False, forbid_patrol_exclusion_ids=(), post_cap=None, work_spread=True, half_day_ids=None, locked_cells=(), manager_a_end_slot=14, manager_a_start_slot=0, patrol_actuals=(), patrol_events=(), last_rest_records=(),
+                        emergency_leaver_cells=()):
     # H-17 (2026-10-05): None = v2.20 검사에 포함. 2명 완전결원 일시 해제·LOCK 과거 초과 시 서비스가 False를 넘긴다.
     post_cap = rules_v220 if post_cap is None else post_cap
     if rules_v220:
@@ -168,13 +169,22 @@ def validate_first_trial(record, history, *, refinement=False, rules_v22=False, 
                             for r in record.assignments)
             check(has_standby or fully_locked,'12-required',f'{slot}: 18~05시 결원2명 외 대기자 최소1명 필요')
     if rules_v220:
+        # 12-6: 긴급 반차·이탈자는 제외 (2026-10-18 사용자 확정). 재편성표의 부분 출근 일반근무자 중
+        # 미리 정한 반차자(half_day_ids)·관리자 대행 준호가 아니면 긴급 이탈자다.
+        out_126 = set()
+        if reoptimization:
+            partial_126 = {a.employee_id for a in c.attendance if a.present and a.is_general_worker
+                           and not all(a.is_available(t) for t in range(14))}
+            out_126 = ({p for p, _ in emergency_leaver_cells if p != 'A'}
+                       | (partial_126 - set(half_day_ids or ())
+                          - ({"6"} if manager_a_start_slot > 0 or manager_a_end_slot < 14 else set())))
         standby_counts={a.employee_id:sum(r.employee_id==a.employee_id
             and r.displayed_assignment.label=='보안실 대기' for r in record.assignments)
-            for a in c.attendance if a.present and a.employee_id!='A'}
+            for a in c.attendance if a.present and a.employee_id!='A' and a.employee_id not in out_126}
         if len(standby_counts)>=2:
             check(max(standby_counts.values())-min(standby_counts.values())<=1,'12-gap',
                   f'통제A 제외 대기 횟수 차이2회 이상: {standby_counts}')
-    if rules_v220:
+    if rules_v220 and not any(p == 'A' for p, _ in emergency_leaver_cells):   # 통제A 긴급 반차 날 8-14 면제(10/18)
         a_att=next((a for a in c.attendance if a.employee_id=='A' and a.present),None)
         if a_att is not None:
             available=[t for t in range(manager_a_start_slot,min(14,manager_a_end_slot)) if a_att.is_available(t)]
@@ -275,9 +285,7 @@ def validate_first_trial(record, history, *, refinement=False, rules_v22=False, 
                              and r.displayed_assignment.label in {'G2','G3','G2(1)'}}
                 for slot in range(13):
                     if slot not in south_slots or slot+1 not in south_slots:continue
-                    vacancies=[7-sum(p.present and p.is_available(j) for p in c.attendance)
-                               for j in (slot,slot+1)]
-                    if 2 in vacancies:continue
+                    # 2026-10-18 사용자 확정: 결원 2명 구간 예외 삭제
                     check((a.employee_id,slot) in locked_south and (a.employee_id,slot+1) in locked_south,
                           '5-3-1',f'{a.employee_id}/{slot}: 다음날 평일 남문 2시간 연속 금지')
         next_holiday = holiday_name(c.shift_start_date + timedelta(days=1))
@@ -325,6 +333,12 @@ def validate_first_trial(record, history, *, refinement=False, rules_v22=False, 
         installer_post = "I1"
     attendance_by_id = {a.employee_id: a for a in present}
     partial_general = {p for p in general if sum(attendance_by_id[p].is_available(t) for t in range(14)) < 14}
+    # 미리 정한 통제A 반차의 준호 대행(긴급 재편성 제외, 2026-10-18): 준호 하루 = 자기 줄 + 대행한 관리자 자리
+    proxy_handover = (rules_v220 and manager == "A" and "6" in partial_general
+                      and (manager_a_start_slot > 0 or manager_a_end_slot < 14))   # 반차·긴급 이탈 승계 모두
+    planned_half_proxy = proxy_handover and not reoptimization
+    late_half_proxy = planned_half_proxy and manager_a_start_slot == 0
+    leaver_slots = {t for p, t in emergency_leaver_cells if p == manager}
     # H-09-1 미리 정한 반차자 (계획: 반차자 전원 / 재편성: 서비스가 넘긴 원래 반차자만)
     half_day = ((partial_general if half_day_ids is None and not reoptimization
                  else set(half_day_ids or ()) & partial_general) if rules_v220 else set())
@@ -445,6 +459,8 @@ def validate_first_trial(record, history, *, refinement=False, rules_v22=False, 
                            meal=meal, post_rest=post_rest)
     if len(facts) != len(people)*14:
         return errors
+    # 긴급 반차 통제A가 빠지기 전(LOCK 구간)에 이미 실휴게 2시간 이상이면 남은 칸 연속근무 규칙 제외 (2026-10-18)
+    leaver_free = bool(leaver_slots) and sum(facts[manager, t]["rest"] for t in range(min(leaver_slots or {0}))) >= 2
     # 표시·운영으로 독립 재계산한 실휴게 사용. 근무불가는 rest=0.
     if rules_v220:
         locked = set(locked_cells)
@@ -496,6 +512,15 @@ def validate_first_trial(record, history, *, refinement=False, rules_v22=False, 
             for p in forbid_patrol_exclusion_ids:
                 if p in general:
                     check(patrol_counts[p] == 1, "§14-1", f"Previous patrol exclusion repeated: {p}")
+    elif headcount == 5 and not manager_is_proxy and planned_half_proxy and absence_count == 1:
+        # 14-2 예외 [하드, 2026-10-18 사용자 확정]: 결원 1명 + 미리 정한 통제A 반차 → 준호 0회(관리자 자리 순찰만),
+        # 나머지 일반근무자 정확히 1명 2회(14-3: 전반부·후반부 1회씩)
+        others = [p for p in general if p != "6"]
+        check(patrol_counts[manager] == 1 and patrol_counts["6"] == 0
+              and sorted(patrol_counts[p] for p in others) == [1, 1, 1, 2], "§14-2/14-3", "Half-day proxy patrol exception distribution")
+        for p in others:
+            for half in ((3, 4, 5), (7, 8, 9)):
+                check(sum(facts[p, t]["kind"] == K.PATROL for t in half) <= 1, "§14-3", f"Patrol half distribution {p}")
     elif headcount == 5 and not manager_is_proxy:
         check(patrol_counts[manager] == 1 and all(patrol_counts[p] == 1 for p in general), "§14-2", "Five-worker patrol distribution")
     if rules_v26 and (headcount == 4 or manager_is_proxy and headcount < 6) and switch is None:
@@ -521,19 +546,31 @@ def validate_first_trial(record, history, *, refinement=False, rules_v22=False, 
                 check(not all_standing or allowed, "H-06/H-07", f"Standing triple {p}/{t}")
         if rules_v26:
             counted=[x["continuous"] or x["kind"] == K.PATROL for x in f]
+            def leaver_window(start, n):
+                return p == manager and leaver_free and bool(set(range(start, start + n)) & leaver_slots)
             for start in range(10):
-                check(not all(counted[start:start+5]), "H-08", f"Five continuous work slots {p}/{start}")
+                check(leaver_window(start, 5) or not all(counted[start:start+5]), "H-08", f"Five continuous work slots {p}/{start}")
             for start in range(11):
-                check(not all(counted[start:start+4]) or any(x["work"] == 1 and x["posture"] == Posture.SEATED for x in f[start:start+4]), "H-08", f"Four hours without seated work {p}/{start}")
+                check(leaver_window(start, 4) or not all(counted[start:start+4]) or any(x["work"] == 1 and x["posture"] == Posture.SEATED for x in f[start:start+4]), "H-08", f"Four hours without seated work {p}/{start}")
         else:
             check(not all(x["continuous"] for x in f[10:14]), "H-08", f"04–07 continuous work {p}")
         if any(attendance_by_id[p].is_available(t) for t in (0, 1, 2)):
             check(any(x["meal"] for x in f[:3]), "H-10", f"No meal {p}")
         protected_ok = []
-        if p in half_day:                                   # H-09-1: 반차자 휴게 합계 2시간 이상
-            check(sum(x["rest"] for x in f) >= 2, "H-09-1", f"Half-day worker needs two rest hours {p}")
+        locked_rest_p = sum(f[t]["rest"] for t in range(14) if (p, t) in set(locked_cells))
+        leaver_left = sum(1 for q, _ in emergency_leaver_cells if q == p)
+        if p in half_day and leaver_left:                   # 긴급 반차·이탈자: 채울 수 있는 만큼 2시간 이상 (10/18)
+            check(sum(x["rest"] for x in f) >= min(2, locked_rest_p + leaver_left), "H-09-1",
+                  f"Leaving worker needs two rest hours {p}")
+        elif p in half_day:                                 # H-09-1: 미리 정한 반차자 휴게 정확히 2시간 (10/18)
+            rest_p = sum(x["rest"] for x in f)
+            check(2 <= rest_p <= max(2, locked_rest_p), "H-09-1", f"Half-day worker needs exactly two rest hours {p}/{rest_p}")
+        leaving_manager = p == manager and bool(leaver_slots)   # 긴급 반차 통제A도 반차자처럼 (2026-10-18)
+        if leaving_manager:
+            check(sum(f[t]["rest"] for t in range(max(leaver_slots) + 1))
+                  >= min(2, locked_rest_p + len(leaver_slots)), "H-09-1", f"Leaving manager needs two rest hours {p}")
         for t in patrol_slots:
-            if f[t]["kind"] == K.PATROL and p in half_day:
+            if f[t]["kind"] == K.PATROL and (p in half_day or leaving_manager):
                 # H-09-1: 반차자 순찰 후 휴게는 하드 아님. 입식→순찰→입식만 금지
                 if f[t - 1]["work"] == 1 and f[t - 1]["posture"] == Posture.STANDING:
                     check(f[t + 1]["work"] == 0 or f[t + 1]["posture"] == Posture.SEATED,
@@ -561,16 +598,22 @@ def validate_first_trial(record, history, *, refinement=False, rules_v22=False, 
                     def full_rest(j):
                         return (f[j]["post_rest"] and f[j]["work"] == 0 and not by[p, j].barrier_install_flag
                                 and not by[p, j].barrier_remove_flag and (slot_mode(j) != Mode.FM or f[j]["label"] == "휴게"))
+                    # 2026-10-18 사용자 확정: 긴급 재편성일 때만 순찰 뒤 회복은 가능하면 지킬 규칙(Solver가 최소화) → 오류로 보지 않음.
+                    # 다만 순찰 직후 쉬는 칸이면 '휴게' 표기(대기 아님)는 그대로 검사.
+                    soft_recovery = rules_v220 and reoptimization
                     if rules_v220 and p == "A" and managers == ["A"] and t == 3 and f[2]["work"] == 0:
                         # H-12-1 (2026-10-05): 20시 실근무 없는 통제A는 22·23시 중 1칸만 휴게여도 된다
-                        check(full_rest(4) or full_rest(5), "H-12-1", f"Manager A needs one rest at 22/23 {p}")
+                        if not soft_recovery:
+                            check(full_rest(4) or full_rest(5), "H-12-1", f"Manager A needs one rest at 22/23 {p}")
                     else:
                         for j in (t + 1, t + 2):
-                            check(f[j]["post_rest"] and f[j]["work"] == 0 and not by[p, j].barrier_install_flag and not by[p, j].barrier_remove_flag, "H-11", f"Post patrol rest {p}/{j}")
-                            if slot_mode(j) == Mode.FM:
+                            rested = f[j]["post_rest"] and f[j]["work"] == 0 and not by[p, j].barrier_install_flag and not by[p, j].barrier_remove_flag
+                            if not soft_recovery:
+                                check(rested, "H-11", f"Post patrol rest {p}/{j}")
+                            if slot_mode(j) == Mode.FM and (not soft_recovery or rested):
                                 check(f[j]["label"] == "휴게", "user-display", f"Explicit post patrol rest {p}/{j}")
                     protected_ok.append(True)
-        if rules_v220 and protected_ok:
+        if rules_v220 and protected_ok and not reoptimization:   # 긴급 재편성은 가능하면 지킬 규칙(10/18)
             check(any(protected_ok), "H-11-2", f"No protected patrol recovery {p}")
         check(not (any(by[p, t].barrier_install_flag for t in range(14)) and any(by[p, t].barrier_remove_flag for t in range(14))), "§15-2", f"Install/remove overlap {p}")
     installers = [r for r in record.assignments if r.barrier_install_flag]
@@ -625,6 +668,48 @@ def validate_first_trial(record, history, *, refinement=False, rules_v22=False, 
                     check(0 <= p_fatigue - a_fatigue <= limit, "8-4-2", f"A fatigue must be 0-{limit} below general: {p}/{p_fatigue}/{a_fatigue}")
                 else:
                     check(abs(p_fatigue - a_fatigue) <= 4, "8-4-2", f"A/general fatigue gap over four points: {p}/{p_fatigue}/{a_fatigue}")
+        def proxy_total(key):
+            k = manager_a_start_slot or manager_a_end_slot
+            own, seat = (range(k, 14), range(k)) if manager_a_start_slot else (range(k), range(k, 14))
+            return sum(facts["6", t][key] for t in own) + sum(facts[manager, t][key] for t in seat)
+        full_fatigue = [sum(facts[p, t]["fatigue"] for t in range(14)) for p in general if p not in partial_general]
+        if planned_half_proxy:
+            # [하드, 2026-10-18 사용자 확정] 관리자 승계: 준호 순찰은 관리자 자리의 21시 상층 1회뿐, 자기 줄 순찰 금지
+            k = manager_a_start_slot or manager_a_end_slot
+            for t in (range(k, 14) if manager_a_start_slot else range(k)):
+                check(facts["6", t]["kind"] != K.PATROL, "H-12/§14-1", f"Half-day proxy patrols only as manager: 6/{t}")
+        # [하드, 2026-10-18 사용자 확정] 통제A 긴급 반차·이탈: 빠지기 전 남은 칸은 I1 없이 근무.
+        # 이미 실휴게 2시간 이상이면 연속근무 규칙 제외(최대한 근무는 Solver 목표), 아니면 4연속 근무 안의 입식 3연속 금지.
+        if leaver_slots:
+            for t in sorted(leaver_slots):
+                check(facts[manager, t]["label"] != "I1", "긴급반차-통제A근무", f"Leaving manager I1 before leaving: {t}")
+            if not leaver_free:
+                st = [facts[manager, t]["work"] == 1 and facts[manager, t]["posture"] == Posture.STANDING for t in range(14)]
+                wk = [facts[manager, t]["work"] == 1 for t in range(14)]
+                for t in range(12):
+                    if {t, t + 1, t + 2} & leaver_slots and all(st[t:t + 3]):
+                        check(not ((t > 0 and wk[t - 1]) or (t + 3 < 14 and wk[t + 3])), "긴급반차-통제A근무",
+                              f"Leaving manager standing triple inside a four-hour run: {t}")
+        if proxy_handover and full_fatigue and reoptimization:
+            # [하드, 2026-10-18 사용자 확정] 긴급 이탈 승계면 준호 하루 피로도 = 일반근무자 중 최저 (동점 최저 허용)
+            check(proxy_total("fatigue") <= min(full_fatigue), "준호-최저피로도",
+                  f"Emergency proxy fatigue must be the lowest: {proxy_total('fatigue')}/{min(full_fatigue)}")
+        elif proxy_handover and full_fatigue:
+            # [하드, 2026-10-18 사용자 확정] 통제A 반차면 준호 하루 피로도 < 온전 출근 일반근무자 최고 (동점 최고 금지)
+            check(proxy_total("fatigue") < max(full_fatigue), "준호-최고피로도",
+                  f"Half-day proxy fatigue must be below the top general: {proxy_total('fatigue')}/{max(full_fatigue)}")
+        # 2026-10-18 사용자 확정: 후반부 반차의 준호 하루 합계(자기 18~00시 + 대행 01~07시)에 통제A와 같은 H-15·8-4-2.
+        if late_half_proxy:
+            for p in general:
+                if p in partial_general:
+                    continue
+                work = sum(facts[p, t]["work"] for t in range(14))
+                if not manager_vacancy_policy:
+                    check(abs(work - proxy_total("work")) <= 2, "H-15", f"Late-half proxy/general work gap over two hours: {p}/{work}/{proxy_total('work')}")
+                if headcount in (5, 6) and profile_absence < 2 and switch is None:
+                    p_fatigue = sum(facts[p, t]["fatigue"] for t in range(14))
+                    check(0 <= p_fatigue - proxy_total("fatigue") <= 3, "8-4-2",
+                          f"Late-half proxy fatigue must be 0-3 below general: {p}/{p_fatigue}/{proxy_total('fatigue')}")
         for p in people:
             visits = sum(facts[p, t]["label"] in ("G2", "G3") for t in range(3))
             check(visits <= (0 if p == manager else 1), "H-14", f"Evening south gate assignment: {p}/{visits}")

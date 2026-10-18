@@ -58,5 +58,26 @@ class HalfDayTests(unittest.TestCase):
         self.assertGreaterEqual(rest_hours(outcome.record, "4"), 2)        # 미리 정한 반차자 규칙 유지
 
 
+    def test_planned_half_day_rest_exactly_two(self):
+        # 2026-10-18 사용자 확정 HARD: 미리 정한 반차자 휴게는 정확히 2시간 (사례: 10/27 광희 전반부 반차 휴게 3시간)
+        from night_shift.service import revalidate
+        r = run_schedule(ShiftRequest(date(2026, 10, 27), NightType.N1, Mode.FM, staff({"4": EARLY})),
+                         HistorySelection(), SolveOptions(rules_version="2.20", seconds=20))
+        self.assertTrue(r.valid, r.validation_errors or r.solve_result.status)
+        self.assertEqual(rest_hours(r.record, "4"), 2)
+        # 위반표: 광희 근무 칸을 같은 시간 다른 사람의 휴게 칸과 맞바꿔 휴게 3시간이 되면 H-09-1로 거부
+        rows = list(r.record.assignments)
+        for i, a in enumerate(rows):
+            if a.employee_id == "4" and a.actual_work_time_value == 1:
+                j = next((k for k, b in enumerate(rows) if b.slot.index == a.slot.index and b.employee_id not in ("4", "A")
+                          and b.actual_rest_time_value == 1), None)
+                if j is not None:
+                    b = rows[j]
+                    rows[i], rows[j] = replace(b, employee_id="4"), replace(a, employee_id=b.employee_id)
+                    break
+        bad = revalidate(r, replace(r.record, assignments=tuple(rows)))
+        self.assertEqual(rest_hours(bad.record, "4"), 3)
+        self.assertTrue(any(e["rule"] == "H-09-1" for e in bad.validation_errors), bad.validation_errors)
+
 if __name__ == "__main__":
     unittest.main()

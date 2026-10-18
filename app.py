@@ -24,7 +24,7 @@ import night_shift.service as _service_module
 
 if (not hasattr(_models_module.AssignmentKind, "UNAVAILABLE")
         or not hasattr(_models_module, "DEFAULT_POST_OPERATIONS")      # 유도리 포스트별 운영 (2026-10-02)
-        or getattr(_service_module, "SERVICE_API_VERSION", None) != "2.21.71"):
+        or getattr(_service_module, "SERVICE_API_VERSION", None) != "2.21.85"):
     import night_shift.common as _common_module
     import night_shift.profiles as _profiles_module
     import night_shift.preferences as _preferences_module
@@ -89,6 +89,7 @@ from night_shift.service import (
     SolveOptions,
     StaffInput,
     run_reoptimization,
+    run_lock_regeneration,
     run_schedule,
     run_schedule_manager_half, run_schedule_manager_early_half,
 )
@@ -380,10 +381,15 @@ def confirm_and_regenerate(result, index, params, history, options) -> None:
                 restore_generated_schedule(index)
                 st.rerun()
         with regenerate_col:
+            lock_start = _lock_regen_start(index)
             if params:
                 if st.button("🔁 근무표 재생성", key=f"regen_lock_{index}", width="stretch",
                              help="현재 LOCK과 이탈 조건을 유지해 다른 후보를 만듭니다."):
                     regenerate_locked(index, params, history, options)
+            elif lock_start is not None:                 # LOCK 시간만 고른 상태 (2026-10-18 사용자 요청)
+                if st.button("🔁 근무표 재생성", key=f"regen_lockonly_{index}", width="stretch",
+                             help=f"{(17 + lock_start) % 24:02d}시까지는 그대로 두고 그 뒤 시간만 다시 짭니다."):
+                    regenerate_lock_only(index, lock_start, history, options)
             else:
                 st.button("🔁 근무표 재생성", key=f"regenerate_{index}", width="stretch",
                           on_click=request_night_regeneration,
@@ -759,6 +765,22 @@ def render_mobile_schedule(result, key: str) -> None:
 NIGHT_HALF_LEAVE_SLOT = 7        # 후반부 반차 = 01시 퇴근
 
 
+def _night_leaver_hours(index: int, result: ServiceResult) -> dict[str, int]:
+    """긴급 반차·이탈자 → 빠지는 시간 칸 (연쇄 재편성 포함, 표 이름 칸 표시용 2026-10-18)."""
+    out, params, seen = {}, st.session_state.get("rebalance_params", {}), set()
+    results = st.session_state.get("schedule_results", [])
+    while index is not None and index not in seen and 0 <= index < len(results):
+        seen.add(index)
+        info = results[index].rebalance_info
+        if info is None:
+            break
+        out.setdefault(info.unavailable_employee_id, info.unavailable_from_index)
+        index = params.get(index, {}).get("source")
+    if result.rebalance_info:
+        out[result.rebalance_info.unavailable_employee_id] = result.rebalance_info.unavailable_from_index
+    return out
+
+
 def _night_leavers(index: int, result: ServiceResult) -> set[str]:
     """이 표까지 쌓인 긴급 반차·이탈자 (연쇄 재편성 포함)."""
     out, params, seen = set(), st.session_state.get("rebalance_params", {}), set()
@@ -992,6 +1014,13 @@ def render_editable_schedule(index, result: ServiceResult, on_leave=None, tap_sw
     for row in payload["rows"]:
         for cell in row["cells"]:
             cell["changed"] = (row["id"], cell["t"]) in changed
+    # 긴급 반차·이탈자는 이름 칸에 빗금 + 'HH시 퇴근' 표시 (2026-10-18 사용자 요청, 생성표·저장표·PC·폰 공통)
+    leave_from = _night_leaver_hours(index, result)
+    for row in payload["rows"]:
+        row["leaver"] = row["id"] in leave_from
+    if payload.get("sheet"):
+        payload["sheet"]["heads"] = [[pid, f"{name} ({(18 + leave_from[pid]) % 24:02d}시 퇴근)" if pid in leave_from else name]
+                                     for pid, name in payload["sheet"].get("heads", [])]
     lock, menus = st.session_state.get(lock_key), {}
     if on_leave is not None and opened:
         lock_hours, eligible, leavers = _night_leave_choices(index, result)
@@ -1321,6 +1350,50 @@ def schedule_choice_label(index: int, result: ServiceResult) -> str:
     if result.solve_result.status not in ("FEASIBLE", "OPTIMAL"):
         return f"{label} · ⚠ {result.solve_result.status}"
     return label
+
+
+def _lock_regen_start(index: int) -> int | None:
+    """LOCK만 고른 재생성의 시작 시간 칸: 지금 고른 LOCK 시간 다음 칸, 없으면 이 후보가 LOCK 재생성으로 만든 것일 때 그 값."""
+    picked = st.session_state.get(f"night_lock_{index}")
+    if picked is not None:
+        return int(picked) + 1
+    return st.session_state.get("lock_regen_params", {}).get(index, {}).get("start")
+
+
+def regenerate_lock_only(index: int, start: int, history: HistorySelection, options: SolveOptions) -> None:
+    """빠지는 사람 없이 LOCK까지 그대로 두고 남은 시간만 다른 후보로 (2026-10-18 사용자 요청)."""
+    results = list(st.session_state.get("schedule_results", []))
+    all_params = st.session_state.setdefault("lock_regen_params", {})
+    source = all_params.get(index, {}).get("source", index)
+    params = {"source": source, "start": start}
+    siblings = [results[i] for i in {source, index, *(i for i, p in all_params.items() if p == params)}
+                if i < len(results)]
+    started = perf_counter()
+    try:
+        with st.spinner(f"{(17 + start) % 24:02d}시까지는 그대로 두고 남은 시간을 다시 짜는 중입니다…"):
+            outcome = run_lock_regeneration(results[index], start, history, options,
+                                            exclude=exclusion_payloads(siblings) or None)
+    except Exception as exc:
+        st.session_state["regen_message"] = friendly_exception_message(exc, "LOCK 재생성")
+        st.rerun()
+    st.session_state["elapsed"] = perf_counter() - started
+    if outcome.valid:
+        all_params[len(results)] = params
+        st.session_state.pop(f"night_lock_{index}", None)
+        st.session_state["schedule_results"] = [*results, outcome]
+        st.session_state["pending_selected_schedule_index"] = len(results)
+        st.session_state["last_result"] = outcome
+        st.session_state["run_state"] = "생성 완료"
+    elif outcome.record is None and outcome.solve_result.status == "INFEASIBLE":
+        st.session_state["regen_message"] = (
+            f"{(17 + start) % 24:02d}시까지 그대로 둔 조건에서는 이미 만든 후보와 충분히 다른 근무표가 더 없습니다. "
+            "LOCK 이후 남은 시간이 짧으면 다른 해가 나오기 어렵습니다.")
+    elif outcome.record is None:
+        st.session_state["regen_message"] = solver_failure_message(outcome.solve_result.status, "LOCK 재생성")
+    else:
+        st.session_state["regen_message"] = "재생성 결과가 하드룰 검증을 통과하지 못했습니다: " + ", ".join(
+            explain_errors(outcome.validation_errors, outcome.context))
+    st.rerun()
 
 
 def regenerate_locked(index: int, params: dict, history: HistorySelection, options: SolveOptions) -> None:
@@ -1725,6 +1798,7 @@ def _night_page(mobile: bool, side, title_slot, badge_slot) -> None:
         st.session_state["generated_originals"] = {}
         st.session_state["generated_initial_results"] = {}
         st.session_state["rebalance_params"] = {}
+        st.session_state["lock_regen_params"] = {}
         st.session_state["selected_schedule_index"] = 0
         st.session_state["last_result"] = None
         st.session_state["run_state"] = "입력 확인 후 생성"
@@ -1882,8 +1956,18 @@ def _night_page(mobile: bool, side, title_slot, badge_slot) -> None:
                     f"긴급 재편성표 · {lock_hour:02d}시까지 기존 실제배정 LOCK · "
                     f"{start_hour:02d}시부터 재최적화 · "
                     f"{person_ui_label(person) if person else info.unavailable_employee_id} "
-                    f"{unavailable_hour:02d}시부터 ×"
+                    f"{unavailable_hour:02d}시부터 ×" + (f"  \n{info.reason}" if "차단봉" in (info.reason or "") else "")
                 )
+                # 긴급 재편성은 순찰 뒤 회복을 가능하면 지킬 규칙으로 (2026-10-18 사용자 확정) → 못 지킨 곳 안내
+                from night_shift.service import patrol_recovery_misses
+                misses = patrol_recovery_misses(selected_result.record, info.reoptimization_start_index)
+                if misses:
+                    st.warning("남은 인원으로 순찰 뒤 2시간 회복을 다 지킬 수 없어 최소로 어긴 곳(긴급 재편성만 허용):  \n"
+                               + "  \n".join("· " + m for m in misses))
+            elif selected_index in st.session_state.get("lock_regen_params", {}):
+                lock_start = st.session_state["lock_regen_params"][selected_index]["start"]
+                st.info(f"LOCK 재생성 후보 · {(17 + lock_start) % 24:02d}시까지 기존 배정 그대로 · "
+                        f"{(18 + lock_start) % 24:02d}시부터 다시 짠 표 (빠지는 사람 없음, 일반 생성 규칙으로 검증)")
             def start_rebalance(rebalance_start, employee_id, event):
                 """표에서 시간 칸(LOCK)·이름(반차/이탈)을 고르면 바로 재편성 (주간과 같은 방식)."""
                 unavailable_from = NIGHT_HALF_LEAVE_SLOT if event.startswith("후반부") else rebalance_start

@@ -20,7 +20,7 @@ from .solver import SolveResult, solve_first_trial
 from .validator import validate_first_trial
 
 
-SERVICE_API_VERSION = "2.21.71"         # 2026-10-18: 관리자 전반부 반차·역방향 인계 저장
+SERVICE_API_VERSION = "2.21.85"         # 2026-10-18: 긴급 반차자 휴게 최소화 맨 앞·12-6 제외
 
 
 def rulebook_label(rules_version: str) -> str:
@@ -109,6 +109,8 @@ class SolveOptions:
     # H-09-1 미리 정한 반차자 (None = 계획 생성이면 반차자 전원, 긴급 재편성은 원래 표의 반차자만)
     half_day_ids: tuple[str, ...] | None = None
     manager_a_start_slot: int = 0
+    # 긴급 반차·이탈자의 빠지기 전 남은 칸 (자리 형태, 2026-10-18): 배려 없이 실근무·입식 많게(최후순위)
+    emergency_leaver_cells: tuple[tuple[str, int], ...] = ()
 
 
 @dataclass(frozen=True)
@@ -532,6 +534,15 @@ def validator_flags_for(rules_version: str, reoptimization: bool) -> dict:
     return {RULE_FLAGS[rules_version]: True}
 
 
+def _manager_leaver_cells(result: "ServiceResult") -> tuple:
+    """긴급 반차·이탈표의 빠지기 전 남은 칸 (자리 형태, 2026-10-18). 통제A면 관리자 자리, 일반근무자면 그 사람."""
+    info = result.rebalance_info
+    if info is None:
+        return ()
+    return tuple((info.unavailable_employee_id, t)
+                 for t in range(info.reoptimization_start_index, info.unavailable_from_index))
+
+
 def revalidate(result: "ServiceResult", record: ShiftRecord) -> "ServiceResult":
     """Validate a manually edited record exactly like a generated one."""
     errors = validate_first_trial(
@@ -548,11 +559,15 @@ def revalidate(result: "ServiceResult", record: ShiftRecord) -> "ServiceResult":
         last_rest_records=result.prepared_inputs.last_rest_records,
         post_cap=not result.post_cap_relaxed and result.rules_version == "2.20",
         half_day_ids=(None if result.rebalance_info is None and not record.context.manager_handover else tuple(
-            # H-09-1: 재편성표는 빠진 사람, 관리자 교대표(미리 정한 통제A 반차 포함, 10/18)는 대행자 제외
+            # H-09-1: 관리자 교대표(미리 정한 통제A 반차·긴급 이탈 승계)는 대행자 제외.
+            # 긴급 반차·이탈자 본인은 반차자로 본다(10/18 사용자 확정: 휴게 2시간만 하드).
             a.employee_id for a in record.context.attendance if a.present and a.is_general_worker
-            and a.employee_id != (result.rebalance_info.unavailable_employee_id if result.rebalance_info else None)
             and a.employee_id != (record.context.manager_handover[1] if record.context.manager_handover else None)
+            and not (result.rebalance_info is not None                       # 바로 빠져 남은 칸 없는 긴급 이탈자
+                     and a.employee_id == result.rebalance_info.unavailable_employee_id
+                     and result.rebalance_info.unavailable_from_index <= result.rebalance_info.reoptimization_start_index)
             and not all(a.is_available(t) for t in range(14)))),
+        emergency_leaver_cells=_manager_leaver_cells(result),
         **validator_flags_for(result.rules_version, result.rebalance_info is not None))
     if record.context.manager_handover and not errors:
         k, proxy = record.context.manager_handover
@@ -649,7 +664,7 @@ def _run_schedule_modes(context: ShiftContext, history: HistorySelection | None,
         patrol_events=dual.prepared_inputs.patrol_events,
         last_rest_records=dual.prepared_inputs.last_rest_records,
             post_cap=_post_cap(config)[1], work_spread=False,   # H-18은 실제 운영 모드(FM) 표만 본다
-            half_day_ids=config.half_day_ids,
+            half_day_ids=config.half_day_ids, emergency_leaver_cells=config.emergency_leaver_cells,
             **validator_flags_for(config.rules_version, config.locked_assignments is not None))
         if flexible_errors:
             continue
@@ -720,6 +735,7 @@ def _run_schedule_once(context: ShiftContext, history: HistorySelection | None, 
         dual_flexible=dual >= 1, dual_balance=dual >= 2,
         preference_weights=prepared.preference_weights, avoid_cells=prepared.avoid_cells,
         post_cap=_post_cap(config)[0], half_day_ids=config.half_day_ids,
+        emergency_leaver_cells=config.emergency_leaver_cells,
         **solver_flags,
     )
     if solved.record is None:
@@ -732,6 +748,7 @@ def _run_schedule_once(context: ShiftContext, history: HistorySelection | None, 
         patrol_events=prepared.patrol_events,
         last_rest_records=prepared.last_rest_records,
                                   post_cap=_post_cap(config)[1], half_day_ids=config.half_day_ids,
+                                  emergency_leaver_cells=config.emergency_leaver_cells,
                                   **validator_flags)
     stats = calculate_all_stats(solved.record) if not errors else {}
     return ServiceResult(solved.record.context, solved, tuple(errors), stats, prepared,
@@ -844,7 +861,8 @@ def _reoptimize_core(base: ServiceResult, reoptimization_start_index: int,
                      unavailable_employee_id: str, unavailable_from_index: int,
                      history: HistorySelection | None = None,
                      options: SolveOptions | None = None,
-                     reason: str = "긴급 반차", exclude=None, forced_rest=(), extra_locked=()) -> ServiceResult:
+                     reason: str = "긴급 반차", exclude=None, forced_rest=(), extra_locked=(),
+                     leaver_cells=None) -> ServiceResult:
     """Lock the performed prefix and optimize the remaining v2.15+ shift.
 
     The returned record still contains all 14 slots, so the ordinary independent
@@ -899,10 +917,18 @@ def _reoptimize_core(base: ServiceResult, reoptimization_start_index: int,
         history,
         replace(config, exclude_assignments=exclude or None, locked_assignments=locked,
                 forced_rest_cells=tuple(forced_rest),
-                # H-09-1: 원래 표에서 미리 정한 반차자만 (긴급으로 빠지는 사람은 제외)
+                # H-09-1: 원래 표의 미리 정한 반차자 + 긴급 반차·이탈자 본인(10/18 사용자 확정: 휴게 2시간만 하드).
+                # leaver_cells가 따로 오면(통제A 이탈 → 자리 형태의 준호 줄이 빠짐) 준호는 반차자가 아니다.
                 half_day_ids=tuple(a.employee_id for a in base.context.attendance
-                                   if a.present and a.is_general_worker and a.employee_id != unavailable_employee_id
-                                   and not all(a.is_available(t) for t in range(14)))),
+                                   if a.present and a.is_general_worker
+                                   and (not all(a.is_available(t) for t in range(14))
+                                        or a.employee_id == unavailable_employee_id)
+                                   and not (a.employee_id == unavailable_employee_id
+                                            and (leaver_cells is not None      # 통제A 이탈: 자리 형태 준호 줄
+                                                 or unavailable_from_index <= reoptimization_start_index))),  # 남은 칸 없음
+                emergency_leaver_cells=tuple(leaver_cells if leaver_cells is not None else
+                                             ((unavailable_employee_id, t)
+                                              for t in range(reoptimization_start_index, unavailable_from_index)))),
     )
     info = RebalanceInfo(
         source_record_id=base.record.record_id,
@@ -914,7 +940,10 @@ def _reoptimize_core(base: ServiceResult, reoptimization_start_index: int,
     )
     if outcome.record is None:
         diagnosis = None
-        if config.rules_version in ("2.16", "2.17", "2.18", "2.19", "2.20") and outcome.solve_result.status == "INFEASIBLE":
+        # 차단봉 유지 고정(extra_locked)으로 해가 없으면 호출한 쪽이 고정 없이 다시 찾으므로 진단하지 않는다
+        # (진단은 고정 칸을 모르는 문맥이라 오류가 났음, 2026-10-18).
+        if (config.rules_version in ("2.16", "2.17", "2.18", "2.19", "2.20") and outcome.solve_result.status == "INFEASIBLE"
+                and not extra_locked):
             diagnosis = _diagnose_reoptimization(revised_context, locked,
                                                  history or HistorySelection(), config)
         elif outcome.solve_result.status == "UNKNOWN":
@@ -1070,13 +1099,20 @@ def run_reoptimization(base: ServiceResult, reoptimization_start_index: int,
         if forced and len(cells) == (len(last_cells) if last is not None else -1):
             break
         last_cells = cells
-        seat = _reoptimize_core(base, reoptimization_start_index, proxy, k, history, options, label,
-                                exclude, forced_rest=cells, extra_locked=keep_barrier)
-        if keep_barrier and seat.record is None:      # 차단봉 유지는 권장(10/18 사용자): 안 되면 원래대로 옮겨 다시
+        leaver = tuple((manager, t) for t in range(reoptimization_start_index, k))   # 빠지기 전 통제A 칸
+        try:
+            seat = _reoptimize_core(base, reoptimization_start_index, proxy, k, history, options, label,
+                                    exclude, forced_rest=cells, extra_locked=keep_barrier, leaver_cells=leaver)
+        except ValueError:
+            # 차단봉 유지 고정 칸이 FM·유도리 동시 확인의 유도리 계산과 맞지 않으면 오류가 났음(10/18) → 고정 없이 다시
+            if not keep_barrier:
+                raise
+            seat = None
+        if keep_barrier and (seat is None or seat.record is None):      # 차단봉 유지는 권장(10/18 사용자): 안 되면 원래대로 옮겨 다시
             keep_barrier = ()
             label = label.split(" · 준호 차단봉")[0]
             seat = _reoptimize_core(base, reoptimization_start_index, proxy, k, history, options, label,
-                                    exclude, forced_rest=cells)
+                                    exclude, forced_rest=cells, leaver_cells=leaver)
         shown = _to_display(seat, k, proxy)
         shown = replace(shown, rebalance_info=(replace(shown.rebalance_info, unavailable_employee_id=manager)
                                                if shown.rebalance_info else None))
@@ -1088,6 +1124,44 @@ def run_reoptimization(base: ServiceResult, reoptimization_start_index: int,
         last = replace(shown, validation_errors=tuple(
             {"rule": "handover", "detail": f"{proxy}/{k}: 교대 시점 {issue}"} for issue in issues))
     return last
+
+
+def run_lock_regeneration(base: ServiceResult, reoptimization_start_index: int,
+                          history: HistorySelection | None = None,
+                          options: SolveOptions | None = None, exclude=None) -> ServiceResult:
+    """빠지는 사람 없이 LOCK만 고른 재생성 (2026-10-18 사용자 요청): 시작 전 배정은 그대로, 남은 시간만 다른 후보.
+
+    긴급 재편성이 아니므로 결과는 일반 생성표와 같은 규칙(긴급 완화 없음)으로 다시 검증한다."""
+    if not base.valid or base.record is None:
+        raise ValueError("검증을 통과한 근무표만 LOCK 재생성할 수 있습니다.")
+    if base.record.context.manager_handover:
+        raise ValueError("통제A 반차·교대가 있는 근무표는 LOCK만 고른 재생성을 아직 지원하지 않습니다. "
+                         "빠지는 사람을 고르거나 일반 재생성을 써 주세요.")
+    if reoptimization_start_index not in range(1, 14):
+        raise ValueError("LOCK 다음 시간은 19시부터 07시 사이여야 합니다.")
+    locked = tuple(row for row in base.record.assignments if row.slot.index < reoptimization_start_index)
+    config = options if options is not None else SolveOptions(rules_version=base.rules_version)
+    outcome = run_schedule(base.context, history, replace(
+        config, exclude_assignments=exclude or None, locked_assignments=locked,
+        half_day_ids=tuple(a.employee_id for a in base.context.attendance          # 미리 정한 반차자 그대로
+                           if a.present and a.is_general_worker and not all(a.is_available(t) for t in range(14)))))
+    if outcome.record is None:
+        return outcome
+    return revalidate(outcome, outcome.record)
+
+
+def patrol_recovery_misses(record: ShiftRecord, from_slot: int = 0) -> list[str]:
+    """긴급 재편성표에서 순찰 직후 2시간 회복을 못 지킨 곳 (2026-10-18: 긴급일 때만 가능하면 지킬 규칙 → 화면 안내용)."""
+    names = {e.employee_id: ("통제" if e.employee_id == "A" else e.name) for e in record.context.employees}
+    rows = {(r.employee_id, r.slot.index): r for r in record.assignments}
+    out = []
+    for (p, t), r in sorted(rows.items(), key=lambda kv: (kv[0][1], kv[0][0])):
+        if t < from_slot or r.actual_post_or_work_type.kind != AssignmentKind.PATROL:
+            continue
+        worked = [j for j in (t + 1, t + 2) if j < 14 and (p, j) in rows and rows[p, j].actual_work_time_value == 1]
+        if worked:
+            out.append(f"{names.get(p, p)} {_hour(t)} 순찰 뒤 {'·'.join(_hour(j) for j in worked)} 근무")
+    return out
 
 
 MANAGER_HALF_SLOT = 7          # 통제A 반차 경계 = 01시 (일반근무자 전반부·후반부 반차와 같음)
