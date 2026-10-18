@@ -5,7 +5,17 @@
 
 ## 0. 위치·문서 지도
 
-- 코드·테스트·가상환경 원본: `C:\Users\LJH\Documents\Codex\shift-scheduler` (git 없음 → 큰 수정 전 `backup/<주제>_<날짜>/`에 복사).
+- 코드·테스트·가상환경 원본: `C:\Users\LJH\Documents\Codex\shift-scheduler`. **git 사용(2026-10-18~)**: 원격 `github.com/zsdw/shift-scheduler`(비공개, main). 작업 묶음 끝에 커밋, 올리기는 사용자 요청 시. 강제 푸시 금지. git 실행 파일 `C:\Program Files\Git\cmd\git.exe`, `C:\Program Files\GitHub CLI\gh.exe`(PATH에 없을 수 있음). 큰 수정 전 `backup/<주제>_<날짜>/` 복사도 계속.
+
+## 0-1. 두 AI 병행 작업 규칙 (2026-10-18~, 사용자 확정: Claude = 야간, Codex = 주말 주간)
+
+같은 폴더를 두 AI가 동시에 고친다. git이 있어도 **같은 파일 동시 수정은 나중 저장이 앞 수정을 덮는다**.
+- **Codex(주말 주간 — 긴급 통제A 반차 등)만 수정**: `night_shift/weekend_day.py`, `weekend_day_ui.py`, `night_shift/weekend_form.py`, `tests/test_weekend_*.py`, `docs/주말_주간_룰북_v1.0.md`.
+- **Claude(야간 — 미리 정한 통제A 반차 등)만 수정**: `night_shift/solver.py`·`validator.py`·`service.py`·`models.py`·`profiles.py`·`presentation.py`·`schedule_edit.py`·`balance_notes.py`, `app.py`, `docs/야간근무_룰북_v2.21.txt`, 야간 검사 파일.
+- **공용 — 고치기 전에 사용자에게 알리고 한쪽만**: `history_ui.py`, `night_shift/day_grid/`·`drag_grid/`, `night_shift/history_store.py`·`patrol_history.py`·`leave_schedule.py`, `mobile_ui.py`, `.gitignore`, `run_tests_parallel.py`.
+- **공용 문서**(`CHANGELOG.md`·`다음세션_인수인계.md`·`AGENTS.md`·바탕화면 사본)는 병행 중 쓰지 않는다. 각자 `작업노트_주말.md`(Codex)·`작업노트_야간.md`(Claude)에만 기록하고, 둘 다 끝난 뒤 한쪽이 합친다.
+- **검사**: 각자 자기 검사 파일만(`.venv\Scripts\python -m unittest tests.test_xxx`). 전체 검사(`run_tests_parallel.py`)는 병행 중 금지 — 둘 다 끝난 뒤 1회. `SERVICE_API_VERSION`은 야간(Claude)만 올린다.
+- **커밋**: 자기 파일만 `git add <파일>`로 골라 커밋(`git add -A` 금지 — 상대 작업 중 파일이 섞임). 커밋 전 `git status`로 상대 파일이 바뀌어 있으면 건드리지 않는다.
 - 문서 사본: `C:\Users\LJH\Desktop\업무\업무자동화` (작업 묶음 끝에 프로젝트 문서와 같게 맞춘다. 프로젝트가 원본).
 
 | 문서 | 내용 |
