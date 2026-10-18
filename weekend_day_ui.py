@@ -249,9 +249,12 @@ def nbbang_text(s, status=None):
                ' 제외 일반근무자 실근무·피로도가 모두 같습니다' + (' (FM·유도리 양쪽)' if len(views) == 2 else '') + '.'
     if s.leavers or s.half_days:
         head = '긴급 재편성' if s.leavers else '반차일 편성'
-        allowed = (f" (허용 차이 {emergency_gap(s.locked_through)}: LOCK 10시까지 1, 그 뒤 2)" if s.leavers else '')
-        over = ('  \n⚠️ 허용 차이 안의 표가 없어 차이를 가장 작게 맞춘 표입니다.' if status == 'GAP_OVER' else '')
-        return (f"⚖️ **{head}** — 반차·이탈자를 뺀 일반근무자끼리 차이를 가장 작게 맞췄습니다"
+        allowed = (' (피로도 격차 1 우선, 불가능 확인 시에만 2 허용)' if s.leavers else '')
+        over = ('  \n피로도 격차 1 이내의 해가 없음을 확인해 2 이내로 편성했습니다.'
+                if status == 'EMERGENCY_GAP_2' else
+                '  \n⚠️ 현재 표는 새 격차 기준의 단계 검증을 받지 않았습니다. 재생성해 주세요.'
+                if s.leavers and status not in ('EMERGENCY_GAP_1', 'EMERGENCY_GAP_2') else '')
+        return (f"⚖️ **{head}** — 반차·이탈자를 뺀 일반근무자끼리 비교합니다"
                 + (" (이 조건에서 최선 확인)" if status == 'OPTIMAL' else '') + allowed + ". 격차: " + ' / '.join(gaps)
                 + over
                 + ('  \n⚠️ 평소 하드룰을 모두 지키는 표가 없어 연속 실근무 상한·격차 1을 가능하면 지킬 규칙으로 낮췄습니다.'
@@ -996,7 +999,7 @@ def _run_emergency(s, lock, pid, kind, results, view_key):
         st.session_state['wd_msg'] = (
             '빠지고 나면 일반근무자가 3명인 시간이 생깁니다. 주말 주간 룰북 지원 범위 밖이라 수기로 편성하세요.'
             if status == 'UNSUPPORTED' else
-            '해가 없습니다. 꼭 지킬 규칙(포스트 채우기·3연속 휴게 금지·통제A 17시 휴게 등)을 남은 인원으로 지킬 수 없습니다. '
+            '해가 없습니다. 남은 인원과 LOCK을 유지하면서 필수규칙과 피로도 격차 2 이내를 함께 만족할 수 없습니다. '
             '규칙을 자동으로 완화하지 않았습니다.' if status == 'INFEASIBLE' else
             f'시간 안에 재편성표를 찾지 못했습니다 ({status}). 불가능 판정은 아닙니다.')
         st.rerun()

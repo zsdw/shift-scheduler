@@ -99,8 +99,16 @@ class WeekendDayTests(unittest.TestCase):
         base,_ = generate('2026-10-05', names, '유도리', seconds=20)
         for lock, kind in ((2,'half'), (4,'leave')):
             with self.subTest(lock=lock, kind=kind):
+                original = deepcopy(base.grid)
                 s,status = reoptimize(base, lock, '1', kind, seconds=20)
+                self.assertEqual(base.grid, original)
+                # 10/19: 격차 초과표 반환 폐지. 1→2 증명 탐색이 끝나지 않거나
+                # 2 이내도 불가능하면 기존표를 보존하고 후보 없이 상태를 알린다.
+                if s is None:
+                    self.assertIn(status, ('UNKNOWN', 'INFEASIBLE'))
+                    continue
                 self.assertIsNotNone(s, status)
+                self.assertIn(status, ('EMERGENCY_GAP_1', 'EMERGENCY_GAP_2'))
                 self.assertEqual(validate(s, base), [])
                 for pid in s.grid:
                     self.assertEqual(s.grid[pid][:lock+1], base.grid[pid][:lock+1])      # LOCK 그대로

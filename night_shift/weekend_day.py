@@ -24,8 +24,21 @@ EARLY_LOCK = 2                              # 긴급 재편성 LOCK이 10시(2�
 
 
 def emergency_gap(locked_through):
-    """긴급 재편성 일반근무자 실근무·피로도 허용 격차 (2026-10-12 사용자 확정)."""
+    """긴급 재편성의 실근무 격차 목표. 피로도는 별도 1→2 단계 적용."""
     return 1 if locked_through is None or locked_through <= EARLY_LOCK else 2
+
+
+def _solve_emergency_fatigue(model, fatigue_spreads, solve, seconds):
+    """피로도 1을 우선하며 INFEASIBLE로 확인된 때만 2를 허용한다."""
+    first = max(1, seconds * 2 / 3)
+    for limit, budget in ((1, first), (2, max(1, seconds - first))):
+        probe = model.Clone()
+        for spread in fatigue_spreads:
+            probe.Add(spread <= limit)
+        solver, status = solve(probe, budget)
+        if status != cp_model.INFEASIBLE or limit == 2:
+            return solver, status, limit
+    raise AssertionError('피로도 단계 누락')
 HALF_DAY_LEAVE = 5                          # 오후반차: 13시(5번째 칸)부터 근무불가
 KINDS = {'half': '오후반차', 'leave': '긴급 이탈'}
 
@@ -348,7 +361,10 @@ def _check(schedule, base):
             allowed = emergency_gap(schedule.locked_through) if schedule.leavers else 1
             for key in ('실근무', '피로도'):
                 gap = max(values[p][key] for p in full)-min(values[p][key] for p in full)
-                if gap > allowed:
+                if schedule.leavers and key == '피로도':
+                    if gap > 2:
+                        errors.append(f'{mode} 일반근무자 피로도 격차 초과 ({gap}, 상한 2)')
+                elif gap > allowed:
                     soft_or_hard.append(f'{mode} 일반근무자 {key} 격차 초과 ({gap}, 허용 {allowed})')
         if schedule.manager_priority and any(values['A']['실근무'] > values[p]['실근무'] for p in full):
             errors.append(f'{mode} 통제A 실근무 우대 위반')
@@ -663,7 +679,8 @@ def generate(day, names, mode='FM', *, seconds=30, seed=0, exclude=None,
         probe_solver, probe_status = solve(g2_probe, min(seconds, 10))
         if probe_status in (cp_model.FEASIBLE, cp_model.OPTIMAL):
             m.Add(g2_17 <= int(probe_solver.ObjectiveValue()))
-    if not isinstance(last_rank, int) or not isinstance(g2_rank, int):
+    if (not (leavers and balance) and
+            (not isinstance(last_rank, int) or not isinstance(g2_rank, int))):
         rank = 100 * last_rank + g2_rank                # ③ 먼저, 같으면 ④
         rank_probe = m.Clone()
         rank_probe.Minimize(rank)
@@ -694,31 +711,22 @@ def generate(day, names, mode='FM', *, seconds=30, seed=0, exclude=None,
     # 1단계: 완벽한 n빵(일반근무자 실근무·피로도 차이 0) / 2단계: 불가능하면 차이 1 이내에서 최소
     # 평소 뒷순위 (10/18): 통제A 대기 비권장 → 같은 포스트 2연속 → 통제A 11~15시 밖 G1 → 2점 업무는 L1 우선
     tail = 100*a_standby + 10*repeat + 3*a_g1_out + a_extra
-    no_perfect = gap_over = False
+    no_perfect = False
+    fatigue_limit = None
     if partial or emergency:
         # 반차·긴급: ① 가능하면 지킬 규칙 위반 최소 ② 통제A 추가 순찰 최소(일반 우선) ③ 일반근무자 차이 최소(완벽 n빵 우선)
         # ④ 반차자 휴게 1시간에 가깝게 ⑤ 같은 포스트 2연속 최소
         # (10/18) ⑥ 통제A 대기 비권장 ⑦ 통제A 1점 덜 ⑧ 2연속 ⑨ 통제A 11~15시 밖 G1 · L1 우선
-        m.Minimize(scale*(10*(1000000*sum(violations) + 100000*a16 + 90000*g2_17 + 50000*end_clash + 10000*a_patrol + 1000*sum(spreads)
+        m.Minimize(scale*(10*(1000000*sum(violations) + 100000*a16 + 90000*g2_17
+                              + (80000*(100*last_rank + g2_rank) if leavers and balance else 0)
+                              + 50000*end_clash + 10000*a_patrol + 1000*sum(spreads)
                               + 50*sum(half_rest) + 20*a_standby + 2*a_off + repeat) + 3*a_g1_out + a_extra)
                    + advantage*rotation_scale + rotation_cost)
-        # 긴급: 전체 계산 시간은 그대로(seconds) — 2/3은 규칙 위반 최소, 1/3은 허용 차이 맞추기
-        first = max(1, seconds * 2 // 3) if leavers and spreads else (seconds if emergency else min(seconds, 15))
-        solver, status = solve(m, first)
-        if leavers and spreads and status in (cp_model.FEASIBLE, cp_model.OPTIMAL):
-            # 2026-10-12 사용자 확정: 긴급 재편성 일반근무자 격차 — LOCK 10시까지 1, 그 뒤 2까지 허용.
-            # 연속 실근무 상한·통제A 포스트(가능하면 지킬 규칙)를 더 어기지 않는 범위에서만 맞춘다.
-            limit = emergency_gap(locked_through)
-            if max(solver.Value(spread) for spread in spreads) > limit:
-                probe = m.Clone()
-                for spread in spreads:
-                    probe.Add(spread <= limit)
-                probe.Add(sum(violations) <= int(solver.Value(sum(violations))))
-                better, better_status = solve(probe, max(1, seconds - first))
-                if better_status in (cp_model.FEASIBLE, cp_model.OPTIMAL):
-                    solver, status = better, better_status
-                else:
-                    gap_over = True            # 허용 차이 안의 표가 없어 차이 최소 표 (화면 안내)
+        # 긴급 피로도: 1 이내 먼저, INFEASIBLE일 때만 2. UNKNOWN은 그대로 반환.
+        if leavers and spreads:
+            solver, status, fatigue_limit = _solve_emergency_fatigue(m, spreads[1::2], solve, seconds)
+        else:
+            solver, status = solve(m, seconds if emergency else min(seconds, 15))
     elif spreads:
         probe = m.Clone()
         probe.Add(sum(spreads) == 0)
@@ -739,8 +747,8 @@ def generate(day, names, mode='FM', *, seconds=30, seed=0, exclude=None,
     if status not in (cp_model.FEASIBLE, cp_model.OPTIMAL): return None, label
     if no_perfect and label == 'FEASIBLE':
         label = 'NO_PERFECT'          # 완벽 n빵 불가능은 확인, 1 차이 안에서 최선 확인은 시간 부족
-    if gap_over:
-        label = 'GAP_OVER'            # 긴급 격차 기준(1 또는 2) 안의 표를 찾지 못해 차이 최소 표
+    if fatigue_limit is not None:
+        label = f'EMERGENCY_GAP_{fatigue_limit}'
     grid = {p: [next(v for v in labels if solver.Value(x[p,t,v])) for t in range(10)] for p in ids}
     # relaxed는 이름으로 넘긴다: 순서로 넘기면 rule_exempt_names 칸에 들어가 완화 표 검증이 멈췄음 (2026-10-18 수정)
     result = WeekendSchedule(str(day), dict(names), grid, mode, g2_cap, balance, standing_limit, manager_priority,
