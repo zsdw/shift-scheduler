@@ -2056,7 +2056,9 @@ def _night_page(mobile: bool, side, title_slot, badge_slot) -> None:
                 st.caption("🟣 유도리 기준으로 다시 계산한 값입니다(배정은 같음, 유도리 적용 칸은 휴게성·좌식 회계). "
                            "근무표 탭 표 제목 줄의 'FM'을 누르면 FM 기준으로 돌아갑니다.")
                 flex = view_record(selected_result.record, view_key)
-                shown_result = replace(selected_result, record=flex, employee_stats=calculate_all_stats(flex))
+                # record는 solve_result.record에서 읽는 속성이라 solve_result를 바꾼다 (2026-10-18 TypeError 수정)
+                shown_result = replace(selected_result, solve_result=replace(selected_result.solve_result, record=flex),
+                                       employee_stats=calculate_all_stats(flex))
                 baseline = calculate_all_stats(view_record(original, view_key)) if original is not None else None
             else:
                 shown_result = selected_result
