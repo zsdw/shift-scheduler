@@ -7,6 +7,17 @@
 
 - 코드·테스트·가상환경 원본: `C:\Users\LJH\Documents\Codex\shift-scheduler`. **git 사용(2026-10-18~)**: 원격 `github.com/zsdw/shift-scheduler`(비공개, main). 작업 묶음 끝에 커밋, 올리기는 사용자 요청 시. 강제 푸시 금지. git 실행 파일 `C:\Program Files\Git\cmd\git.exe`, `C:\Program Files\GitHub CLI\gh.exe`(PATH에 없을 수 있음). 큰 수정 전 `backup/<주제>_<날짜>/` 복사도 계속.
 
+## 0-0. "최신화" 요청 = GitHub + 바탕화면 문서 폴더 동시 처리 (2026-10-18 사용자 확정, 모든 세션·모든 AI 공통)
+
+사용자가 "최신화(해/해놔)"라고 하면 묻지 말고 아래 1·2를 **둘 다** 한다. 하나만 하고 끝내지 않는다.
+1. **GitHub**: `git status`로 바뀐 파일 확인 → 관련 파일을 `git add <파일>`로 골라 커밋(`git add -A` 금지, 상대 AI가 작업 중인 파일이 섞여 있으면 사용자에게 알리고 포함 여부 확인) → `git push origin main`(강제 푸시 금지). 커밋 전 관련 테스트가 통과한 상태인지 확인.
+2. **바탕화면 문서 폴더** `C:\Users\LJH\Desktop\업무\업무자동화`: 프로젝트가 원본. 덮어쓰기 전 기존 사본을 `backup/desktop_docs_<날짜>/`에 복사하고, 아래를 복사한 뒤 `cmp` 등으로 전부 같은지 확인한다.
+   - 폴더 최상위 ← `AGENTS.md`, `CHANGELOG.md`, `다음세션_인수인계.md`, `배포_안내.md`, `전체검사_결과.md`, `docs/RULE_INDEX.md`, `docs/야간근무_룰북_v2.21.txt`, `docs/업무문서_계산기준.md`, `docs/주말_주간_룰북_v1.0.md`, `docs/평일_주간근무_룰북_v1.0.txt`
+   - 폴더 안 `docs` ← `docs/RULE_INDEX.md`, `docs/야간근무_룰북_v2.21.txt`, `docs/주말_주간_룰북_v1.0.md`
+   - 그 전에 이번 작업이 `CHANGELOG.md`(맨 위 날짜 항목)·`다음세션_인수인계.md`·이 파일에 반영돼 있는지 확인하고, 빠졌으면 먼저 정리한다(작업노트에만 있으면 최신화가 아님).
+3. 폰용 배포 폴더(`Documents\Codex\shift-scheduler-deploy`, `make_deploy_copy.ps1`)는 사용자가 따로 말할 때만.
+4. 끝나면 커밋 번호, 푸시 결과, 폴더에서 바뀐 파일 목록을 짧게 보고한다.
+
 ## 0-1. 두 AI 병행 작업 규칙 (2026-10-18~, 사용자 확정: Claude = 야간, Codex = 주말 주간)
 
 같은 폴더를 두 AI가 동시에 고친다. git이 있어도 **같은 파일 동시 수정은 나중 저장이 앞 수정을 덮는다**.
