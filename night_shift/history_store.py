@@ -24,7 +24,7 @@ from .models import (
 )
 
 STORE_VERSION = 1
-CYCLE_WEIGHTS_FULL = (0.3, 0.3, 0.2, 0.2)   # newest first: last cycle 60%, previous 40%
+CYCLE_WEIGHTS_FULL = (0.25, 0.25, 0.25, 0.25)   # 최근 4근무 똑같이(5:5) — 2026-10-13 사용자 확정, 종전 6:4
 
 
 # ---------------------------------------------------------------- serialization
@@ -50,6 +50,7 @@ def record_to_json(record: ShiftRecord) -> dict:
             "flexible_from_slot": c.flexible_from_slot,
             "manager_handover": list(c.manager_handover) if c.manager_handover else None,
             "post_operations": [list(op) for op in c.post_operations] if c.post_operations is not None else None,
+            "extra_south_slots": list(c.extra_south_slots),
         },
         "assignments": [{
             "employee_id": r.employee_id, "slot": r.slot.index,
@@ -77,10 +78,14 @@ def record_from_json(data: dict) -> ShiftRecord:
         c.get("partial_vacancy_profile", False), c.get("flexible_from_slot"),
         tuple(c["manager_handover"]) if c.get("manager_handover") else None,
         tuple(tuple(op) for op in c["post_operations"]) if c.get("post_operations") is not None else None,
+        tuple(c.get("extra_south_slots", ())),
     )
+    # 2026-10-04 사용자 확정: 실근무는 포스트·순찰만. 예전 저장본의 '차단봉만 한 칸' 실근무 1을 읽을 때 0으로
+    # 다시 계산한다 (파일은 그대로). 피로도 1·실휴게 0은 그대로.
     rows = tuple(AssignmentRecord(
         r["employee_id"], Slot(r["slot"]), Assignment(AssignmentKind(r["displayed"][0]), r["displayed"][1]),
-        Assignment(AssignmentKind(r["actual"][0]), r["actual"][1]), r["fatigue"], r["work"], r["rest"],
+        Assignment(AssignmentKind(r["actual"][0]), r["actual"][1]), r["fatigue"],
+        0 if r["actual"][0] == AssignmentKind.BARRIER_ONLY.value else r["work"], r["rest"],
         Posture(r["posture"]) if r["posture"] is not None else None, r["same"], r["continuous"],
         r["meal"], r["patrol_rest"], r["install"], r["remove"], Mode(r["mode"]), tuple(r["refs"]),
     ) for r in data["assignments"])
@@ -153,15 +158,17 @@ def locked_through(data: dict) -> int:
     return int(match.group(1)) - 1 if match else -1
 
 
-def save_edits(store: Path, shift_date: date, edits: list[dict], note: str = "") -> None:
+def save_edits(store: Path, shift_date: date, edits: list[dict], note: str | None = None) -> None:
     """Store the latest revision. A new save overwrites the previous revision;
-    the first confirmed plan is never touched."""
+    the first confirmed plan is never touched. note=None keeps the saved note
+    (예: 이미지 가져오기 출처 메모를 지우지 않는다)."""
     from .actual_edit import apply_edits
     path = _path(store, shift_date)
     data = json.loads(path.read_text(encoding="utf-8"))
     plan = record_from_json(data["plan"])
     data["edits"] = list(edits)
-    data["note"] = note
+    if note is not None:
+        data["note"] = note
     data["edited_at"] = datetime.now().isoformat(timespec="seconds")
     # Materialized latest revision, for reading without the edit engine.
     data["latest"] = record_to_json(apply_edits(plan, edits)) if edits else None
@@ -231,7 +238,7 @@ def actual_record(store: Path, shift_date: date) -> ShiftRecord:
 
 # ---------------------------------------------------------------- balance input
 def cycle_weights(count: int) -> tuple[float, ...]:
-    """Newest first. 4 nights: last cycle 60 % / previous 40 %; fewer: equal."""
+    """Newest first. Equal weights over the last 4 nights (5:5); fewer: equal."""
     if count <= 0:
         return ()
     if count >= 4:
@@ -246,16 +253,19 @@ def recent_actuals(store: Path, before: date, limit: int = 4) -> list[ShiftRecor
 
 
 def history_selection(store: Path, before: date):
-    """HistorySelection from stored actual nights (6:4 over the last two cycles)."""
+    """HistorySelection from stored actual nights (last two cycles, equal 5:5)."""
     from .service import HistorySelection
     from .soft_history import patrol_rotation_due, update_soft_debt
+    from .patrol_history import load_events
+    events = load_events(store, before)
     actuals = recent_actuals(store, before)
     if not actuals:
-        return HistorySelection()
+        return HistorySelection(patrol_events=events)
     debt: dict = {}
     for record in sorted(actuals, key=lambda r: r.context.shift_start_date):
         debt = update_soft_debt(record, debt, patrol_rotation_due(
             [r for r in actuals if r.context.shift_start_date < record.context.shift_start_date], debt))
-    return HistorySelection(actual_records=tuple(actuals), actual_weights=cycle_weights(len(actuals)),
+    return HistorySelection(last_rest_records=tuple(recent_actuals(store,before,limit=len(list_dates(store)))),
+                            patrol_events=events, actual_records=tuple(actuals), actual_weights=cycle_weights(len(actuals)),
                             soft_debt=debt or None,
                             duty_records=tuple(recent_actuals(store, before, limit=6)))

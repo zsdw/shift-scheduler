@@ -7,7 +7,7 @@ from dataclasses import dataclass, replace
 from itertools import permutations
 from math import lcm
 from ortools.sat.python import cp_model
-from .models import mode_at, AssignmentKind as K, HistoryInput, Mode, Posture, RecordKind, ShiftRecord
+from .models import barrier_single, barrier_v2, mode_at, AssignmentKind as K, HistoryInput, Mode, Posture, RecordKind, ShiftRecord
 from .common import compile_common_policy, forbidden_same_post_pair, _actual_key
 from .profiles import options_for
 from .soft_history import debt_weight
@@ -21,9 +21,20 @@ class SolveResult:
     targets_met: bool
 
 
-def _flexible_delta(row, slot):
-    """FM 회계 → 유도리 회계 차이 (피로도, 실근무). 10-1 I1 00~03시 휴게성, 10-5 04시는 I1이 철수."""
+def _flexible_delta(row, slot, context=None):
+    """FM → 해당 표의 유도리 운영 회계 차이. context 없는 종전 호출은 00~03시."""
     label = row.displayed_assignment.label
+    if context is not None:
+        from .models import post_operation
+        operation = post_operation(context, label, slot)
+        if row.actual_post_or_work_type.kind == K.POST and row.actual_post_or_work_type.label == label:
+            if operation == "rest":
+                return -row.fatigue_value, -row.actual_work_time_value
+            if operation == "seated":
+                return 1 - row.fatigue_value, 0
+        if slot == 10 and row.barrier_remove_flag and label == "보안실 대기":
+            return -row.fatigue_value, -row.actual_work_time_value
+        return 0, 0
     if label == "I1" and 6 <= slot <= 9 and row.actual_post_or_work_type.kind == K.POST:
         return -row.fatigue_value, -row.actual_work_time_value
     if slot == 10 and row.barrier_remove_flag and label == "보안실 대기":
@@ -44,7 +55,7 @@ def _add_dual_flexible_constraints(model, opts, variables, policy, context, peop
     installer = _installer_post(policy, flex_context)
 
     def total(p, attribute, index):
-        return sum((getattr(r, attribute) + _flexible_delta(r, t)[index]) * v
+        return sum((getattr(r, attribute) + _flexible_delta(r, t, flex_context)[index]) * v
                    for t in range(14) for r, v in zip(opts[p, t], variables[p, t]))
     work = {p: total(p, "actual_work_time_value", 1) for p in people}
     fatigue = {p: total(p, "fatigue_value", 0) for p in people}
@@ -59,6 +70,8 @@ def _add_dual_flexible_constraints(model, opts, variables, policy, context, peop
             model.add(fatigue[p] - fatigue[manager] >= low)
             model.add(fatigue[p] - fatigue[manager] <= high)
     for p in people:                                            # §15-2: 유도리 20시 설치자는 04시 철수(I1) 불가
+        if barrier_v2(context):
+            break                                               # 15-0: 담당자가 모드와 무관 → 본 제약(설치+철수≤1)으로 충분
         install = sum(v for r, v in zip(opts[p, 2], variables[p, 2])
                       if r.displayed_assignment.label == installer or r.barrier_install_flag)
         remove = sum(v for r, v in zip(opts[p, 10], variables[p, 10]) if r.displayed_assignment.label == "I1")
@@ -67,7 +80,7 @@ def _add_dual_flexible_constraints(model, opts, variables, policy, context, peop
         full = [p for p in policy.general_ids if p not in partial_general_ids]
         for flexible in (False, True):
             for attribute, index, sign in (("fatigue_value", 0, 1), ("actual_rest_time_value", 1, -1)):
-                totals = [sum((getattr(r, attribute) + (sign * _flexible_delta(r, t)[index] if flexible else 0)) * v
+                totals = [sum((getattr(r, attribute) + (sign * _flexible_delta(r, t, flex_context)[index] if flexible else 0)) * v
                               for t in range(14) for r, v in zip(opts[p, t], variables[p, t])) for p in full]
                 if len(totals) < 2:
                     continue
@@ -106,6 +119,7 @@ def planned_vacancy(context):
 # (13~45 s each) while every other stage finishes in < 2 s. They keep their best
 # value as an upper bound when capped, so later stages still run.
 STAGE_TIME_CAPS = {
+    "vacancy_manager_fatigue_gap": 6.0,
     "history_patrol_fatigue_spread": 6.0,
     "duty_3cycle_balance": 6.0,
     "history_standing_spread": 8.0,
@@ -113,7 +127,7 @@ STAGE_TIME_CAPS = {
 }
 
 
-def solve_first_trial(context, history: HistoryInput, seconds=30, *, dual_flexible=False, dual_balance=False, preference_weights=None, avoid_cells=(), refinement=False, baseline_assignments=None, exclude_assignments=None, locked_assignments=None, historical_totals=None, historical_nights=None, prioritize_history_within_daily_targets=False, forbid_install_ids=(), forbid_last_rest_ids=(), forbid_patrol_exclusion_ids=(), patrol_rotation_priority_ids=(), soft_debt=None, previous_install_ids=(), previous_remove_ids=(), minimize_a=False, rules_v22=False, vacancy_policy=False, rules_v26=False, rules_v27=False, rules_v29=False, rules_v210=False, rules_v212=False, rules_v213=False, rules_v215=False, rules_v216=False, rules_v217=False, rules_v218=False, rules_v219=False, rules_v220=False, diagnostic_relaxation_level=0, diagnostic_relaxed_families=None, forced_rest_cells=(), duty_rates=None):
+def solve_first_trial(context, history: HistoryInput, seconds=30, *, compensation_averages=None, manager_a_end_slot=14, dual_flexible=False, dual_balance=False, post_cap=False, half_day_ids=None, preference_weights=None, avoid_cells=(), refinement=False, baseline_assignments=None, exclude_assignments=None, locked_assignments=None, historical_totals=None, historical_nights=None, prioritize_history_within_daily_targets=False, forbid_install_ids=(), forbid_last_rest_ids=(), forbid_patrol_exclusion_ids=(), patrol_rotation_priority_ids=(), soft_debt=None, previous_install_ids=(), previous_remove_ids=(), minimize_a=False, rules_v22=False, vacancy_policy=False, rules_v26=False, rules_v27=False, rules_v29=False, rules_v210=False, rules_v212=False, rules_v213=False, rules_v215=False, rules_v216=False, rules_v217=False, rules_v218=False, rules_v219=False, rules_v220=False, diagnostic_relaxation_level=0, diagnostic_relaxed_families=None, forced_rest_cells=(), duty_rates=None, patrol_actuals=(), patrol_events=(), last_rest_records=()):
     if rules_v220:
         rules_v219 = True
     if rules_v219:
@@ -187,6 +201,9 @@ def solve_first_trial(context, history: HistoryInput, seconds=30, *, dual_flexib
     manager_works_07 = (rules_v218 and context.night_type.value in ("N1", "N3")
                         and sum(attendance_by_id[p].is_available(13) for p in policy.general_ids) == 4)
     full_general_ids = tuple(p for p in policy.general_ids if available_counts[p] == 14)
+    # 미리 정한 반차자 (2026-10-05 H-09-1). 긴급 재편성은 서비스가 원래 표의 반차자만 넘긴다(빠지는 사람 제외).
+    half_day = (set(partial_general_ids) if half_day_ids is None and locked_assignments is None
+                else set(half_day_ids or ()) & set(partial_general_ids)) if rules_v220 else set()
     attempts = []
     # Optional all-target probe first. Fallback preserves every hard rule.
     for target_probe in ((False,) if rules_v26 else (True, False)):
@@ -200,6 +217,38 @@ def solve_first_trial(context, history: HistoryInput, seconds=30, *, dual_flexib
 
         def expression(p, t, predicate):
             return sum(v for r, v in zip(opts[p, t], variables[p, t]) if predicate(r))
+
+        # 혼합 이력: 다음 출근 2회 보호 및 제외 경험이 적은 사람 우선.
+        exclusion_cost = []
+        for p in policy.general_ids:
+            name = next(e.name for e in context.employees if e.employee_id == p)[-2:]
+            events = [e for e in patrol_events if e['name'] == name]
+            if not patrol_events:
+                for r in sorted(patrol_actuals,key=lambda r:r.context.shift_start_date):
+                    if r.context.shift_start_date >= context.shift_start_date:continue
+                    if not any(a.employee_id==p and a.present for a in r.context.attendance):continue
+                    patrol=any(x.employee_id==p and x.actual_post_or_work_type.kind==K.PATROL for x in r.assignments)
+                    events.append({'excluded':sum(a.present for a in r.context.attendance)==7 and not patrol})
+            count = sum(expression(p,t,lambda r:r.actual_post_or_work_type.kind == K.PATROL) for t in range(14))
+            if any(e['excluded'] for e in events[-2:]):model.add(count >= 1)
+            excluded = model.new_bool_var('patrol_excluded_'+p)
+            model.add(count==0).only_enforce_if(excluded)
+            model.add(count>=1).only_enforce_if(excluded.Not())
+            exclusion_cost.append(sum(e['excluded'] for e in events)*excluded)
+
+        # 하층 순찰 3회 연속 금지. 출근했으나 하층을 안 한 날은 연속 종료.
+        for p in people:
+            recent = [r for r in sorted(patrol_actuals, key=lambda r:r.context.shift_start_date)
+                      if r.context.shift_start_date < context.shift_start_date
+                      and any(a.employee_id == p and a.present for a in r.context.attendance)][-2:]
+            if len(recent) == 2 and all(any(x.employee_id == p and x.actual_post_or_work_type.kind == K.PATROL
+                    and x.actual_post_or_work_type.label == 'lower' for x in r.assignments) for r in recent):
+                locked_lower = {(x.employee_id, x.slot.index) for x in locked_assignments or ()
+                                if x.actual_post_or_work_type.kind == K.PATROL and x.actual_post_or_work_type.label == 'lower'}
+                for t in range(14):
+                    if (p,t) not in locked_lower:
+                        model.add(expression(p,t,lambda r:r.actual_post_or_work_type.kind == K.PATROL
+                                             and r.actual_post_or_work_type.label == 'lower') == 0)
 
         # v2.15 §21-7: assignments already performed or in progress are facts,
         # not preferences.  Pin the exact recorded option so every downstream
@@ -216,14 +265,191 @@ def solve_first_trial(context, history: HistoryInput, seconds=30, *, dual_flexib
                     raise ValueError(f"Locked assignment is unavailable in the new context: {key}")
                 model.add(matches[0] == 1)
 
+        # H-17 [하드, 2026-10-05 사용자 확정]: 누구든 같은 포스트(표시 기준) 한 회차 최대 3번.
+        # G2(1)·G2(2)는 G2로 센다. LOCK 과거가 이미 넘었으면 과거는 그대로, 미래 추가 배정만 막는다.
+        weekday_start = context.night_type.value in ("N1", "N2")
+        if post_cap:
+            def post_family(r):
+                if r.displayed_assignment.kind != K.POST:
+                    return None
+                # N1/N2 18시 관리자 L3는 표기만(실제 보안실 대기, 6-1) → 세지 않음 (2026-10-05 사용자 확정)
+                if weekday_start and r.slot.index == 0 and r.employee_id == policy.manager_id:
+                    return None
+                return r.displayed_assignment.label.split("(")[0]
+            locked_count = {}
+            for old in locked_assignments or ():
+                family = post_family(old)
+                if family:
+                    locked_count[old.employee_id, family] = locked_count.get((old.employee_id, family), 0) + 1
+            for p in people:
+                families = {post_family(r) for t in range(14) for r in opts[p, t]} - {None}
+                for family in families:
+                    count = sum(expression(p, t, lambda r, family=family: post_family(r) == family) for t in range(14))
+                    model.add(count <= max(3, locked_count.get((p, family), 0)))
+        # H-18 [하드, 2026-10-05 사용자 확정]: 하루 전체 근무하는 일반근무자끼리 실근무 차이 최대 1시간.
+        # 0-2-1(FM·유도리 두 기준 해)보다 앞선다 — 하드라 두 기준 단계에도 그대로 걸린다. 실제 모드 표 기준.
+        if rules_v220 and len(full_general_ids) >= 2:
+            works = {p: sum(int(r.actual_work_time_value) * v for t in range(14)
+                            for r, v in zip(opts[p, t], variables[p, t])) for p in full_general_ids}
+            for p in full_general_ids:
+                for q in full_general_ids:
+                    if p != q:
+                        model.add(works[p] - works[q] <= 1)
+        # 6-2-1 [하드, 2026-10-05 사용자 확정]: 주말·공휴일 시작(N3/N4) 통제A 18시는 휴게 고정.
+        # 관리자대행에게는 적용하지 않는다. LOCK된 18시는 기록 그대로 둔다.
+        if (rules_v220 and not weekday_start and policy.manager_id == "A" and not manager_is_proxy
+                and not any(old.employee_id == "A" and old.slot.index == 0 for old in locked_assignments or ())):
+            model.add(expression("A", 0, lambda r: r.displayed_assignment.kind == K.REST
+                                 and r.actual_post_or_work_type.kind == K.REST) == 1)
+        # 8-10 [하드, 2026-10-05 사용자 확정]: 통제A는 04시 보안실 대기로 넣지 않고(쉬면 '휴게'),
+        # 차단봉 철수에 참여하지 않는다. 관리자대행 제외, LOCK된 04시는 기록 그대로.
+        if (rules_v220 and policy.manager_id == "A" and not manager_is_proxy
+                and not any(old.employee_id == "A" and old.slot.index == 10 for old in locked_assignments or ())):
+            # 룰북 8-6·15-0: 통제A는 04시 I1에도 배정하지 않는다(2026-10-13 누락 보완). 옛 차단봉 규칙 날짜는
+            # 유도리로 다시 계산하면 04시 I1이 철수 담당이 되어, 빠져 있으면 FM·유도리 동시 판정이 어긋났다.
+            model.add(expression("A", 10, lambda r: r.displayed_assignment.label in ("보안실 대기", "I1")
+                                 or r.barrier_remove_flag) == 0)
+        # 8-11 [하드, 2026-10-05 사용자 확정]: 당일 관리자(통제A·관리자대행)는 18시·07시 실근무 없음.
+        # 예외: 8-3-1(N1/N3 07시 가용 일반근무자 4명)이면 07시 근무 허용. LOCK된 칸은 기록 그대로.
+        if rules_v220:
+            locked_keys = {(old.employee_id, old.slot.index) for old in locked_assignments or ()}
+            from datetime import timedelta
+            from .calendar_info import holiday_name, is_off_day
+            # 5-3-1: 다음날 평일, 결원 2명 구간 외 남문 연속 배정 금지.
+            if not is_off_day(context.shift_start_date + timedelta(days=1)):
+                for p in people:
+                    for t in range(13):
+                        if any(7-sum(a.present and a.is_available(j) for a in context.attendance)==2
+                               for j in (t,t+1)):
+                            continue
+                        if (p,t) in locked_keys and (p,t+1) in locked_keys:
+                            continue
+                        model.add(sum(expression(p,j,lambda r:r.displayed_assignment.label in
+                            ('G2','G3','G2(1)')) for j in (t,t+1)) <= 1)
+            # 8-13: 다음날 공휴일(토·일 포함)이면 그날 관리자(통제A 또는 준호 대행, 2026-10-13 대행 포함) 06시 G1 금지.
+            # 중도 인계 뒤에는 관리자 줄을 준호가 이어서 서므로 같은 줄(policy.manager_id)에 건다. LOCK은 보존.
+            if (is_off_day(context.shift_start_date + timedelta(days=1)) and policy.manager_id
+                    and (policy.manager_id, 12) not in locked_keys):
+                model.add(expression(policy.manager_id, 12, lambda r: r.displayed_assignment.label == "G1"
+                                     or r.actual_post_or_work_type.label == "G1") == 0)
+            if (policy.profile_general_count == 4 or context.flexible_from_slot is not None) and holiday_name(context.shift_start_date + timedelta(days=1)):
+                for slot in (12, 13):
+                    if ((policy.manager_id, slot) not in locked_keys
+                            and (context.flexible_from_slot is None or slot >= context.flexible_from_slot)):
+                        model.add(expression(policy.manager_id, slot, lambda r:
+                            r.displayed_assignment.label in ("휴게", "보안실 대기")
+                            and r.actual_work_time_value == 0) == 1)
+            for slot in (0, 13):
+                if (slot == 13 and manager_works_07) or (policy.manager_id, slot) in locked_keys:
+                    continue
+                model.add(expression(policy.manager_id, slot, lambda r: r.actual_work_time_value == 0) == 1)
+
+        # 순찰 후 실휴게 3번째 칸이 비포스트면 반드시 대기 표기.
+        patrol_third_standby = {t:[] for t in range(14)}
+        if rules_v220:
+            locked_display={(r.employee_id,r.slot.index) for r in locked_assignments or ()}
+            for p in people:
+                for t in range(11):
+                    patrol=expression(p,t,lambda r:r.actual_post_or_work_type.kind==K.PATROL)
+                    first=expression(p,t+1,lambda r:r.actual_rest_time_value==1)
+                    second=expression(p,t+2,lambda r:r.actual_rest_time_value==1)
+                    for j in (t+1,t+2):
+                        if (p,j) not in locked_display:
+                            model.add(patrol+first+second+expression(p,j,lambda r:
+                                r.displayed_assignment.label=='보안실 대기')<=3)
+                    off=expression(p,t+3,lambda r:r.displayed_assignment.label in ('휴게','보안실 대기')
+                                   and r.actual_rest_time_value==1)
+                    flag=model.new_bool_var(f'patrol_third_standby_{p}_{t}')
+                    model.add(patrol+first+second+off==4).only_enforce_if(flag)
+                    model.add(patrol+first+second+off<=3).only_enforce_if(flag.Not())
+                    patrol_third_standby[t+3].append(flag)
+                    if (p,t+3) not in locked_display:
+                        model.add(expression(p,t+3,lambda r:r.displayed_assignment.label=='보안실 대기')>=flag)
+
+        # 12-4: 비포스트로 3시간 연속 쉬면 붙어 있는 휴게 2시간을 확보한다.
+        if rules_v220:
+            locked_three={(r.employee_id,r.slot.index) for r in locked_assignments or ()}
+            for p in people:
+                for t in range(12):
+                    if all((p,j) in locked_three for j in range(t,t+3)):continue
+                    off=[expression(p,j,lambda r:r.displayed_assignment.label in ('휴게','보안실 대기')
+                                    and r.actual_rest_time_value==1) for j in range(t,t+3)]
+                    rest=[expression(p,j,lambda r:r.displayed_assignment.label=='휴게') for j in range(t,t+3)]
+                    left=model.new_bool_var(f'plain_rest_left_{p}_{t}')
+                    right=model.new_bool_var(f'plain_rest_right_{p}_{t}')
+                    model.add(left<=rest[0]);model.add(left<=rest[1])
+                    model.add(right<=rest[1]);model.add(right<=rest[2])
+                    model.add(left+right>=sum(off)-2)
+
+        # 12-5: 결원 2명 구간 외 18~05시 대기 최소 1명. 결원 0명 시간은 필수(하드),
+        # 결원 1명 시간은 가능하면 지킬 규칙(2026-10-18 사용자 확정 — 순찰 뒤 휴게·연속 휴게 등과 겹쳐 해가 없던 문제):
+        # 대기자 없는 시간 수를 소프트 목표 맨 앞에서 최소화.
+        required_standby_slots=set()
+        vacancy1_standby_missing=[]
+        if rules_v220:
+            already_locked={(r.employee_id,r.slot.index) for r in locked_assignments or ()}
+            for t in range(12):
+                vacancies=7-sum(a.present and a.is_available(t) for a in context.attendance)
+                if vacancies==2:continue
+                required_standby_slots.add(t)
+                if all((p,t) in already_locked for p in people):continue
+                standby_here=sum(expression(p,t,lambda r:r.displayed_assignment.label=='보안실 대기')
+                                 for p in people)
+                if vacancies==1:
+                    missing=model.new_bool_var(f'vacancy1_missing_standby_{t}')
+                    model.add(standby_here+missing>=1)
+                    vacancy1_standby_missing.append(missing)
+                else:
+                    model.add(standby_here>=1)
+
+        # 12-6: 통제A 제외, 출근자 전체 대기 횟수 차이 최대1(반차 포함).
+        if rules_v220:
+            standby_people=[p for p in people if p!='A']
+            standby_totals={p:sum(expression(p,t,lambda r:r.displayed_assignment.label=='보안실 대기')
+                                  for t in range(14)) for p in standby_people}
+            for index,p in enumerate(standby_people):
+                for q in standby_people[index+1:]:
+                    model.add(standby_totals[p]-standby_totals[q]<=1)
+                    model.add(standby_totals[q]-standby_totals[p]<=1)
+
+        # 8-14: 실제 통제A 출근 시 I1 최소1회, 04시 금지는 그대로.
+        if rules_v220 and 'A' in people:
+            a_slots=[t for t in range(min(14,manager_a_end_slot))
+                     if next(a for a in context.attendance if a.employee_id=='A').is_available(t)]
+            locked_a={(r.employee_id,r.slot.index) for r in locked_assignments or ()}
+            if a_slots and not all(('A',t) in locked_a for t in a_slots):
+                model.add(sum(expression('A',t,lambda r:r.displayed_assignment.label=='I1') for t in a_slots)>=1)
+
+        # 8-15: 실제 통제A 대기 표기는 야간 전체 최대2회.
+        if rules_v220 and 'A' in people:
+            a_end=min(14,manager_a_end_slot)
+            completed_standby=sum(r.employee_id=='A' and r.slot.index<a_end
+                and r.displayed_assignment.label=='보안실 대기' for r in locked_assignments or ())
+            model.add(sum(expression('A',t,lambda r:r.displayed_assignment.label=='보안실 대기')
+                          for t in range(a_end))<=max(2,completed_standby))
+
+        # H-19: 05~07시 실휴게 3연속 금지. 통제A·준호 관리자 대행은 예외.
+        if rules_v220:
+            locked_keys = {(old.employee_id, old.slot.index) for old in locked_assignments or ()}
+            for pid in people:
+                if pid == "A" or (pid == "6" and (policy.manager_id == "6" or manager_a_end_slot <= 13)):
+                    continue
+                cells = [("A" if pid == "6" and t >= manager_a_end_slot else pid, t)
+                         for t in (11, 12, 13)]
+                if all(cell in locked_keys for cell in cells):
+                    continue
+                model.add(sum(expression(person, t, lambda row: row.actual_rest_time_value == 1)
+                              for person, t in cells) <= 2)
+
         for p, t in forced_rest_cells:
             if (p, t) in variables:
                 model.add(expression(p, t, lambda r: r.actual_work_time_value == 0) == 1)
         for p in forbid_install_ids:
-            if p in people:
-                model.add(expression(p, 2, lambda r:r.barrier_install_flag) == 0)
+            if p in people:                     # 15-3: v2는 대기 설치자끼리만 연속 회차 금지 (2026-10-05)
+                model.add(expression(p, 2, lambda r: r.barrier_install_flag and (
+                    not barrier_v2(context) or r.displayed_assignment.label == "보안실 대기")) == 0)
         for p in forbid_last_rest_ids:
-            if p in policy.general_ids:
+            if p in policy.general_ids and (p,13) not in {(r.employee_id,r.slot.index) for r in locked_assignments or ()}:
                 model.add(expression(p, 13, lambda r:r.actual_rest_time_value == 1) == 0)
         if rules_v212 and absence_count == 0 and not manager_is_proxy:
             for p in forbid_patrol_exclusion_ids:
@@ -378,7 +604,7 @@ def solve_first_trial(context, history: HistoryInput, seconds=30, *, dual_flexib
                             # absence, A's total fatigue is not above any
                             # full-time general worker and at most 2 below.
                             model.add(fatigue_totals[policy.manager_id] <= fatigue_totals[p])
-                            model.add(fatigue_totals[p] - fatigue_totals[policy.manager_id] <= 2)
+                            model.add(fatigue_totals[p] - fatigue_totals[policy.manager_id] <= (3 if rules_v220 else 2))
                         else:
                             model.add(fatigue_totals[policy.manager_id] >= fatigue_totals[p] - 4)
                             model.add(fatigue_totals[p] >= fatigue_totals[policy.manager_id] - 4)
@@ -450,7 +676,9 @@ def solve_first_trial(context, history: HistoryInput, seconds=30, *, dual_flexib
                         model.add(standby_count >= 1)
                     if rules_v212 and t == 10:
                         model.add(standby_count == 1)
-                    if rules_v212 and t == 2:
+                    if rules_v212 and t == 2 and barrier_v2(context):
+                        model.add(standby_count == 1)          # H-16 (2026-10-05~): 20시 대기 표기 1명, 나머지는 휴게
+                    elif rules_v212 and t == 2:
                         available = len(people) - sum(req.total_count for req in policy.requirements if req.slot_index == t)
                         model.add(standby_count == min(2, available))
                 elif vacancy_policy and headcount < 6 and t not in (2, 10):
@@ -466,6 +694,10 @@ def solve_first_trial(context, history: HistoryInput, seconds=30, *, dual_flexib
                 model.add(expression(policy.manager_id, 10, lambda r: r.actual_work_time_value == 0 or r.displayed_assignment.label == "I1") == 1)
 
         patrol_recovery_costs = []
+        half_day_rest_misses = []
+        # H-09-1 [하드, 2026-10-05]: 미리 정한 반차자는 나오는 시간 안에서 실제 휴게 합계 2시간 이상
+        for p in half_day:
+            model.add(sum(expression(p, t, lambda r: r.actual_rest_time_value == 1) for t in range(14)) >= 2)
         for p in people:
             if any(attendance_by_id[p].is_available(t) for t in (0, 1, 2)):
                 model.add(sum(expression(p, t, lambda r: r.counts_as_meal_opportunity) for t in (0, 1, 2)) >= 1)
@@ -507,6 +739,17 @@ def solve_first_trial(context, history: HistoryInput, seconds=30, *, dual_flexib
                 relaxed_patrol_rest = profile_absence == 2 or (switch_slot is not None and t + 2 >= switch_slot)
                 if relaxed(3):
                     continue
+                if p in half_day:
+                    # H-09-1 (2026-10-05): 미리 정한 반차자는 순찰 후 휴게가 하드 아님. 입식→순찰→입식만 금지하고,
+                    # 순찰 직후 휴게는 밸런스 다음 권장(half_day_patrol_rest).
+                    stood_before = expression(p, t - 1, lambda r: r.actual_work_time_value == 1 and r.posture_or_mode == Posture.STANDING)
+                    bad_after = expression(p, t + 1, lambda r: r.actual_work_time_value == 1 and r.posture_or_mode != Posture.SEATED)
+                    model.add(stood_before + is_patrol + bad_after <= 2)
+                    for j in (t + 1, t + 2):
+                        miss = model.new_bool_var(f"half_day_patrol_rest_miss_{p}_{t}_{j}")
+                        model.add(miss >= is_patrol - expression(p, j, lambda r: r.actual_rest_time_value == 1))
+                        half_day_rest_misses.append(miss)
+                    continue
                 if relaxed_patrol_rest:
                     rest_flags = []
                     seated_flags = []
@@ -543,9 +786,19 @@ def solve_first_trial(context, history: HistoryInput, seconds=30, *, dual_flexib
                         bad_after = expression(p, t + 1, lambda r: r.actual_work_time_value == 1 and r.posture_or_mode != Posture.SEATED)
                         model.add(stood_before + is_patrol + bad_after <= 2)
                 else:
+                    rests = []
                     for j in (t + 1, t + 2):
                         legal_rest = lambda r, j=j: r.counts_as_post_patrol_rest and (mode_at(context, j) != Mode.FM or r.displayed_assignment.label == "휴게")
-                        model.add(is_patrol <= expression(p, j, legal_rest))
+                        rests.append(expression(p, j, legal_rest))
+                    if rules_v220 and p == "A" and not manager_is_proxy and t == 3:
+                        # H-12-1 [하드, 2026-10-05 사용자 확정]: 통제A 21시 상층 순찰 직전 20시에 실근무가 없으면
+                        # (휴게·보안실 대기, 차단봉 설치 포함) 22·23시 중 1칸은 포스트 허용, 나머지 1칸은 휴게.
+                        free_before = expression(p, t - 1, lambda r: r.actual_work_time_value == 0)
+                        model.add(sum(rests) >= 2 * is_patrol - free_before)
+                        model.add(sum(rests) >= is_patrol)
+                    else:
+                        for rest in rests:
+                            model.add(is_patrol <= rest)
                     if rules_v220:
                         guard = model.new_bool_var(f"protected_patrol_{p}_{t}")
                         model.add(guard == is_patrol)
@@ -573,8 +826,19 @@ def solve_first_trial(context, history: HistoryInput, seconds=30, *, dual_flexib
                     before = expression(p, t - 1, lambda r: r.actual_work_time_value == 1)
                     after = expression(p, t + 1, lambda r: r.actual_work_time_value == 1)
                     model.add(standalone + before + after <= 2)
-        model.add(sum(expression(p, 2, lambda r: r.barrier_install_flag) for p in people) == (1 if mode_at(context, 2) == Mode.FM else 2))
-        if mode_at(context, 2) == Mode.FLEXIBLE:
+        if barrier_v2(context):
+            # 15-0 (2026-10-05): 설치 2명 = G2+대기(20시 G2 운영) 또는 I1+대기 1명, 철수 = 04시 I1. 통제A는 설치·철수 안 함.
+            model.add(sum(expression(p, 2, lambda r: r.barrier_install_flag) for p in people) == (1 if barrier_single(context) else 2))
+            model.add(sum(expression(p, 2, lambda r: r.barrier_install_flag and r.displayed_assignment.label == "보안실 대기")
+                          for p in people) == (0 if barrier_single(context) else 1))
+            if policy.manager_id == "A" and not manager_is_proxy and ("A", 2) not in {
+                    (old.employee_id, old.slot.index) for old in locked_assignments or ()}:
+                model.add(expression("A", 2, lambda r: r.barrier_install_flag) == 0)
+        elif mode_at(context, 2) == Mode.FM:
+            model.add(sum(expression(p, 2, lambda r: r.barrier_install_flag) for p in people) == 1)
+        else:
+            model.add(sum(expression(p, 2, lambda r: r.barrier_install_flag) for p in people) == 2)
+        if mode_at(context, 2) == Mode.FLEXIBLE and not barrier_v2(context):
             # §10-4: exactly one of the two flexible installers is the 20:00 보안실 대기.
             model.add(sum(expression(p, 2, lambda r: r.barrier_install_flag and r.displayed_assignment.label == "보안실 대기")
                           for p in people) == 1)
@@ -629,6 +893,32 @@ def solve_first_trial(context, history: HistoryInput, seconds=30, *, dual_flexib
             else:
                 objectives = manager_objectives(a_work, a_fatigue, rules_v217=rules_v217,
                                                 manager_is_proxy=manager_is_proxy)
+            # 17-4 [강한 권장, 2026-10-05 사용자 확정]: 통제A 00시 이후 연속 휴게 2시간 (관리자 우대 바로 다음)
+            if rules_v220 and policy.manager_id == "A" and not manager_is_proxy:
+                late_pairs = []
+                for t in range(6, 13):
+                    pair = model.new_bool_var(f"manager_late_rest_pair_{t}")
+                    for j in (t, t + 1):
+                        model.add(pair <= expression("A", j, lambda r: r.actual_rest_time_value == 1))
+                    late_pairs.append(pair)
+                has_late_rest = model.new_bool_var("manager_late_two_hour_rest")
+                model.add(has_late_rest <= sum(late_pairs))
+                objectives.append(("manager_late_two_hour_rest", 1 - has_late_rest))
+            # 17-2 [최상위 권장, 2026-10-04 사용자 확정]: 반차·이탈 없이 모두 온전히 근무하는 날,
+            # 일반근무자마다 G1·L3·I1을 각각 최소 1번. 하드 바로 다음 순위이며 못 지키면 표는 만들고 사유를 표시한다.
+            coverage_posts = ("G1", "L3", "I1")
+            post_counts = {}
+            if not partial_general_ids and len(full_general_ids) >= 2:
+                missing_posts = []
+                for p in full_general_ids:
+                    for post in coverage_posts:
+                        count = sum(expression(p, t, lambda r, post=post: r.displayed_assignment.label == post)
+                                    for t in range(14))
+                        post_counts[p, post] = count
+                        missed = model.new_bool_var(f"post_missing_{p}_{post}")
+                        model.add(missed >= 1 - count)
+                        missing_posts.append(missed)
+                objectives.insert(0, ("post_coverage", sum(missing_posts)))
             if switch_double_patrols:
                 # §14-3: prefer as few double patrols as possible, A first.
                 objectives.append(("switch_general_double_patrols", sum(switch_double_patrols)))
@@ -643,6 +933,26 @@ def solve_first_trial(context, history: HistoryInput, seconds=30, *, dual_flexib
                           + expression(policy.manager_id, t + 1, lambda r: r.displayed_assignment.label == "L3") - 1)
                 manager_l3_pairs.append(pair)
             objectives.append(("manager_l3_repeat_after_00", sum(manager_l3_pairs)))
+            # 17-6 권장: 최근 2싸이클 평균 격차>=1이면 최대 손해자에게 1점 낮게.
+            # 먼저 1점 초과 격차를 최소화하고, 그 범위 안에서 보상한다. HARD 완화 없음.
+            averages = {p: compensation_averages[p] for p in full_general_ids
+                        if compensation_averages and p in compensation_averages}
+            if rules_v220 and len(averages) >= 2:
+                high = max(averages, key=lambda p: (averages[p], p))
+                low = min(averages, key=lambda p: (averages[p], p))
+                if averages[high] - averages[low] >= 1 - 1e-9:
+                    fatigue = {p: sum(int(r.fatigue_value)*v for t in range(14)
+                                      for r,v in zip(opts[p,t],variables[p,t])) for p in full_general_ids}
+                    hi = model.new_int_var(0,40,"compensation_max")
+                    lo = model.new_int_var(0,40,"compensation_min")
+                    model.add_max_equality(hi,list(fatigue.values()))
+                    model.add_min_equality(lo,list(fatigue.values()))
+                    excess = model.new_int_var(0,40,"compensation_excess")
+                    model.add_max_equality(excess,[0,hi-lo-1])
+                    shortfall = model.new_int_var(0,41,"compensation_shortfall")
+                    model.add_max_equality(shortfall,[0,1-fatigue[low]+fatigue[high]])
+                    objectives.append(("compensation_gap_limit",excess))
+                    objectives.append(("history_one_point_compensation",shortfall))
             spreads=[]
             for attr in ("fatigue_value", "actual_rest_time_value"):
                 balance_ids = full_general_ids if rules_v215 and partial_general_ids else policy.general_ids
@@ -658,6 +968,16 @@ def solve_first_trial(context, history: HistoryInput, seconds=30, *, dual_flexib
                     model.add(spread <= 1)
             else:
                 objectives.append(("general_balance",sum(spreads)))
+            if post_counts:                     # 17-2: 피로도·실휴게 n빵 다음, 포스트별 횟수 차이를 줄인다
+                post_spreads = []
+                for post in coverage_posts:
+                    counts = [post_counts[p, post] for p in full_general_ids]
+                    hi = model.new_int_var(0, 14, f"post_{post}_max"); lo = model.new_int_var(0, 14, f"post_{post}_min")
+                    model.add_max_equality(hi, counts); model.add_min_equality(lo, counts)
+                    post_spreads.append(hi - lo)
+                objectives.append(("post_spread", sum(post_spreads)))
+            if half_day_rest_misses:            # H-09-1: 반차자 순찰 직후 휴게는 다른 사람 밸런스 다음 권장
+                objectives.append(("half_day_patrol_rest", sum(half_day_rest_misses)))
             # 17-1 개인 회피 [강한 소프트, 2026-10-02]: 당일 밸런스 다음, 이력 밸런스·선호 보너스보다 먼저
             avoid_terms = [expression(p, t, lambda r, label=label: r.displayed_assignment.label == label)
                            for p, t, label in avoid_cells if p in people]
@@ -763,6 +1083,8 @@ def solve_first_trial(context, history: HistoryInput, seconds=30, *, dual_flexib
                             posture_triples.append(flag)
                 # H-06 is a strong preference, not a feasibility constraint.
                 objectives.append(("same_posture_triples", sum(posture_triples)))
+            if exclusion_cost:
+                objectives.append(("patrol_exclusion_rotation",sum(exclusion_cost)))
             # 15-8/14-8 [soft, 2026-09-30]: over the last 3 cycles (6 nights), give
             # barrier duty and each patrol zone to whoever has done it least per night.
             if duty_rates:
@@ -811,7 +1133,8 @@ def solve_first_trial(context, history: HistoryInput, seconds=30, *, dual_flexib
                     model.add(n <= 2).only_enforce_if(flag.Not())
                     sandwiches.append(debt_weight(soft_debt, "15-7", p) * flag if rules_v213 else flag)
             objectives.append(("avoid_barrier_between_work",sum(sandwiches)))
-            prefer04=expression(policy.manager_id,10,lambda r:r.actual_work_time_value == 1 and r.displayed_assignment.label != "I1")
+            # 8-6 관리자 04시 I1 저우선 권장은 2026-10-05 사용자 요청으로 삭제(v2.20 호출부터). 07시 근무 회피만 남김.
+            prefer04=0 if rules_v220 else expression(policy.manager_id,10,lambda r:r.actual_work_time_value == 1 and r.displayed_assignment.label != "I1")
             prefer07=expression(policy.manager_id,13,lambda r:r.actual_work_time_value == 1)
             objectives.append(("manager_post_preferences",prefer04+prefer07))
             if rules_v215 and partial_general_ids:
@@ -872,7 +1195,7 @@ def solve_first_trial(context, history: HistoryInput, seconds=30, *, dual_flexib
                     long_rest = model.new_bool_var(f"pref_long_rest_{p}")
                     model.add(long_rest <= sum(pairs))
                     missed_preferences.append(weight * (1 - long_rest))
-                    missed_preferences.append(weight * (1 - expression(p, 13, rest)))
+                    # 07시 수혜는 별도 최근 수혜일 우선순위로 결정한다.
                 if missed_preferences:
                     objectives.append(("preference_bonus", sum(missed_preferences)))
             standby20=sum(expression(p,2,lambda r:r.displayed_assignment.label == "보안실 대기") for p in people)
@@ -885,6 +1208,14 @@ def solve_first_trial(context, history: HistoryInput, seconds=30, *, dual_flexib
             # 12장 보완 (2026-10-01): FM 시간(20·04시 제외)에는 비근무자가 2명 이상이면
             # 정확히 1명을 보안실 대기, 나머지는 휴게. 1명 이하면 보안실 대기 없음.
             # 보안실 대기는 밤 전체에서 사람마다 고르게 돌린다.
+            standby_pairs=[]
+            for p in people:
+                for t in range(13):
+                    pair=model.new_bool_var(f'consecutive_standby_{p}_{t}')
+                    model.add(pair >= expression(p,t,lambda r:r.displayed_assignment.label=='보안실 대기')
+                        + expression(p,t+1,lambda r:r.displayed_assignment.label=='보안실 대기')-1)
+                    standby_pairs.append(pair)
+            objectives.append(('avoid_consecutive_standby',sum(standby_pairs)))
             fm_slots = [t for t in range(14) if t not in (2, 10) and mode_at(context, t) == Mode.FM]
             is_standby = lambda r: r.displayed_assignment.label == "보안실 대기"  # noqa: E731
             is_off = lambda r: r.displayed_assignment.label in ("휴게", "보안실 대기") and r.actual_work_time_value == 0  # noqa: E731
@@ -895,21 +1226,30 @@ def solve_first_trial(context, history: HistoryInput, seconds=30, *, dual_flexib
                 two_off = model.new_bool_var(f"fm_two_off_{t}")
                 model.add(off_t >= 2).only_enforce_if(two_off)
                 model.add(off_t <= 1).only_enforce_if(two_off.Not())
-                model.add(standby_t <= two_off)
-                missing_standby.append(two_off - standby_t)
+                if t not in required_standby_slots:
+                    model.add(standby_t <= two_off + sum(patrol_third_standby[t]))
+                model.add(standby_t <= 1)
+                missing=model.new_int_var(0,1,f'fm_missing_standby_{t}')
+                model.add_max_equality(missing,[0,two_off-standby_t])
+                missing_standby.append(missing)
             if fm_slots:
                 objectives.append(("fm_one_standby", sum(missing_standby)))
-                counts = [sum(expression(p, t, is_standby) for t in fm_slots) for p in people]
-                if len(counts) >= 2:
-                    hi = model.new_int_var(0, 14, "standby_hi"); lo = model.new_int_var(0, 14, "standby_lo")
-                    model.add_max_equality(hi, counts); model.add_min_equality(lo, counts)
-                    objectives.append(("fm_standby_spread", hi - lo))
+            # 20시·04시 필수 대기와 유도리 시간까지 포함한 당일 전체 대기 횟수.
+            standby_squares=[]
+            for p in people:
+                if p=='A':continue  # 통제A 대기 표기는 일반근무자 부담 균등을 위해 허용
+                count=model.new_int_var(0,14,f'all_standby_count_{p}')
+                model.add(count==sum(expression(p,t,is_standby) for t in range(14)))
+                square=model.new_int_var(0,196,f'all_standby_square_{p}')
+                model.add_multiplication_equality(square,[count,count])
+                standby_squares.append(square)
+            objectives.append(('standby_total_load',sum(standby_squares)))
             flexible_slots = [t for t in range(14) if t not in (2, 10) and t not in fm_slots]
             if flexible_slots:
                 optional=sum(expression(p,t,is_standby) for p in people for t in flexible_slots)
                 objectives.append(("remaining_off_duty_rest",optional))
             # 룰북 0-2-1 (2026-10-02 사용자 확정): FM을 고르면 먼저 'FM·유도리 모두 만족' 해를 찾는다.
-            # 같은 표시표를 유도리(10-1 I1 00~03시 휴게성, 10-4·10-5 차단봉)로 계산해도 지켜야 하는
+            # 같은 표시표를 유도리(해당 표의 I1 휴게성 운영, 10-4·10-5 차단봉)로 계산해도 지켜야 하는
             # 조건 중 FM과 달라지는 것만 더한다: A 격차(H-15·8-4-2)와 유도리 20시 설치자 ≠ 04시 I1(철수).
             # 최종 판정은 서비스가 유도리로 계산한 표를 독립 Validator로 다시 검사해서 한다.
             if dual_flexible and context.effective_mode == Mode.FM and switch_slot is None:
@@ -917,7 +1257,7 @@ def solve_first_trial(context, history: HistoryInput, seconds=30, *, dual_flexib
                     model, opts, variables, policy, context, people, partial_general_ids,
                     gap_rule=not manager_vacancy_policy,
                     fatigue_rule=headcount in (5, 6) and not (rules_v218 and profile_absence == 2),
-                    fatigue_band=(0, 2) if rules_v219 and not manager_is_proxy else (-4, 4),
+                    fatigue_band=(0, 3 if rules_v220 else 2) if rules_v219 and not manager_is_proxy else (-4, 4),
                     skip_partial=rules_v215, balance=dual_balance)
             # A stage that runs out of time keeps its best value as an upper bound
             # (never frozen as if proven) and later stages still run, warm-started
@@ -927,6 +1267,57 @@ def solve_first_trial(context, history: HistoryInput, seconds=30, *, dual_flexib
             spent = 0.0
             best_status = None
             best_values = None
+            if rules_v220 and manager_vacancy_policy and policy.general_ids:
+                n = len(policy.general_ids)
+                boss_fatigue = sum(int(r.fatigue_value) * v for t in range(14)
+                                   for r, v in zip(opts[policy.manager_id,t], variables[policy.manager_id,t]))
+                general_fatigue = sum(int(r.fatigue_value) * v for p in policy.general_ids for t in range(14)
+                                      for r, v in zip(opts[p,t], variables[p,t]))
+                difference = model.new_int_var(0, 1000, "vacancy_manager_average_gap_scaled")
+                model.add_abs_equality(difference, n * boss_fatigue - general_fatigue)
+                excess = model.new_int_var(0, 1000, "vacancy_manager_average_gap_excess")
+                model.add_max_equality(excess, [0, difference - 4 * n])
+                position = next((i + 1 for i, (name, _) in enumerate(objectives) if name == "general_balance"),
+                                next((i + 1 for i, (name, _) in enumerate(objectives) if name == "post_coverage"), 0))
+                objectives.insert(position, ("vacancy_manager_fatigue_gap", excess))
+            # 8-4-2: 다른 소프트 목표가 먼저. 0~2점 유지 목표는 맨 마지막,
+            # HARD 상한3점·A가 일반보다 높은 배정 금지는 그대로 지킨다.
+            if (rules_v220 and not manager_is_proxy and headcount in (5,6)
+                    and not manager_vacancy_policy and switch_slot is None):
+                penalties = []
+                contexts = (context, replace(context, requested_mode=Mode.FLEXIBLE,
+                                             effective_mode=Mode.FLEXIBLE)) if dual_flexible else (context,)
+                for index, accounting in enumerate(contexts):
+                    totals = {p: sum((int(r.fatigue_value) +
+                                      (_flexible_delta(r,t,accounting)[0] if index else 0))*v
+                                     for t in range(14) for r,v in zip(opts[p,t],variables[p,t]))
+                              for p in (*full_general_ids,policy.manager_id)}
+                    for p in full_general_ids:
+                        penalty = model.new_int_var(0,40,f"a_gap_preference_{index}_{p}")
+                        model.add_max_equality(penalty,[0,totals[p]-totals[policy.manager_id]-2])
+                        penalties.append(penalty)
+                objectives.append(("manager_normal_gap_preference",sum(penalties)))
+            # 16장: 마지막 수혜가 오래된 순서가 HARD 다음 최우선 목표.
+            if last_rest_records:
+                groups = {}
+                for p in policy.general_ids:
+                    attended=sorted((r for r in last_rest_records if r.context.shift_start_date < context.shift_start_date
+                        and any(a.employee_id==p and a.present and a.is_general_worker for a in r.context.attendance)),
+                        key=lambda r:r.context.shift_start_date)
+                    received=[r.context.shift_start_date.toordinal() for r in attended if any(
+                        x.employee_id==p and x.slot.index==13 and x.actual_rest_time_value==1 for x in r.assignments)]
+                    if attended and any(x.employee_id==p and x.slot.index==13 and x.actual_rest_time_value==1
+                                        for x in attended[-1].assignments):
+                        if (p,13) not in {(x.employee_id,x.slot.index) for x in locked_assignments or ()}:
+                            model.add(expression(p,13,lambda r:r.actual_rest_time_value==1)==0)
+                        continue
+                    if not next(a for a in context.attendance if a.employee_id==p).is_available(13):continue
+                    groups.setdefault(max(received) if received else -1,[]).append(p)
+                priorities=[('last_rest_oldest_'+str(day),sum(1-expression(p,13,lambda r:r.actual_rest_time_value==1)
+                             for p in group)) for day,group in sorted(groups.items())]
+                objectives=priorities+objectives
+            if vacancy1_standby_missing:                 # 12-5 결원 1명 시간: 가능하면 지킬 규칙 → 소프트 목표 맨 앞
+                objectives.insert(0, ("vacancy1_required_standby", sum(vacancy1_standby_missing)))
             for objective_name, objective in objectives:
                 model.minimize(objective)
                 cap = STAGE_TIME_CAPS.get(objective_name, float(seconds))

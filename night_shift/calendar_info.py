@@ -53,6 +53,11 @@ def shift_kind(day: date) -> str:
     return PATTERN[(day - PATTERN_START).days % len(PATTERN)]
 
 
+def document_day(day: date) -> bool:
+    """A조 야2·휴1 문서 날짜: 전날 A조가 야간 근무한 날."""
+    return (day - PATTERN_START).days % len(PATTERN) in (3, 4)
+
+
 def holiday_name(day: date) -> str | None:
     return HOLIDAYS.get(day)
 

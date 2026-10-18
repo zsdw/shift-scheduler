@@ -1,0 +1,22 @@
+{
+ "2026-10-10": {
+  "stamp": "2587a8cdc880ace9a536ef60864a289688132d9413aac233ccc3c5a1ea49736c",
+  "basis": "schedule"
+ },
+ "2026-10-13": {
+  "stamp": "a290fce382ccaef162f72d46532873f8aae744299094b4d07ce7b7dedc3d69e1",
+  "basis": "leave"
+ },
+ "2026-10-14": {
+  "stamp": "18f7223e477172335795b2886ef75df33f523e16d5d4b89b13dc39e4887c91fa",
+  "basis": "leave"
+ },
+ "2026-10-12": {
+  "stamp": "6ec16613c4aa4534d21f732f47999b9abae7c112cab9b624c16d81657c624976",
+  "basis": "leave"
+ },
+ "2026-10-16": {
+  "stamp": "7db13b440ee0bc193db172ffc7fbbfc471d4a1b8bd7c2d8284753f6d360499df",
+  "basis": "schedule"
+ }
+}

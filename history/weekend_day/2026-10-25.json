@@ -1,0 +1,1003 @@
+{
+  "day": "2026-10-25",
+  "names": {
+    "A": "통제A",
+    "1": "만년",
+    "2": "원종",
+    "3": "제욱",
+    "4": "광희",
+    "6": "준호"
+  },
+  "grid": {
+    "A": [
+      "휴게",
+      "순찰",
+      "I1",
+      "G2",
+      "G1",
+      "휴게",
+      "L1",
+      "I1",
+      "G2",
+      "휴게"
+    ],
+    "1": [
+      "I1",
+      "G1",
+      "L1",
+      "대기",
+      "G2",
+      "G1",
+      "대기",
+      "G1",
+      "순찰",
+      "I1"
+    ],
+    "2": [
+      "G1",
+      "L1",
+      "대기",
+      "순찰",
+      "I1",
+      "G2",
+      "G1",
+      "대기",
+      "L1",
+      "G2"
+    ],
+    "3": [
+      "대기",
+      "G2",
+      "G1",
+      "I1",
+      "L1",
+      "대기",
+      "G2",
+      "순찰",
+      "I1",
+      "L1"
+    ],
+    "4": [
+      "L1",
+      "대기",
+      "순찰",
+      "G1",
+      "휴게",
+      "L1",
+      "I1",
+      "G2",
+      "G1",
+      "대기"
+    ],
+    "6": [
+      "G2",
+      "I1",
+      "G2",
+      "L1",
+      "대기",
+      "I1",
+      "순찰",
+      "L1",
+      "대기",
+      "G1"
+    ]
+  },
+  "mode": "FM",
+  "g2_cap": 2,
+  "balance": true,
+  "standing_limit": true,
+  "manager_priority": true,
+  "locked_through": null,
+  "leavers": {},
+  "half_days": {},
+  "rule_exempt_names": [],
+  "relaxed": false,
+  "annotations": [],
+  "patrol_events": [
+    {
+      "date": "2026-09-03",
+      "shift": 1,
+      "name": "광희",
+      "excluded": false,
+      "patrol": true
+    },
+    {
+      "date": "2026-09-03",
+      "shift": 1,
+      "name": "만년",
+      "excluded": false,
+      "patrol": true
+    },
+    {
+      "date": "2026-09-03",
+      "shift": 1,
+      "name": "성호",
+      "excluded": false,
+      "patrol": true
+    },
+    {
+      "date": "2026-09-03",
+      "shift": 1,
+      "name": "제욱",
+      "excluded": false,
+      "patrol": true
+    },
+    {
+      "date": "2026-09-03",
+      "shift": 1,
+      "name": "준호",
+      "excluded": false,
+      "patrol": true
+    },
+    {
+      "date": "2026-09-04",
+      "shift": 1,
+      "name": "광희",
+      "excluded": false,
+      "patrol": true
+    },
+    {
+      "date": "2026-09-04",
+      "shift": 1,
+      "name": "만년",
+      "excluded": false,
+      "patrol": true
+    },
+    {
+      "date": "2026-09-04",
+      "shift": 1,
+      "name": "성호",
+      "excluded": false,
+      "patrol": true
+    },
+    {
+      "date": "2026-09-04",
+      "shift": 1,
+      "name": "제욱",
+      "excluded": false,
+      "patrol": true
+    },
+    {
+      "date": "2026-09-04",
+      "shift": 1,
+      "name": "준호",
+      "excluded": false,
+      "patrol": true
+    },
+    {
+      "date": "2026-09-09",
+      "shift": 1,
+      "name": "광희",
+      "excluded": false,
+      "patrol": true
+    },
+    {
+      "date": "2026-09-09",
+      "shift": 1,
+      "name": "만년",
+      "excluded": false,
+      "patrol": true
+    },
+    {
+      "date": "2026-09-09",
+      "shift": 1,
+      "name": "성호",
+      "excluded": false,
+      "patrol": true
+    },
+    {
+      "date": "2026-09-09",
+      "shift": 1,
+      "name": "원종",
+      "excluded": false,
+      "patrol": true
+    },
+    {
+      "date": "2026-09-09",
+      "shift": 1,
+      "name": "제욱",
+      "excluded": false,
+      "patrol": true
+    },
+    {
+      "date": "2026-09-10",
+      "shift": 1,
+      "name": "광희",
+      "excluded": false,
+      "patrol": true
+    },
+    {
+      "date": "2026-09-10",
+      "shift": 1,
+      "name": "만년",
+      "excluded": false,
+      "patrol": true
+    },
+    {
+      "date": "2026-09-10",
+      "shift": 1,
+      "name": "성호",
+      "excluded": false,
+      "patrol": true
+    },
+    {
+      "date": "2026-09-10",
+      "shift": 1,
+      "name": "원종",
+      "excluded": false,
+      "patrol": true
+    },
+    {
+      "date": "2026-09-10",
+      "shift": 1,
+      "name": "제욱",
+      "excluded": false,
+      "patrol": true
+    },
+    {
+      "date": "2026-09-13",
+      "shift": 0,
+      "name": "광희",
+      "excluded": false,
+      "patrol": true
+    },
+    {
+      "date": "2026-09-13",
+      "shift": 0,
+      "name": "만년",
+      "excluded": false,
+      "patrol": true
+    },
+    {
+      "date": "2026-09-13",
+      "shift": 0,
+      "name": "원종",
+      "excluded": false,
+      "patrol": true
+    },
+    {
+      "date": "2026-09-13",
+      "shift": 0,
+      "name": "제욱",
+      "excluded": false,
+      "patrol": true
+    },
+    {
+      "date": "2026-09-13",
+      "shift": 0,
+      "name": "준호",
+      "excluded": false,
+      "patrol": true
+    },
+    {
+      "date": "2026-09-15",
+      "shift": 1,
+      "name": "광희",
+      "excluded": false,
+      "patrol": true
+    },
+    {
+      "date": "2026-09-15",
+      "shift": 1,
+      "name": "만년",
+      "excluded": false,
+      "patrol": true
+    },
+    {
+      "date": "2026-09-15",
+      "shift": 1,
+      "name": "성호",
+      "excluded": false,
+      "patrol": true
+    },
+    {
+      "date": "2026-09-15",
+      "shift": 1,
+      "name": "원종",
+      "excluded": false,
+      "patrol": true
+    },
+    {
+      "date": "2026-09-15",
+      "shift": 1,
+      "name": "제욱",
+      "excluded": false,
+      "patrol": true
+    },
+    {
+      "date": "2026-09-15",
+      "shift": 1,
+      "name": "준호",
+      "excluded": false,
+      "patrol": true
+    },
+    {
+      "date": "2026-09-16",
+      "shift": 1,
+      "name": "광희",
+      "excluded": false,
+      "patrol": true
+    },
+    {
+      "date": "2026-09-16",
+      "shift": 1,
+      "name": "만년",
+      "excluded": false,
+      "patrol": true
+    },
+    {
+      "date": "2026-09-16",
+      "shift": 1,
+      "name": "성호",
+      "excluded": true,
+      "patrol": false
+    },
+    {
+      "date": "2026-09-16",
+      "shift": 1,
+      "name": "원종",
+      "excluded": false,
+      "patrol": true
+    },
+    {
+      "date": "2026-09-16",
+      "shift": 1,
+      "name": "제욱",
+      "excluded": false,
+      "patrol": true
+    },
+    {
+      "date": "2026-09-16",
+      "shift": 1,
+      "name": "준호",
+      "excluded": false,
+      "patrol": true
+    },
+    {
+      "date": "2026-09-19",
+      "shift": 0,
+      "name": "광희",
+      "excluded": false,
+      "patrol": true
+    },
+    {
+      "date": "2026-09-19",
+      "shift": 0,
+      "name": "만년",
+      "excluded": false,
+      "patrol": true
+    },
+    {
+      "date": "2026-09-19",
+      "shift": 0,
+      "name": "원종",
+      "excluded": false,
+      "patrol": true
+    },
+    {
+      "date": "2026-09-19",
+      "shift": 0,
+      "name": "제욱",
+      "excluded": false,
+      "patrol": true
+    },
+    {
+      "date": "2026-09-19",
+      "shift": 0,
+      "name": "준호",
+      "excluded": false,
+      "patrol": true
+    },
+    {
+      "date": "2026-09-20",
+      "shift": 0,
+      "name": "광희",
+      "excluded": false,
+      "patrol": true
+    },
+    {
+      "date": "2026-09-20",
+      "shift": 0,
+      "name": "만년",
+      "excluded": false,
+      "patrol": true
+    },
+    {
+      "date": "2026-09-20",
+      "shift": 0,
+      "name": "성호",
+      "excluded": false,
+      "patrol": true
+    },
+    {
+      "date": "2026-09-20",
+      "shift": 0,
+      "name": "원종",
+      "excluded": false,
+      "patrol": true
+    },
+    {
+      "date": "2026-09-20",
+      "shift": 0,
+      "name": "제욱",
+      "excluded": false,
+      "patrol": true
+    },
+    {
+      "date": "2026-09-20",
+      "shift": 0,
+      "name": "준호",
+      "excluded": false,
+      "patrol": true
+    },
+    {
+      "date": "2026-09-21",
+      "shift": 1,
+      "name": "광희",
+      "excluded": false,
+      "patrol": true
+    },
+    {
+      "date": "2026-09-21",
+      "shift": 1,
+      "name": "만년",
+      "excluded": false,
+      "patrol": true
+    },
+    {
+      "date": "2026-09-21",
+      "shift": 1,
+      "name": "성호",
+      "excluded": false,
+      "patrol": true
+    },
+    {
+      "date": "2026-09-21",
+      "shift": 1,
+      "name": "원종",
+      "excluded": false,
+      "patrol": true
+    },
+    {
+      "date": "2026-09-21",
+      "shift": 1,
+      "name": "제욱",
+      "excluded": true,
+      "patrol": false
+    },
+    {
+      "date": "2026-09-21",
+      "shift": 1,
+      "name": "준호",
+      "excluded": false,
+      "patrol": true
+    },
+    {
+      "date": "2026-09-22",
+      "shift": 1,
+      "name": "만년",
+      "excluded": false,
+      "patrol": true
+    },
+    {
+      "date": "2026-09-22",
+      "shift": 1,
+      "name": "성호",
+      "excluded": false,
+      "patrol": true
+    },
+    {
+      "date": "2026-09-22",
+      "shift": 1,
+      "name": "원종",
+      "excluded": false,
+      "patrol": true
+    },
+    {
+      "date": "2026-09-22",
+      "shift": 1,
+      "name": "제욱",
+      "excluded": false,
+      "patrol": true
+    },
+    {
+      "date": "2026-09-22",
+      "shift": 1,
+      "name": "준호",
+      "excluded": false,
+      "patrol": true
+    },
+    {
+      "date": "2026-09-25",
+      "shift": 0,
+      "name": "광희",
+      "excluded": false,
+      "patrol": true
+    },
+    {
+      "date": "2026-09-25",
+      "shift": 0,
+      "name": "만년",
+      "excluded": false,
+      "patrol": true
+    },
+    {
+      "date": "2026-09-25",
+      "shift": 0,
+      "name": "성호",
+      "excluded": false,
+      "patrol": true
+    },
+    {
+      "date": "2026-09-25",
+      "shift": 0,
+      "name": "원종",
+      "excluded": false,
+      "patrol": true
+    },
+    {
+      "date": "2026-09-25",
+      "shift": 0,
+      "name": "제욱",
+      "excluded": false,
+      "patrol": true
+    },
+    {
+      "date": "2026-09-25",
+      "shift": 0,
+      "name": "준호",
+      "excluded": false,
+      "patrol": true
+    },
+    {
+      "date": "2026-09-26",
+      "shift": 0,
+      "name": "광희",
+      "excluded": false,
+      "patrol": true
+    },
+    {
+      "date": "2026-09-26",
+      "shift": 0,
+      "name": "만년",
+      "excluded": false,
+      "patrol": true
+    },
+    {
+      "date": "2026-09-26",
+      "shift": 0,
+      "name": "성호",
+      "excluded": false,
+      "patrol": true
+    },
+    {
+      "date": "2026-09-26",
+      "shift": 0,
+      "name": "원종",
+      "excluded": false,
+      "patrol": true
+    },
+    {
+      "date": "2026-09-26",
+      "shift": 0,
+      "name": "제욱",
+      "excluded": false,
+      "patrol": true
+    },
+    {
+      "date": "2026-09-26",
+      "shift": 0,
+      "name": "준호",
+      "excluded": false,
+      "patrol": true
+    },
+    {
+      "date": "2026-09-27",
+      "shift": 1,
+      "name": "광희",
+      "excluded": false,
+      "patrol": true
+    },
+    {
+      "date": "2026-09-27",
+      "shift": 1,
+      "name": "만년",
+      "excluded": false,
+      "patrol": true
+    },
+    {
+      "date": "2026-09-27",
+      "shift": 1,
+      "name": "성호",
+      "excluded": false,
+      "patrol": true
+    },
+    {
+      "date": "2026-09-27",
+      "shift": 1,
+      "name": "원종",
+      "excluded": false,
+      "patrol": true
+    },
+    {
+      "date": "2026-09-27",
+      "shift": 1,
+      "name": "제욱",
+      "excluded": false,
+      "patrol": true
+    },
+    {
+      "date": "2026-09-28",
+      "shift": 1,
+      "name": "광희",
+      "excluded": false,
+      "patrol": true
+    },
+    {
+      "date": "2026-09-28",
+      "shift": 1,
+      "name": "만년",
+      "excluded": false,
+      "patrol": true
+    },
+    {
+      "date": "2026-09-28",
+      "shift": 1,
+      "name": "성호",
+      "excluded": false,
+      "patrol": true
+    },
+    {
+      "date": "2026-09-28",
+      "shift": 1,
+      "name": "원종",
+      "excluded": true,
+      "patrol": false
+    },
+    {
+      "date": "2026-09-28",
+      "shift": 1,
+      "name": "제욱",
+      "excluded": false,
+      "patrol": true
+    },
+    {
+      "date": "2026-09-28",
+      "shift": 1,
+      "name": "준호",
+      "excluded": false,
+      "patrol": true
+    },
+    {
+      "date": "2026-10-03",
+      "shift": 1,
+      "name": "광희",
+      "excluded": false,
+      "patrol": true
+    },
+    {
+      "date": "2026-10-03",
+      "shift": 1,
+      "name": "만년",
+      "excluded": false,
+      "patrol": true
+    },
+    {
+      "date": "2026-10-03",
+      "shift": 1,
+      "name": "성호",
+      "excluded": false,
+      "patrol": true
+    },
+    {
+      "date": "2026-10-03",
+      "shift": 1,
+      "name": "원종",
+      "excluded": false,
+      "patrol": true
+    },
+    {
+      "date": "2026-10-03",
+      "shift": 1,
+      "name": "제욱",
+      "excluded": false,
+      "patrol": true
+    },
+    {
+      "date": "2026-10-03",
+      "shift": 1,
+      "name": "준호",
+      "excluded": false,
+      "patrol": false
+    },
+    {
+      "date": "2026-10-04",
+      "shift": 1,
+      "name": "광희",
+      "excluded": false,
+      "patrol": true
+    },
+    {
+      "date": "2026-10-04",
+      "shift": 1,
+      "name": "만년",
+      "excluded": false,
+      "patrol": true
+    },
+    {
+      "date": "2026-10-04",
+      "shift": 1,
+      "name": "성호",
+      "excluded": false,
+      "patrol": true
+    },
+    {
+      "date": "2026-10-04",
+      "shift": 1,
+      "name": "원종",
+      "excluded": false,
+      "patrol": false
+    },
+    {
+      "date": "2026-10-04",
+      "shift": 1,
+      "name": "제욱",
+      "excluded": false,
+      "patrol": true
+    },
+    {
+      "date": "2026-10-04",
+      "shift": 1,
+      "name": "준호",
+      "excluded": false,
+      "patrol": true
+    },
+    {
+      "date": "2026-10-09",
+      "shift": 1,
+      "name": "광희",
+      "excluded": false,
+      "patrol": true
+    },
+    {
+      "date": "2026-10-09",
+      "shift": 1,
+      "name": "만년",
+      "excluded": false,
+      "patrol": true
+    },
+    {
+      "date": "2026-10-09",
+      "shift": 1,
+      "name": "원종",
+      "excluded": false,
+      "patrol": true
+    },
+    {
+      "date": "2026-10-09",
+      "shift": 1,
+      "name": "제욱",
+      "excluded": false,
+      "patrol": true
+    },
+    {
+      "date": "2026-10-09",
+      "shift": 1,
+      "name": "준호",
+      "excluded": false,
+      "patrol": true
+    },
+    {
+      "date": "2026-10-10",
+      "shift": 1,
+      "name": "만년",
+      "excluded": false,
+      "patrol": true
+    },
+    {
+      "date": "2026-10-10",
+      "shift": 1,
+      "name": "원종",
+      "excluded": false,
+      "patrol": true
+    },
+    {
+      "date": "2026-10-10",
+      "shift": 1,
+      "name": "제욱",
+      "excluded": false,
+      "patrol": true
+    },
+    {
+      "date": "2026-10-10",
+      "shift": 1,
+      "name": "준호",
+      "excluded": false,
+      "patrol": true
+    },
+    {
+      "date": "2026-10-15",
+      "shift": 1,
+      "name": "광희",
+      "excluded": false,
+      "patrol": true
+    },
+    {
+      "date": "2026-10-15",
+      "shift": 1,
+      "name": "만년",
+      "excluded": false,
+      "patrol": true
+    },
+    {
+      "date": "2026-10-15",
+      "shift": 1,
+      "name": "성호",
+      "excluded": false,
+      "patrol": true
+    },
+    {
+      "date": "2026-10-15",
+      "shift": 1,
+      "name": "원종",
+      "excluded": false,
+      "patrol": true
+    },
+    {
+      "date": "2026-10-15",
+      "shift": 1,
+      "name": "제욱",
+      "excluded": true,
+      "patrol": false
+    },
+    {
+      "date": "2026-10-15",
+      "shift": 1,
+      "name": "준호",
+      "excluded": false,
+      "patrol": true
+    },
+    {
+      "date": "2026-10-16",
+      "shift": 1,
+      "name": "광희",
+      "excluded": false,
+      "patrol": true
+    },
+    {
+      "date": "2026-10-16",
+      "shift": 1,
+      "name": "만년",
+      "excluded": false,
+      "patrol": true
+    },
+    {
+      "date": "2026-10-16",
+      "shift": 1,
+      "name": "성호",
+      "excluded": false,
+      "patrol": true
+    },
+    {
+      "date": "2026-10-16",
+      "shift": 1,
+      "name": "원종",
+      "excluded": false,
+      "patrol": true
+    },
+    {
+      "date": "2026-10-16",
+      "shift": 1,
+      "name": "제욱",
+      "excluded": false,
+      "patrol": true
+    },
+    {
+      "date": "2026-10-21",
+      "shift": 1,
+      "name": "광희",
+      "excluded": false,
+      "patrol": true
+    },
+    {
+      "date": "2026-10-21",
+      "shift": 1,
+      "name": "만년",
+      "excluded": true,
+      "patrol": false
+    },
+    {
+      "date": "2026-10-21",
+      "shift": 1,
+      "name": "성호",
+      "excluded": false,
+      "patrol": true
+    },
+    {
+      "date": "2026-10-21",
+      "shift": 1,
+      "name": "원종",
+      "excluded": false,
+      "patrol": true
+    },
+    {
+      "date": "2026-10-21",
+      "shift": 1,
+      "name": "제욱",
+      "excluded": false,
+      "patrol": true
+    },
+    {
+      "date": "2026-10-21",
+      "shift": 1,
+      "name": "준호",
+      "excluded": false,
+      "patrol": true
+    },
+    {
+      "date": "2026-10-22",
+      "shift": 1,
+      "name": "광희",
+      "excluded": false,
+      "patrol": true
+    },
+    {
+      "date": "2026-10-22",
+      "shift": 1,
+      "name": "만년",
+      "excluded": false,
+      "patrol": true
+    },
+    {
+      "date": "2026-10-22",
+      "shift": 1,
+      "name": "성호",
+      "excluded": false,
+      "patrol": true
+    },
+    {
+      "date": "2026-10-22",
+      "shift": 1,
+      "name": "원종",
+      "excluded": false,
+      "patrol": true
+    },
+    {
+      "date": "2026-10-22",
+      "shift": 1,
+      "name": "제욱",
+      "excluded": true,
+      "patrol": false
+    },
+    {
+      "date": "2026-10-22",
+      "shift": 1,
+      "name": "준호",
+      "excluded": false,
+      "patrol": true
+    }
+  ],
+  "standby": true,
+  "last_rest": {
+    "1": {
+      "prev": false,
+      "last": 1479811
+    },
+    "2": {
+      "prev": false,
+      "last": 1479811
+    },
+    "3": {
+      "prev": false,
+      "last": 1479821
+    },
+    "4": {
+      "prev": false,
+      "last": 1479797
+    },
+    "6": {
+      "prev": true,
+      "last": 1479823
+    }
+  }
+}

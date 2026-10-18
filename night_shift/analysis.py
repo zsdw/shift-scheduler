@@ -35,7 +35,6 @@ class SoftRuleFinding:
 
 
 AUTO_DETECTABLE_SOFT_RULES = {
-    "8-6": "관리자가 04시에 근무할 때 I1 우선",
     "8-3": "관리자 07시 실제 휴게 우선",
     "H-06": "같은 자세의 실제근무 3시간 연속 회피",
     "H-06-1": "실제 휴게성 상태 4시간 이상 연속 회피",
@@ -48,7 +47,6 @@ AUTO_DETECTABLE_SOFT_RULES = {
 
 
 NOT_AUTOMATICALLY_DETECTABLE = {
-    "v2.14 8-6-1": "N2/N4 후보해 전체를 비교해 관리자 04시 I1 목적함수 우선도를 조정해야 하므로 v2.14 Solver 구현이 필요함",
     "정상해에서 소프트 미충족의 정확한 원인": "Solver가 각 미충족의 인과관계를 결과 데이터로 제공하지 않으므로 일반 설명만 가능함",
 }
 
@@ -124,9 +122,7 @@ def analyze_soft_rules(result: ServiceResult) -> tuple[SoftRuleFinding, ...]:
     if manager_ids:
         manager_id = manager_ids[0]
         manager_rows = {row.slot.index: row for row in rows_by_person[manager_id]}
-        at_04 = manager_rows.get(10)
-        if at_04 and at_04.actual_work_time_value == 1 and at_04.displayed_assignment.label != "I1":
-            add("8-6", "관리자 04시 근무 시 I1 우선", manager_id, 10, 11)
+        # 8-6 관리자 04시 I1 선호는 2026-10-05 삭제(통제A 04시 I1 금지, 8-10) → 권장 미충족으로 표시하지 않는다.
         for t in range(6, 13):                    # 8-9: 00시 이후 관리자 L3 연속 강한 비권장
             here, nxt = manager_rows.get(t), manager_rows.get(t + 1)
             if (here and nxt and here.displayed_assignment.label == "L3"

@@ -1,7 +1,7 @@
 """v2.13 soft-rule history. Only confirmed actual shifts can change debt."""
 from collections import defaultdict
 
-from .models import AssignmentKind, RecordKind
+from .models import AssignmentKind, RecordKind, barrier_history_counts
 
 
 TRACKED_SOFT_RULES = ("H-06-1", "H-06", "H-08", "15-7", "14-7")
@@ -56,7 +56,7 @@ def update_soft_debt(actual_record, current_debt, rotation_due=()):
         sandwich = any(rows[i].actual_post_or_work_type.kind == AssignmentKind.BARRIER_ONLY and
                        rows[i-1].actual_work_time_value and rows[i+1].actual_work_time_value for i in (2,10))
         outcomes = {"H-06-1": rest_four, "H-06": posture_three, "H-08": work_four}
-        if any(r.barrier_install_flag or r.barrier_remove_flag for r in rows):
+        if barrier_history_counts(actual_record.context) and any(r.barrier_install_flag or r.barrier_remove_flag for r in rows):
             outcomes["15-7"] = sandwich
         if person in general and person in rotation_due:
             patrols = [r.actual_post_or_work_type.label for r in rows if r.actual_post_or_work_type.kind == AssignmentKind.PATROL]

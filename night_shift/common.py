@@ -86,6 +86,9 @@ def compile_common_policy(context: ShiftContext) -> CommonPolicy:
         south = tuple(r for r in south if r[0] < switch) + tuple(r for r in south_for(4) if r[0] >= switch)
     for slot, post, count, total, fixed in south:
         requirements.append(Requirement(slot, post, count, total, fixed, "§5 + user supplement"))
+    # 5-7 (2026-10-05 사용자 확정): 생성 전 확인한 추가 남문 — 그 시간 G2 1명, 통제 포함 누구나
+    for slot in context.extra_south_slots:
+        requirements.append(Requirement(slot, "G2", None, 1, None, "§5-7 추가 남문"))
     return CommonPolicy(tuple(requirements), manager, general, staffing_count, manager_is_proxy, absence_count,
                         profile_general_count=profile_general_count, flexible_from_slot=switch)
 

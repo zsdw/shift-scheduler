@@ -5,6 +5,7 @@ Reconstructs accounting from displayed labels and barrier facts; never trusts
 cached flags or solver status. This is not a validator for other scenarios.
 """
 from collections import Counter
+from datetime import date
 from .models import AssignmentKind as K, Mode, NightType, Posture, RecordKind
 
 # 유도리 포스트별 운영 — Solver(models.post_operation)와 따로 적은 Validator 쪽 규칙 (사용자 확정 2026-10-02)
@@ -25,7 +26,9 @@ def _expected_operation(context, label, t, mode):
     return chosen
 
 
-def validate_first_trial(record, history, *, refinement=False, rules_v22=False, vacancy_policy=False, rules_v26=False, rules_v27=False, rules_v29=False, rules_v210=False, rules_v212=False, rules_v215=False, rules_v216=False, rules_v218=False, rules_v219=False, rules_v220=False, reoptimization=False, forbid_patrol_exclusion_ids=()):
+def validate_first_trial(record, history, *, refinement=False, rules_v22=False, vacancy_policy=False, rules_v26=False, rules_v27=False, rules_v29=False, rules_v210=False, rules_v212=False, rules_v215=False, rules_v216=False, rules_v218=False, rules_v219=False, rules_v220=False, reoptimization=False, forbid_patrol_exclusion_ids=(), post_cap=None, work_spread=True, half_day_ids=None, locked_cells=(), manager_a_end_slot=14, patrol_actuals=(), patrol_events=(), last_rest_records=()):
+    # H-17 (2026-10-05): None = v2.20 검사에 포함. 2명 완전결원 일시 해제·LOCK 과거 초과 시 서비스가 False를 넘긴다.
+    post_cap = rules_v220 if post_cap is None else post_cap
     if rules_v220:
         rules_v219 = True
     if rules_v219:
@@ -52,6 +55,138 @@ def validate_first_trial(record, history, *, refinement=False, rules_v22=False, 
             errors.append({"rule": rule, "detail": detail})
 
     c = record.context
+    # Solver와 공유하지 않고 과거 실제 출근 2회를 독립 검사한다.
+    for person in c.attendance:
+        if not person.present or not person.is_general_worker:
+            continue
+        prior = []
+        for old in sorted(patrol_actuals, key=lambda r:r.context.shift_start_date, reverse=True):
+            if old.context.shift_start_date >= c.shift_start_date:
+                continue
+            if any(a.employee_id == person.employee_id and a.present for a in old.context.attendance):
+                prior.append(old)
+                if len(prior) == 2:
+                    break
+        needs_patrol = False
+        for old in prior:
+            all_present = sum(a.present for a in old.context.attendance) == 7
+            was_general = any(a.employee_id == person.employee_id and a.is_general_worker
+                              for a in old.context.attendance)
+            performed = any(x.employee_id == person.employee_id and x.actual_post_or_work_type.kind == K.PATROL
+                            for x in old.assignments)
+            if all_present and was_general and not performed:
+                needs_patrol = True
+        if patrol_events:
+            personal = sorted((e for e in patrol_events if e['name'] == next(
+                p.name for p in c.employees if p.employee_id == person.employee_id)[-2:]),
+                key=lambda e:(e['date'],e['shift']))
+            needs_patrol = any(e['excluded'] for e in personal[-2:])
+        if needs_patrol:
+            check(any(x.employee_id == person.employee_id and x.actual_post_or_work_type.kind == K.PATROL
+                      for x in record.assignments), '14-1-2',
+                  f'{person.employee_id}: 순찰 제외 후 다음 출근 2회 순찰 필수')
+    for attendance in c.attendance:
+        if not attendance.present:
+            continue
+        pid = attendance.employee_id
+        streak = 0
+        for old in sorted(patrol_actuals, key=lambda item:item.context.shift_start_date, reverse=True):
+            if old.context.shift_start_date >= c.shift_start_date:
+                continue
+            if not any(a.employee_id == pid and a.present for a in old.context.attendance):
+                continue
+            if any(row.employee_id == pid and row.actual_post_or_work_type.kind == K.PATROL
+                   and row.actual_post_or_work_type.label == 'lower' for row in old.assignments):
+                streak += 1
+            else:
+                break
+            if streak == 2:
+                break
+        if streak >= 2:
+            for row in record.assignments:
+                if (row.employee_id == pid and row.actual_post_or_work_type.kind == K.PATROL
+                        and row.actual_post_or_work_type.label == 'lower'):
+                    check((pid,row.slot.index) in set(locked_cells), '14-9',
+                          f'{pid}/{row.slot.index}: 하층 순찰 3회 연속 금지')
+    for person in c.attendance:
+        if not person.present or not person.is_general_worker:continue
+        previous = None
+        for old in sorted(last_rest_records,key=lambda r:r.context.shift_start_date,reverse=True):
+            if old.context.shift_start_date>=c.shift_start_date:continue
+            if any(a.employee_id==person.employee_id and a.present and a.is_general_worker for a in old.context.attendance):
+                previous=old
+                break
+        if previous is not None and any(x.employee_id==person.employee_id and x.slot.index==13
+                and x.actual_rest_time_value==1 for x in previous.assignments):
+            for current in record.assignments:
+                if current.employee_id==person.employee_id and current.slot.index==13:
+                    check(current.actual_rest_time_value!=1 or (person.employee_id,13) in set(locked_cells),
+                          '16-next',f'{person.employee_id}/13: 직전 출근 야간 막타임 휴게 연속 금지')
+    if rules_v220:
+        for person in c.attendance:
+            if not person.present:continue
+            person_rows={r.slot.index:r for r in record.assignments if r.employee_id==person.employee_id}
+            for t in range(11):
+                rows=[person_rows.get(j) for j in range(t,t+4)]
+                if not all(rows):continue
+                if rows[0].actual_post_or_work_type.kind==K.PATROL and all(
+                        r.actual_rest_time_value==1 for r in rows[1:3]):
+                    for j in (1,2):
+                        check(rows[j].displayed_assignment.label!='보안실 대기'
+                              or (person.employee_id,t+j) in set(locked_cells),'12-protected',
+                              f'{person.employee_id}/{t+j}: 순찰 직후 2시간 비포스트는 휴게 표기')
+                if (rows[0].actual_post_or_work_type.kind==K.PATROL
+                    and rows[1].actual_rest_time_value==1 and rows[2].actual_rest_time_value==1
+                    and rows[3].actual_rest_time_value==1
+                    and rows[3].displayed_assignment.label in ('휴게','보안실 대기')):
+                    check(rows[3].displayed_assignment.label=='보안실 대기'
+                          or (person.employee_id,t+3) in set(locked_cells),'12-third',
+                          f'{person.employee_id}/{t+3}: 순찰 후 세 번째 비포스트 휴게는 대기 표기')
+    if rules_v220:
+        protected=set(locked_cells)
+        for a in c.attendance:
+            if not a.present:continue
+            rows={r.slot.index:r for r in record.assignments if r.employee_id==a.employee_id}
+            for start in range(12):
+                block=[rows.get(j) for j in range(start,start+3)]
+                if not all(block):continue
+                if all(r.displayed_assignment.label in ('휴게','보안실 대기')
+                       and r.actual_rest_time_value==1 for r in block):
+                    labels=[r.displayed_assignment.label for r in block]
+                    pair=labels[:2]==['휴게','휴게'] or labels[1:]==['휴게','휴게']
+                    check(pair or all((a.employee_id,j) in protected for j in range(start,start+3)),
+                          '12-block',f'{a.employee_id}/{start}: 비포스트 3시간에는 연속 휴게 2시간 필요')
+    if rules_v220:
+        locked_standby=set(locked_cells)
+        for slot in range(12):
+            vacancies=7-sum(a.present and a.is_available(slot) for a in c.attendance)
+            # 결원 1명 시간은 가능하면 지킬 규칙(2026-10-18 사용자 확정) — 하드 검증 대상 아님
+            if vacancies in (1,2):continue
+            people_here=[a.employee_id for a in c.attendance if a.present]
+            fully_locked=all((pid,slot) in locked_standby for pid in people_here)
+            has_standby=any(r.slot.index==slot and r.displayed_assignment.label=='보안실 대기'
+                            for r in record.assignments)
+            check(has_standby or fully_locked,'12-required',f'{slot}: 18~05시 결원2명 외 대기자 최소1명 필요')
+    if rules_v220:
+        standby_counts={a.employee_id:sum(r.employee_id==a.employee_id
+            and r.displayed_assignment.label=='보안실 대기' for r in record.assignments)
+            for a in c.attendance if a.present and a.employee_id!='A'}
+        if len(standby_counts)>=2:
+            check(max(standby_counts.values())-min(standby_counts.values())<=1,'12-gap',
+                  f'통제A 제외 대기 횟수 차이2회 이상: {standby_counts}')
+    if rules_v220:
+        a_att=next((a for a in c.attendance if a.employee_id=='A' and a.present),None)
+        if a_att is not None:
+            available=[t for t in range(min(14,manager_a_end_slot)) if a_att.is_available(t)]
+            completed=available and all(('A',t) in set(locked_cells) for t in available)
+            check(not available or completed or any(r.employee_id=='A' and r.slot.index in available
+                  and r.displayed_assignment.label=='I1' for r in record.assignments),
+                  '8-14','A: 통제A 출근 야간 I1 최소1회 필요')
+    if rules_v220:
+        a_standby=[r for r in record.assignments if r.employee_id=='A' and r.slot.index<manager_a_end_slot
+                   and r.displayed_assignment.label=='보안실 대기']
+        completed=sum(('A',r.slot.index) in set(locked_cells) for r in a_standby)
+        check(len(a_standby)<=max(2,completed),'8-15','A: 통제A 야간 대기 최대2회 초과')
     present = [a for a in c.attendance if a.present]
     general = [a.employee_id for a in present if a.is_general_worker]
     role_general_count = len(general)
@@ -92,6 +227,85 @@ def validate_first_trial(record, history, *, refinement=False, rules_v22=False, 
     if history.actual_nights != () or history.barrier_entries != () or c.day_instructions:
         return [{"rule": "scope", "detail": "Only explicit first trial with no overrides/history is supported"}]
     check(record.kind == RecordKind.PLAN and record.confirmed_at is None, "§20", "Trial must remain an unconfirmed plan")
+    if post_cap:                                         # H-17: 같은 포스트(표시) 한 회차 최대 3번, G2(n) = G2
+        per_post = {}
+        for r in record.assignments:
+            if (c.night_type in (NightType.N1, NightType.N2) and r.slot.index == 0
+                    and r.employee_id == managers[0]):
+                continue                                 # 평일 시작 18시 관리자 L3는 표기만(6-1) → 세지 않음
+            if r.displayed_assignment.kind == K.POST:
+                key = (r.employee_id, r.displayed_assignment.label.partition("(")[0])
+                per_post[key] = per_post.get(key, 0) + 1
+        for (p, post), n in sorted(per_post.items()):
+            check(n <= 3, "H-17", f"Same post more than three times {p}/{post}/{n}")
+    # 6-2-1 [하드, 2026-10-05]: 주말 시작(N3/N4) 통제A(관리자대행 아님) 18시 휴게 고정. 재편성은 LOCK 과거라 보지 않는다.
+    if rules_v220 and not reoptimization and c.night_type in (NightType.N3, NightType.N4) and managers == ["A"]:
+        first = next((r for r in record.assignments if r.employee_id == "A" and r.slot.index == 0), None)
+        check(first is not None and first.displayed_assignment.label == "휴게"
+              and first.actual_post_or_work_type.label == "휴게", "6-2-1", "Weekend-start manager A must rest at 18:00")
+    # 8-10 [하드, 2026-10-05]: 통제A(관리자대행 아님) 04시 보안실 대기 금지·차단봉 철수 불참. 재편성은 LOCK 과거라 보지 않는다.
+    if rules_v220 and not reoptimization and managers == ["A"]:
+        for r in record.assignments:
+            if r.employee_id == "A":
+                check(not r.barrier_remove_flag, "8-10", "Manager A must not remove the barrier")
+                if r.slot.index == 10:
+                    check(r.displayed_assignment.label != "보안실 대기", "8-10", "Manager A 04:00 rest must be 휴게, not standby")
+                    check(r.displayed_assignment.label != "I1", "8-10", "Manager A must not be 04:00 I1 (rulebook 8-6/15-0)")
+    # H-18 [하드, 2026-10-05]: 하루 전체 근무하는 일반근무자끼리 실근무 차이 최대 1시간 (실제 모드 표 기준).
+    # 유도리 다시 계산 표(0-2-1 판정용)는 서비스가 work_spread=False로 검사한다.
+    if rules_v220 and work_spread:
+        whole = {a.employee_id for a in present if a.is_general_worker and not a.acts_as_manager
+                 and all(a.is_available(t) for t in range(14))}
+        worked = Counter()
+        for r in record.assignments:
+            if r.employee_id in whole:
+                worked[r.employee_id] += r.actual_work_time_value
+        if len(whole) >= 2:
+            totals = [worked[p] for p in whole]
+            check(max(totals) - min(totals) <= 1, "H-18", f"General actual work spread over one hour {sorted(worked.items())}")
+    # 8-11 [하드, 2026-10-05]: 당일 관리자 18시·07시 실근무 없음. N1/N3 07시 가용 일반근무자 4명(8-3-1)이면 07시 예외.
+    if rules_v220:
+        from datetime import timedelta
+        from .calendar_info import holiday_name, is_off_day
+        if not is_off_day(c.shift_start_date + timedelta(days=1)):
+            locked_south = set(locked_cells)
+            for a in c.attendance:
+                if not a.present:continue
+                south_slots={r.slot.index for r in record.assignments if r.employee_id==a.employee_id
+                             and r.displayed_assignment.label in {'G2','G3','G2(1)'}}
+                for slot in range(13):
+                    if slot not in south_slots or slot+1 not in south_slots:continue
+                    vacancies=[7-sum(p.present and p.is_available(j) for p in c.attendance)
+                               for j in (slot,slot+1)]
+                    if 2 in vacancies:continue
+                    check((a.employee_id,slot) in locked_south and (a.employee_id,slot+1) in locked_south,
+                          '5-3-1',f'{a.employee_id}/{slot}: 다음날 평일 남문 2시간 연속 금지')
+        next_holiday = holiday_name(c.shift_start_date + timedelta(days=1))
+        four_profile = (c.partial_vacancy_profile or c.flexible_from_slot is not None
+                        or 7 - len(present) == 2)
+        # 독립 검사: 토·일·법정·대체공휴일 포함, 그날 06시 관리자(통제A 또는 준호 대행) — 2026-10-13 대행 포함.
+        # 중도 인계 뒤에는 관리자 줄("A")을 준호가 이어서 서므로 같은 줄을 본다. LOCK 과거 제외.
+        if is_off_day(c.shift_start_date + timedelta(days=1)) and managers:
+            locked = set(locked_cells)
+            boss06 = managers[0]
+            for row in record.assignments:
+                if row.employee_id == boss06 and row.slot.index == 12 and (boss06, 12) not in locked:
+                    check(row.displayed_assignment.label != "G1" and row.actual_post_or_work_type.label != "G1",
+                          "8-13", "Next holiday: manager (A or proxy) must not work G1 at 06:00")
+        if next_holiday and four_profile:
+            boss = managers[0]
+            for r in record.assignments:
+                if (r.employee_id == boss and r.slot.index in (12, 13)
+                        and (not reoptimization or c.flexible_from_slot is None or r.slot.index >= c.flexible_from_slot)):
+                    check(r.displayed_assignment.label in ("휴게", "보안실 대기") and r.actual_work_time_value == 0,
+                          "8-12", "Next holiday: vacancy-2 manager 06/07 must rest or standby")
+    if rules_v220 and not reoptimization:
+        boss = managers[0]
+        four_at_07 = (c.night_type in (NightType.N1, NightType.N3)
+                      and sum(a.is_available(13) for a in present if a.is_general_worker and not a.acts_as_manager) == 4)
+        for r in record.assignments:
+            if r.employee_id == boss and (r.slot.index == 0 or (r.slot.index == 13 and not four_at_07)):
+                check(r.actual_work_time_value == 0, "8-11", f"Manager first/last slot must be no work {boss}/{r.slot.index}")
     for post, lo, hi, state in (c.post_operations or ()):
         check(state in _ALLOWED_OPERATIONS.get(post, set()) and 0 <= lo <= hi <= 13,
               "유도리 운영", f"고를 수 없는 포스트 운영 {post} {lo}~{hi} {state}")
@@ -101,6 +315,9 @@ def validate_first_trial(record, history, *, refinement=False, rules_v22=False, 
         check(bool(c.mode_change_reason), "§0-4", "Automatic switch reason missing")
     manager = managers[0]
     people = general + [manager]
+    # 15-0 차단봉 고정 담당은 2026-10-05 야간부터 (Validator 쪽 기준일, Solver 상수와 따로 적음)
+    barrier_v2 = c.shift_start_date >= date(2026, 10, 5)
+    barrier_single = c.shift_start_date >= date(2026, 10, 9)
     installer_post = ("G2" if profile_general_count >= 5 else "I1") if rules_v218 else ("G2" if headcount >= 5 else "I1")
     if switch is not None and switch <= 2:
         installer_post = "I1"
@@ -108,6 +325,9 @@ def validate_first_trial(record, history, *, refinement=False, rules_v22=False, 
         installer_post = "I1"
     attendance_by_id = {a.employee_id: a for a in present}
     partial_general = {p for p in general if sum(attendance_by_id[p].is_available(t) for t in range(14)) < 14}
+    # H-09-1 미리 정한 반차자 (계획: 반차자 전원 / 재편성: 서비스가 넘긴 원래 반차자만)
+    half_day = ((partial_general if half_day_ids is None and not reoptimization
+                 else set(half_day_ids or ()) & partial_general) if rules_v220 else set())
     keys = [(r.employee_id, r.slot.index) for r in record.assignments]
     if Counter(keys) != Counter((p, t) for p in people for t in range(14)):
         return errors + [{"rule": "§3/§4", "detail": "Missing, duplicate or unknown employee/slot record"}]
@@ -132,6 +352,13 @@ def validate_first_trial(record, history, *, refinement=False, rules_v22=False, 
         south = {t: posts for t, posts in south.items() if t >= 12}
     elif c.night_type == NightType.N2:
         south = {t: posts for t, posts in south.items() if t < 3}
+    # 5-7 추가 남문: 원래 남문이 없는 시간(주말 시작 18~20시, 다음날 주말 06·07시)에만, G2 1명(통제 포함 누구나)
+    extra_south = set(c.extra_south_slots)
+    for t in extra_south:
+        allowed = (t <= 2 and c.night_type in (NightType.N3, NightType.N4)) or \
+                  (t >= 12 and c.night_type in (NightType.N2, NightType.N4))
+        check(allowed and t not in south, "§5-7", f"Extra south gate outside closed hours {t}")
+        south[t] = {"G2": 1}
     for (p, t), r in by.items():
         label = r.displayed_assignment.label
         if not attendance_by_id[p].is_available(t):
@@ -193,13 +420,17 @@ def validate_first_trial(record, history, *, refinement=False, rules_v22=False, 
             check(not (r.barrier_install_flag and r.barrier_remove_flag), "§15-2", "Both barrier operations in one slot")
             check(not r.barrier_install_flag or t == 2, "§10/§11", "Installation at wrong hour")
             check(not r.barrier_remove_flag or t == 10, "§10/§11", "Removal at wrong hour")
-            allowed = label == "보안실 대기" if slot_mode(t) == Mode.FM else (
-                r.barrier_install_flag and label in (installer_post, "보안실 대기") or r.barrier_remove_flag and label == "I1")
+            if barrier_v2:                                 # 15-0: 설치 G2·I1·대기, 철수 I1 (모드 무관)
+                allowed = (r.barrier_install_flag and label in (("G2", "I1") if barrier_single else ("G2", "I1", "보안실 대기"))
+                           or r.barrier_remove_flag and label == "I1")
+            else:
+                allowed = label == "보안실 대기" if slot_mode(t) == Mode.FM else (
+                    r.barrier_install_flag and label in (installer_post, "보안실 대기") or r.barrier_remove_flag and label == "I1")
             check(allowed, "§10/§11", f"Invalid barrier worker {p}/{t}/{label}")
-            if label == "보안실 대기":
+            if label == "보안실 대기":                     # 대기자가 한 차단봉만 피로도 1 (포스트 겸임은 원래 회계)
                 actual_kind = K.BARRIER_ONLY
                 actual_label = "barrier_install" if r.barrier_install_flag else "barrier_remove"
-                posture, fatigue, work, rest = None, 1, 1, 0
+                posture, fatigue, work, rest = None, 1, 0, 0   # 2026-10-04: 실근무는 포스트·순찰만 (차단봉 제외)
                 same = continuous = False
                 meal = True
             post_rest = False
@@ -214,11 +445,25 @@ def validate_first_trial(record, history, *, refinement=False, rules_v22=False, 
                            meal=meal, post_rest=post_rest)
     if len(facts) != len(people)*14:
         return errors
+    # 표시·운영으로 독립 재계산한 실휴게 사용. 근무불가는 rest=0.
+    if rules_v220:
+        locked = set(locked_cells)
+        for pid in people:
+            if pid == "A" or (pid == "6" and (manager == "6" or manager_a_end_slot <= 13)):
+                continue
+            cells = [("A" if pid == "6" and t >= manager_a_end_slot else pid, t)
+                     for t in (11, 12, 13)]
+            if all(cell in locked for cell in cells):
+                continue
+            check(sum(facts[cell]["rest"] for cell in cells) <= 2,
+                  "H-19", f"Non-A worker must not rest all of 05/06/07: {pid}")
     for t in range(14):
         labels = Counter(facts[p, t]["label"] for p in people if facts[p, t]["label"] in post_labels)
         expected = Counter({"G1": 1, "L3": 1, "I1": 1, **south.get(t, {})})
         check(labels == expected, "H-02/§5", f"Post coverage mismatch at {t}")
         for label in south.get(t, {}):
+            if t in extra_south:
+                continue                                 # 추가 남문은 통제 포함 누구나 (일반근무자 인원 고정 없음)
             count = sum(facts[p, t]["label"] == label for p in general)
             check(count == ((1 if profile_absence == 0 and (switch is None or t < switch) else 0) if t == 12 and label == "G2" else south[t][label]), "§5", f"General south staffing {t}/{label}")
         patrols = [facts[p, t]["label"] for p in people if facts[p, t]["kind"] == K.PATROL]
@@ -285,7 +530,15 @@ def validate_first_trial(record, history, *, refinement=False, rules_v22=False, 
         if any(attendance_by_id[p].is_available(t) for t in (0, 1, 2)):
             check(any(x["meal"] for x in f[:3]), "H-10", f"No meal {p}")
         protected_ok = []
+        if p in half_day:                                   # H-09-1: 반차자 휴게 합계 2시간 이상
+            check(sum(x["rest"] for x in f) >= 2, "H-09-1", f"Half-day worker needs two rest hours {p}")
         for t in patrol_slots:
+            if f[t]["kind"] == K.PATROL and p in half_day:
+                # H-09-1: 반차자 순찰 후 휴게는 하드 아님. 입식→순찰→입식만 금지
+                if f[t - 1]["work"] == 1 and f[t - 1]["posture"] == Posture.STANDING:
+                    check(f[t + 1]["work"] == 0 or f[t + 1]["posture"] == Posture.SEATED,
+                          "H-11-immediate-recovery", f"Standing-patrol-standing {p}/{t}")
+                continue
             if f[t]["kind"] == K.PATROL:
                 relaxed_patrol_rest = profile_absence == 2 or (switch is not None and t + 2 >= switch)
                 if relaxed_patrol_rest:
@@ -305,18 +558,36 @@ def validate_first_trial(record, history, *, refinement=False, rules_v22=False, 
                         check(f[t + 1]["work"] == 0 or f[t + 1]["posture"] == Posture.SEATED,
                               "H-11-immediate-recovery", f"Standing-patrol-standing {p}/{t}")
                 else:
-                    for j in (t + 1, t + 2):
-                        check(f[j]["post_rest"] and f[j]["work"] == 0 and not by[p, j].barrier_install_flag and not by[p, j].barrier_remove_flag, "H-11", f"Post patrol rest {p}/{j}")
-                        if slot_mode(j) == Mode.FM:
-                            check(f[j]["label"] == "휴게", "user-display", f"Explicit post patrol rest {p}/{j}")
+                    def full_rest(j):
+                        return (f[j]["post_rest"] and f[j]["work"] == 0 and not by[p, j].barrier_install_flag
+                                and not by[p, j].barrier_remove_flag and (slot_mode(j) != Mode.FM or f[j]["label"] == "휴게"))
+                    if rules_v220 and p == "A" and managers == ["A"] and t == 3 and f[2]["work"] == 0:
+                        # H-12-1 (2026-10-05): 20시 실근무 없는 통제A는 22·23시 중 1칸만 휴게여도 된다
+                        check(full_rest(4) or full_rest(5), "H-12-1", f"Manager A needs one rest at 22/23 {p}")
+                    else:
+                        for j in (t + 1, t + 2):
+                            check(f[j]["post_rest"] and f[j]["work"] == 0 and not by[p, j].barrier_install_flag and not by[p, j].barrier_remove_flag, "H-11", f"Post patrol rest {p}/{j}")
+                            if slot_mode(j) == Mode.FM:
+                                check(f[j]["label"] == "휴게", "user-display", f"Explicit post patrol rest {p}/{j}")
                     protected_ok.append(True)
         if rules_v220 and protected_ok:
             check(any(protected_ok), "H-11-2", f"No protected patrol recovery {p}")
         check(not (any(by[p, t].barrier_install_flag for t in range(14)) and any(by[p, t].barrier_remove_flag for t in range(14))), "§15-2", f"Install/remove overlap {p}")
     installers = [r for r in record.assignments if r.barrier_install_flag]
     removers = [r for r in record.assignments if r.barrier_remove_flag]
-    check(len(installers) == (1 if slot_mode(2) == Mode.FM else 2) and len(removers) == 1, "§10/§11", "Barrier staffing count")
-    if slot_mode(2) == Mode.FLEXIBLE:
+    if barrier_v2:
+        # 15-0 (2026-10-05): 20시 G2 운영이면 G2+대기, 아니면 I1+대기 / 04시 철수는 I1 근무자 1명 / 통제A 불참
+        expect = Counter(["G2" if "G2" in south.get(2, {}) else "I1"] + ([] if barrier_single else ["보안실 대기"]))
+        check(Counter(r.displayed_assignment.label for r in installers) == expect, "15-0",
+              f"Barrier installers must be {dict(expect)}")
+        check([r.displayed_assignment.label for r in removers] == ["I1"], "15-0", "Barrier removal must be the 04:00 I1")
+        check(all(by[p, 10].barrier_remove_flag for p in people if by[p, 10].displayed_assignment.label == "I1"),
+              "15-0", "04:00 I1 must remove the barrier")
+        if managers == ["A"] and not reoptimization:
+            check(not any(r.employee_id == "A" for r in installers + removers), "15-0", "Manager A takes no barrier duty")
+    else:
+        check(len(installers) == (1 if slot_mode(2) == Mode.FM else 2) and len(removers) == 1, "§10/§11", "Barrier staffing count")
+    if slot_mode(2) == Mode.FLEXIBLE and not barrier_v2:
         check(Counter(r.displayed_assignment.label for r in installers) == Counter([installer_post, "보안실 대기"]), "§10-4", "Flexible installer composition")
     if refinement:
         for t in range(14):
@@ -326,7 +597,9 @@ def validate_first_trial(record, history, *, refinement=False, rules_v22=False, 
                     check(count >= 1, "H-16", f"Missing required standby {t}")
                 if rules_v212 and t == 10:
                     check(count == 1, "H-16", f"04 standby count must be one, got {count}")
-                if rules_v212 and t == 2:
+                if rules_v212 and t == 2 and barrier_v2:
+                    check(count == 1, "H-16", f"20 standby count must be one (2026-10-05~), got {count}")
+                elif rules_v212 and t == 2:
                     required_duty = sum(facts[p,t]["kind"] in (K.POST,K.PATROL) for p in people)
                     check(count == min(2, len(people)-required_duty), "H-16", f"20 standby count must match capacity, got {count}")
             elif vacancy_policy and headcount < 6 and t not in (2,10):
@@ -337,7 +610,7 @@ def validate_first_trial(record, history, *, refinement=False, rules_v22=False, 
             for t in range(6, 10):
                 check(sum(facts[manager, j]["work"] for j in range(t, t + 3)) <= 2,
                       "user-A-00-05", f"Manager three consecutive actual work hours at {t}")
-        # 04 I1 is a preference, deliberately not an unconditional validation error.
+        # (옛 버전용) 04 I1 선호는 검증 오류로 보지 않았다. v2.20은 통제A 04시 I1 금지(8-10 블록)로 대체.
     if rules_v22:
         a_work = sum(facts[manager, t]["work"] for t in range(14))
         for p in general:
@@ -348,7 +621,8 @@ def validate_first_trial(record, history, *, refinement=False, rules_v22=False, 
                 a_fatigue = sum(facts[manager, t]["fatigue"] for t in range(14))
                 p_fatigue = sum(facts[p, t]["fatigue"] for t in range(14))
                 if rules_v219 and not manager_is_proxy:
-                    check(0 <= p_fatigue - a_fatigue <= 2, "8-4-2", f"A fatigue must be 0-2 below general: {p}/{p_fatigue}/{a_fatigue}")
+                    limit = 3 if rules_v220 else 2
+                    check(0 <= p_fatigue - a_fatigue <= limit, "8-4-2", f"A fatigue must be 0-{limit} below general: {p}/{p_fatigue}/{a_fatigue}")
                 else:
                     check(abs(p_fatigue - a_fatigue) <= 4, "8-4-2", f"A/general fatigue gap over four points: {p}/{p_fatigue}/{a_fatigue}")
         for p in people:

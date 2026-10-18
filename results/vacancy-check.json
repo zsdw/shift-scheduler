@@ -1,0 +1,2760 @@
+[
+  {
+    "headcount": 5,
+    "result": {
+      "status": "FEASIBLE",
+      "record": {
+        "record_id": "trial-2026-09-28-FM",
+        "kind": "plan",
+        "context": {
+          "shift_start_date": "2026-09-28",
+          "night_type": "N1",
+          "requested_mode": "FM",
+          "effective_mode": "FM",
+          "employees": [
+            {
+              "employee_id": "1",
+              "name": "일반 1"
+            },
+            {
+              "employee_id": "2",
+              "name": "일반 2"
+            },
+            {
+              "employee_id": "3",
+              "name": "일반 3"
+            },
+            {
+              "employee_id": "4",
+              "name": "일반 4"
+            },
+            {
+              "employee_id": "5",
+              "name": "일반 5"
+            },
+            {
+              "employee_id": "6",
+              "name": "일반 6"
+            },
+            {
+              "employee_id": "A",
+              "name": "통제 A"
+            }
+          ],
+          "attendance": [
+            {
+              "employee_id": "1",
+              "present": true,
+              "is_general_worker": true,
+              "display_number": 1,
+              "acts_as_manager": false
+            },
+            {
+              "employee_id": "2",
+              "present": true,
+              "is_general_worker": true,
+              "display_number": 2,
+              "acts_as_manager": false
+            },
+            {
+              "employee_id": "3",
+              "present": true,
+              "is_general_worker": true,
+              "display_number": 3,
+              "acts_as_manager": false
+            },
+            {
+              "employee_id": "4",
+              "present": true,
+              "is_general_worker": true,
+              "display_number": 4,
+              "acts_as_manager": false
+            },
+            {
+              "employee_id": "5",
+              "present": true,
+              "is_general_worker": true,
+              "display_number": 5,
+              "acts_as_manager": false
+            },
+            {
+              "employee_id": "6",
+              "present": false,
+              "is_general_worker": true,
+              "display_number": 6,
+              "acts_as_manager": false
+            },
+            {
+              "employee_id": "A",
+              "present": true,
+              "is_general_worker": false,
+              "display_number": null,
+              "acts_as_manager": true
+            }
+          ],
+          "mode_change_reason": null,
+          "day_instructions": []
+        },
+        "assignments": [
+          {
+            "employee_id": "1",
+            "slot": {
+              "index": 0
+            },
+            "displayed_assignment": {
+              "kind": "rest",
+              "label": "휴게"
+            },
+            "actual_post_or_work_type": {
+              "kind": "rest",
+              "label": "휴게"
+            },
+            "fatigue_value": 0,
+            "actual_work_time_value": 0,
+            "actual_rest_time_value": 1,
+            "posture_or_mode": "rest-like",
+            "counts_for_same_post_consecutive": false,
+            "counts_for_continuous_work_restriction": false,
+            "counts_as_meal_opportunity": true,
+            "counts_as_post_patrol_rest": true,
+            "barrier_install_flag": false,
+            "barrier_remove_flag": false,
+            "mode": "FM",
+            "rule_refs": [
+              "§4",
+              "§6–§11",
+              "§13",
+              "user-supplement"
+            ]
+          },
+          {
+            "employee_id": "1",
+            "slot": {
+              "index": 1
+            },
+            "displayed_assignment": {
+              "kind": "post",
+              "label": "I1"
+            },
+            "actual_post_or_work_type": {
+              "kind": "post",
+              "label": "I1"
+            },
+            "fatigue_value": 1,
+            "actual_work_time_value": 1,
+            "actual_rest_time_value": 0,
+            "posture_or_mode": "seated",
+            "counts_for_same_post_consecutive": true,
+            "counts_for_continuous_work_restriction": true,
+            "counts_as_meal_opportunity": false,
+            "counts_as_post_patrol_rest": false,
+            "barrier_install_flag": false,
+            "barrier_remove_flag": false,
+            "mode": "FM",
+            "rule_refs": [
+              "§4",
+              "§6–§11",
+              "§13",
+              "user-supplement"
+            ]
+          },
+          {
+            "employee_id": "1",
+            "slot": {
+              "index": 2
+            },
+            "displayed_assignment": {
+              "kind": "security_standby",
+              "label": "보안실 대기"
+            },
+            "actual_post_or_work_type": {
+              "kind": "barrier_only",
+              "label": "barrier_install"
+            },
+            "fatigue_value": 1,
+            "actual_work_time_value": 1,
+            "actual_rest_time_value": 0,
+            "posture_or_mode": null,
+            "counts_for_same_post_consecutive": false,
+            "counts_for_continuous_work_restriction": false,
+            "counts_as_meal_opportunity": true,
+            "counts_as_post_patrol_rest": false,
+            "barrier_install_flag": true,
+            "barrier_remove_flag": false,
+            "mode": "FM",
+            "rule_refs": [
+              "§4",
+              "§6–§11",
+              "§13",
+              "user-supplement"
+            ]
+          },
+          {
+            "employee_id": "1",
+            "slot": {
+              "index": 3
+            },
+            "displayed_assignment": {
+              "kind": "rest",
+              "label": "휴게"
+            },
+            "actual_post_or_work_type": {
+              "kind": "rest",
+              "label": "휴게"
+            },
+            "fatigue_value": 0,
+            "actual_work_time_value": 0,
+            "actual_rest_time_value": 1,
+            "posture_or_mode": "rest-like",
+            "counts_for_same_post_consecutive": false,
+            "counts_for_continuous_work_restriction": false,
+            "counts_as_meal_opportunity": true,
+            "counts_as_post_patrol_rest": true,
+            "barrier_install_flag": false,
+            "barrier_remove_flag": false,
+            "mode": "FM",
+            "rule_refs": [
+              "§4",
+              "§6–§11",
+              "§13",
+              "user-supplement"
+            ]
+          },
+          {
+            "employee_id": "1",
+            "slot": {
+              "index": 4
+            },
+            "displayed_assignment": {
+              "kind": "post",
+              "label": "L3"
+            },
+            "actual_post_or_work_type": {
+              "kind": "post",
+              "label": "L3"
+            },
+            "fatigue_value": 2,
+            "actual_work_time_value": 1,
+            "actual_rest_time_value": 0,
+            "posture_or_mode": "standing",
+            "counts_for_same_post_consecutive": true,
+            "counts_for_continuous_work_restriction": true,
+            "counts_as_meal_opportunity": false,
+            "counts_as_post_patrol_rest": false,
+            "barrier_install_flag": false,
+            "barrier_remove_flag": false,
+            "mode": "FM",
+            "rule_refs": [
+              "§4",
+              "§6–§11",
+              "§13",
+              "user-supplement"
+            ]
+          },
+          {
+            "employee_id": "1",
+            "slot": {
+              "index": 5
+            },
+            "displayed_assignment": {
+              "kind": "post",
+              "label": "I1"
+            },
+            "actual_post_or_work_type": {
+              "kind": "post",
+              "label": "I1"
+            },
+            "fatigue_value": 1,
+            "actual_work_time_value": 1,
+            "actual_rest_time_value": 0,
+            "posture_or_mode": "seated",
+            "counts_for_same_post_consecutive": true,
+            "counts_for_continuous_work_restriction": true,
+            "counts_as_meal_opportunity": false,
+            "counts_as_post_patrol_rest": false,
+            "barrier_install_flag": false,
+            "barrier_remove_flag": false,
+            "mode": "FM",
+            "rule_refs": [
+              "§4",
+              "§6–§11",
+              "§13",
+              "user-supplement"
+            ]
+          },
+          {
+            "employee_id": "1",
+            "slot": {
+              "index": 6
+            },
+            "displayed_assignment": {
+              "kind": "post",
+              "label": "L3"
+            },
+            "actual_post_or_work_type": {
+              "kind": "post",
+              "label": "L3"
+            },
+            "fatigue_value": 2,
+            "actual_work_time_value": 1,
+            "actual_rest_time_value": 0,
+            "posture_or_mode": "standing",
+            "counts_for_same_post_consecutive": true,
+            "counts_for_continuous_work_restriction": true,
+            "counts_as_meal_opportunity": false,
+            "counts_as_post_patrol_rest": false,
+            "barrier_install_flag": false,
+            "barrier_remove_flag": false,
+            "mode": "FM",
+            "rule_refs": [
+              "§4",
+              "§6–§11",
+              "§13",
+              "user-supplement"
+            ]
+          },
+          {
+            "employee_id": "1",
+            "slot": {
+              "index": 7
+            },
+            "displayed_assignment": {
+              "kind": "security_standby",
+              "label": "보안실 대기"
+            },
+            "actual_post_or_work_type": {
+              "kind": "security_standby",
+              "label": "보안실 대기"
+            },
+            "fatigue_value": 0,
+            "actual_work_time_value": 0,
+            "actual_rest_time_value": 1,
+            "posture_or_mode": "rest-like",
+            "counts_for_same_post_consecutive": false,
+            "counts_for_continuous_work_restriction": false,
+            "counts_as_meal_opportunity": true,
+            "counts_as_post_patrol_rest": true,
+            "barrier_install_flag": false,
+            "barrier_remove_flag": false,
+            "mode": "FM",
+            "rule_refs": [
+              "§4",
+              "§6–§11",
+              "§13",
+              "user-supplement"
+            ]
+          },
+          {
+            "employee_id": "1",
+            "slot": {
+              "index": 8
+            },
+            "displayed_assignment": {
+              "kind": "patrol",
+              "label": "middle"
+            },
+            "actual_post_or_work_type": {
+              "kind": "patrol",
+              "label": "middle"
+            },
+            "fatigue_value": 2,
+            "actual_work_time_value": 1,
+            "actual_rest_time_value": 0,
+            "posture_or_mode": null,
+            "counts_for_same_post_consecutive": false,
+            "counts_for_continuous_work_restriction": false,
+            "counts_as_meal_opportunity": false,
+            "counts_as_post_patrol_rest": false,
+            "barrier_install_flag": false,
+            "barrier_remove_flag": false,
+            "mode": "FM",
+            "rule_refs": [
+              "§4",
+              "§6–§11",
+              "§13",
+              "user-supplement"
+            ]
+          },
+          {
+            "employee_id": "1",
+            "slot": {
+              "index": 9
+            },
+            "displayed_assignment": {
+              "kind": "rest",
+              "label": "휴게"
+            },
+            "actual_post_or_work_type": {
+              "kind": "rest",
+              "label": "휴게"
+            },
+            "fatigue_value": 0,
+            "actual_work_time_value": 0,
+            "actual_rest_time_value": 1,
+            "posture_or_mode": "rest-like",
+            "counts_for_same_post_consecutive": false,
+            "counts_for_continuous_work_restriction": false,
+            "counts_as_meal_opportunity": true,
+            "counts_as_post_patrol_rest": true,
+            "barrier_install_flag": false,
+            "barrier_remove_flag": false,
+            "mode": "FM",
+            "rule_refs": [
+              "§4",
+              "§6–§11",
+              "§13",
+              "user-supplement"
+            ]
+          },
+          {
+            "employee_id": "1",
+            "slot": {
+              "index": 10
+            },
+            "displayed_assignment": {
+              "kind": "rest",
+              "label": "휴게"
+            },
+            "actual_post_or_work_type": {
+              "kind": "rest",
+              "label": "휴게"
+            },
+            "fatigue_value": 0,
+            "actual_work_time_value": 0,
+            "actual_rest_time_value": 1,
+            "posture_or_mode": "rest-like",
+            "counts_for_same_post_consecutive": false,
+            "counts_for_continuous_work_restriction": false,
+            "counts_as_meal_opportunity": true,
+            "counts_as_post_patrol_rest": true,
+            "barrier_install_flag": false,
+            "barrier_remove_flag": false,
+            "mode": "FM",
+            "rule_refs": [
+              "§4",
+              "§6–§11",
+              "§13",
+              "user-supplement"
+            ]
+          },
+          {
+            "employee_id": "1",
+            "slot": {
+              "index": 11
+            },
+            "displayed_assignment": {
+              "kind": "post",
+              "label": "G1"
+            },
+            "actual_post_or_work_type": {
+              "kind": "post",
+              "label": "G1"
+            },
+            "fatigue_value": 2,
+            "actual_work_time_value": 1,
+            "actual_rest_time_value": 0,
+            "posture_or_mode": "standing",
+            "counts_for_same_post_consecutive": true,
+            "counts_for_continuous_work_restriction": true,
+            "counts_as_meal_opportunity": false,
+            "counts_as_post_patrol_rest": false,
+            "barrier_install_flag": false,
+            "barrier_remove_flag": false,
+            "mode": "FM",
+            "rule_refs": [
+              "§4",
+              "§6–§11",
+              "§13",
+              "user-supplement"
+            ]
+          },
+          {
+            "employee_id": "1",
+            "slot": {
+              "index": 12
+            },
+            "displayed_assignment": {
+              "kind": "post",
+              "label": "G2(1)"
+            },
+            "actual_post_or_work_type": {
+              "kind": "post",
+              "label": "G2(1)"
+            },
+            "fatigue_value": 2,
+            "actual_work_time_value": 1,
+            "actual_rest_time_value": 0,
+            "posture_or_mode": "standing",
+            "counts_for_same_post_consecutive": true,
+            "counts_for_continuous_work_restriction": true,
+            "counts_as_meal_opportunity": false,
+            "counts_as_post_patrol_rest": false,
+            "barrier_install_flag": false,
+            "barrier_remove_flag": false,
+            "mode": "FM",
+            "rule_refs": [
+              "§4",
+              "§6–§11",
+              "§13",
+              "user-supplement"
+            ]
+          },
+          {
+            "employee_id": "1",
+            "slot": {
+              "index": 13
+            },
+            "displayed_assignment": {
+              "kind": "post",
+              "label": "G3"
+            },
+            "actual_post_or_work_type": {
+              "kind": "post",
+              "label": "G3"
+            },
+            "fatigue_value": 2,
+            "actual_work_time_value": 1,
+            "actual_rest_time_value": 0,
+            "posture_or_mode": "standing",
+            "counts_for_same_post_consecutive": true,
+            "counts_for_continuous_work_restriction": true,
+            "counts_as_meal_opportunity": false,
+            "counts_as_post_patrol_rest": false,
+            "barrier_install_flag": false,
+            "barrier_remove_flag": false,
+            "mode": "FM",
+            "rule_refs": [
+              "§4",
+              "§6–§11",
+              "§13",
+              "user-supplement"
+            ]
+          },
+          {
+            "employee_id": "2",
+            "slot": {
+              "index": 0
+            },
+            "displayed_assignment": {
+              "kind": "post",
+              "label": "I1"
+            },
+            "actual_post_or_work_type": {
+              "kind": "post",
+              "label": "L3"
+            },
+            "fatigue_value": 2,
+            "actual_work_time_value": 1,
+            "actual_rest_time_value": 0,
+            "posture_or_mode": "standing",
+            "counts_for_same_post_consecutive": true,
+            "counts_for_continuous_work_restriction": true,
+            "counts_as_meal_opportunity": false,
+            "counts_as_post_patrol_rest": false,
+            "barrier_install_flag": false,
+            "barrier_remove_flag": false,
+            "mode": "FM",
+            "rule_refs": [
+              "§4",
+              "§6–§11",
+              "§13",
+              "user-supplement"
+            ]
+          },
+          {
+            "employee_id": "2",
+            "slot": {
+              "index": 1
+            },
+            "displayed_assignment": {
+              "kind": "post",
+              "label": "G1"
+            },
+            "actual_post_or_work_type": {
+              "kind": "post",
+              "label": "G1"
+            },
+            "fatigue_value": 2,
+            "actual_work_time_value": 1,
+            "actual_rest_time_value": 0,
+            "posture_or_mode": "standing",
+            "counts_for_same_post_consecutive": true,
+            "counts_for_continuous_work_restriction": true,
+            "counts_as_meal_opportunity": false,
+            "counts_as_post_patrol_rest": false,
+            "barrier_install_flag": false,
+            "barrier_remove_flag": false,
+            "mode": "FM",
+            "rule_refs": [
+              "§4",
+              "§6–§11",
+              "§13",
+              "user-supplement"
+            ]
+          },
+          {
+            "employee_id": "2",
+            "slot": {
+              "index": 2
+            },
+            "displayed_assignment": {
+              "kind": "rest",
+              "label": "휴게"
+            },
+            "actual_post_or_work_type": {
+              "kind": "rest",
+              "label": "휴게"
+            },
+            "fatigue_value": 0,
+            "actual_work_time_value": 0,
+            "actual_rest_time_value": 1,
+            "posture_or_mode": "rest-like",
+            "counts_for_same_post_consecutive": false,
+            "counts_for_continuous_work_restriction": false,
+            "counts_as_meal_opportunity": true,
+            "counts_as_post_patrol_rest": true,
+            "barrier_install_flag": false,
+            "barrier_remove_flag": false,
+            "mode": "FM",
+            "rule_refs": [
+              "§4",
+              "§6–§11",
+              "§13",
+              "user-supplement"
+            ]
+          },
+          {
+            "employee_id": "2",
+            "slot": {
+              "index": 3
+            },
+            "displayed_assignment": {
+              "kind": "post",
+              "label": "I1"
+            },
+            "actual_post_or_work_type": {
+              "kind": "post",
+              "label": "I1"
+            },
+            "fatigue_value": 1,
+            "actual_work_time_value": 1,
+            "actual_rest_time_value": 0,
+            "posture_or_mode": "seated",
+            "counts_for_same_post_consecutive": true,
+            "counts_for_continuous_work_restriction": true,
+            "counts_as_meal_opportunity": false,
+            "counts_as_post_patrol_rest": false,
+            "barrier_install_flag": false,
+            "barrier_remove_flag": false,
+            "mode": "FM",
+            "rule_refs": [
+              "§4",
+              "§6–§11",
+              "§13",
+              "user-supplement"
+            ]
+          },
+          {
+            "employee_id": "2",
+            "slot": {
+              "index": 4
+            },
+            "displayed_assignment": {
+              "kind": "security_standby",
+              "label": "보안실 대기"
+            },
+            "actual_post_or_work_type": {
+              "kind": "security_standby",
+              "label": "보안실 대기"
+            },
+            "fatigue_value": 0,
+            "actual_work_time_value": 0,
+            "actual_rest_time_value": 1,
+            "posture_or_mode": "rest-like",
+            "counts_for_same_post_consecutive": false,
+            "counts_for_continuous_work_restriction": false,
+            "counts_as_meal_opportunity": true,
+            "counts_as_post_patrol_rest": true,
+            "barrier_install_flag": false,
+            "barrier_remove_flag": false,
+            "mode": "FM",
+            "rule_refs": [
+              "§4",
+              "§6–§11",
+              "§13",
+              "user-supplement"
+            ]
+          },
+          {
+            "employee_id": "2",
+            "slot": {
+              "index": 5
+            },
+            "displayed_assignment": {
+              "kind": "post",
+              "label": "G1"
+            },
+            "actual_post_or_work_type": {
+              "kind": "post",
+              "label": "G1"
+            },
+            "fatigue_value": 2,
+            "actual_work_time_value": 1,
+            "actual_rest_time_value": 0,
+            "posture_or_mode": "standing",
+            "counts_for_same_post_consecutive": true,
+            "counts_for_continuous_work_restriction": true,
+            "counts_as_meal_opportunity": false,
+            "counts_as_post_patrol_rest": false,
+            "barrier_install_flag": false,
+            "barrier_remove_flag": false,
+            "mode": "FM",
+            "rule_refs": [
+              "§4",
+              "§6–§11",
+              "§13",
+              "user-supplement"
+            ]
+          },
+          {
+            "employee_id": "2",
+            "slot": {
+              "index": 6
+            },
+            "displayed_assignment": {
+              "kind": "post",
+              "label": "I1"
+            },
+            "actual_post_or_work_type": {
+              "kind": "post",
+              "label": "I1"
+            },
+            "fatigue_value": 1,
+            "actual_work_time_value": 1,
+            "actual_rest_time_value": 0,
+            "posture_or_mode": "seated",
+            "counts_for_same_post_consecutive": true,
+            "counts_for_continuous_work_restriction": true,
+            "counts_as_meal_opportunity": false,
+            "counts_as_post_patrol_rest": false,
+            "barrier_install_flag": false,
+            "barrier_remove_flag": false,
+            "mode": "FM",
+            "rule_refs": [
+              "§4",
+              "§6–§11",
+              "§13",
+              "user-supplement"
+            ]
+          },
+          {
+            "employee_id": "2",
+            "slot": {
+              "index": 7
+            },
+            "displayed_assignment": {
+              "kind": "post",
+              "label": "L3"
+            },
+            "actual_post_or_work_type": {
+              "kind": "post",
+              "label": "L3"
+            },
+            "fatigue_value": 2,
+            "actual_work_time_value": 1,
+            "actual_rest_time_value": 0,
+            "posture_or_mode": "standing",
+            "counts_for_same_post_consecutive": true,
+            "counts_for_continuous_work_restriction": true,
+            "counts_as_meal_opportunity": false,
+            "counts_as_post_patrol_rest": false,
+            "barrier_install_flag": false,
+            "barrier_remove_flag": false,
+            "mode": "FM",
+            "rule_refs": [
+              "§4",
+              "§6–§11",
+              "§13",
+              "user-supplement"
+            ]
+          },
+          {
+            "employee_id": "2",
+            "slot": {
+              "index": 8
+            },
+            "displayed_assignment": {
+              "kind": "post",
+              "label": "I1"
+            },
+            "actual_post_or_work_type": {
+              "kind": "post",
+              "label": "I1"
+            },
+            "fatigue_value": 1,
+            "actual_work_time_value": 1,
+            "actual_rest_time_value": 0,
+            "posture_or_mode": "seated",
+            "counts_for_same_post_consecutive": true,
+            "counts_for_continuous_work_restriction": true,
+            "counts_as_meal_opportunity": false,
+            "counts_as_post_patrol_rest": false,
+            "barrier_install_flag": false,
+            "barrier_remove_flag": false,
+            "mode": "FM",
+            "rule_refs": [
+              "§4",
+              "§6–§11",
+              "§13",
+              "user-supplement"
+            ]
+          },
+          {
+            "employee_id": "2",
+            "slot": {
+              "index": 9
+            },
+            "displayed_assignment": {
+              "kind": "patrol",
+              "label": "lower"
+            },
+            "actual_post_or_work_type": {
+              "kind": "patrol",
+              "label": "lower"
+            },
+            "fatigue_value": 1,
+            "actual_work_time_value": 1,
+            "actual_rest_time_value": 0,
+            "posture_or_mode": null,
+            "counts_for_same_post_consecutive": false,
+            "counts_for_continuous_work_restriction": false,
+            "counts_as_meal_opportunity": false,
+            "counts_as_post_patrol_rest": false,
+            "barrier_install_flag": false,
+            "barrier_remove_flag": false,
+            "mode": "FM",
+            "rule_refs": [
+              "§4",
+              "§6–§11",
+              "§13",
+              "user-supplement"
+            ]
+          },
+          {
+            "employee_id": "2",
+            "slot": {
+              "index": 10
+            },
+            "displayed_assignment": {
+              "kind": "rest",
+              "label": "휴게"
+            },
+            "actual_post_or_work_type": {
+              "kind": "rest",
+              "label": "휴게"
+            },
+            "fatigue_value": 0,
+            "actual_work_time_value": 0,
+            "actual_rest_time_value": 1,
+            "posture_or_mode": "rest-like",
+            "counts_for_same_post_consecutive": false,
+            "counts_for_continuous_work_restriction": false,
+            "counts_as_meal_opportunity": true,
+            "counts_as_post_patrol_rest": true,
+            "barrier_install_flag": false,
+            "barrier_remove_flag": false,
+            "mode": "FM",
+            "rule_refs": [
+              "§4",
+              "§6–§11",
+              "§13",
+              "user-supplement"
+            ]
+          },
+          {
+            "employee_id": "2",
+            "slot": {
+              "index": 11
+            },
+            "displayed_assignment": {
+              "kind": "rest",
+              "label": "휴게"
+            },
+            "actual_post_or_work_type": {
+              "kind": "rest",
+              "label": "휴게"
+            },
+            "fatigue_value": 0,
+            "actual_work_time_value": 0,
+            "actual_rest_time_value": 1,
+            "posture_or_mode": "rest-like",
+            "counts_for_same_post_consecutive": false,
+            "counts_for_continuous_work_restriction": false,
+            "counts_as_meal_opportunity": true,
+            "counts_as_post_patrol_rest": true,
+            "barrier_install_flag": false,
+            "barrier_remove_flag": false,
+            "mode": "FM",
+            "rule_refs": [
+              "§4",
+              "§6–§11",
+              "§13",
+              "user-supplement"
+            ]
+          },
+          {
+            "employee_id": "2",
+            "slot": {
+              "index": 12
+            },
+            "displayed_assignment": {
+              "kind": "post",
+              "label": "I1"
+            },
+            "actual_post_or_work_type": {
+              "kind": "post",
+              "label": "I1"
+            },
+            "fatigue_value": 1,
+            "actual_work_time_value": 1,
+            "actual_rest_time_value": 0,
+            "posture_or_mode": "seated",
+            "counts_for_same_post_consecutive": true,
+            "counts_for_continuous_work_restriction": true,
+            "counts_as_meal_opportunity": false,
+            "counts_as_post_patrol_rest": false,
+            "barrier_install_flag": false,
+            "barrier_remove_flag": false,
+            "mode": "FM",
+            "rule_refs": [
+              "§4",
+              "§6–§11",
+              "§13",
+              "user-supplement"
+            ]
+          },
+          {
+            "employee_id": "2",
+            "slot": {
+              "index": 13
+            },
+            "displayed_assignment": {
+              "kind": "post",
+              "label": "G2"
+            },
+            "actual_post_or_work_type": {
+              "kind": "post",
+              "label": "G2"
+            },
+            "fatigue_value": 2,
+            "actual_work_time_value": 1,
+            "actual_rest_time_value": 0,
+            "posture_or_mode": "standing",
+            "counts_for_same_post_consecutive": true,
+            "counts_for_continuous_work_restriction": true,
+            "counts_as_meal_opportunity": false,
+            "counts_as_post_patrol_rest": false,
+            "barrier_install_flag": false,
+            "barrier_remove_flag": false,
+            "mode": "FM",
+            "rule_refs": [
+              "§4",
+              "§6–§11",
+              "§13",
+              "user-supplement"
+            ]
+          },
+          {
+            "employee_id": "3",
+            "slot": {
+              "index": 0
+            },
+            "displayed_assignment": {
+              "kind": "post",
+              "label": "G1"
+            },
+            "actual_post_or_work_type": {
+              "kind": "post",
+              "label": "G1"
+            },
+            "fatigue_value": 2,
+            "actual_work_time_value": 1,
+            "actual_rest_time_value": 0,
+            "posture_or_mode": "standing",
+            "counts_for_same_post_consecutive": true,
+            "counts_for_continuous_work_restriction": true,
+            "counts_as_meal_opportunity": false,
+            "counts_as_post_patrol_rest": false,
+            "barrier_install_flag": false,
+            "barrier_remove_flag": false,
+            "mode": "FM",
+            "rule_refs": [
+              "§4",
+              "§6–§11",
+              "§13",
+              "user-supplement"
+            ]
+          },
+          {
+            "employee_id": "3",
+            "slot": {
+              "index": 1
+            },
+            "displayed_assignment": {
+              "kind": "security_standby",
+              "label": "보안실 대기"
+            },
+            "actual_post_or_work_type": {
+              "kind": "security_standby",
+              "label": "보안실 대기"
+            },
+            "fatigue_value": 0,
+            "actual_work_time_value": 0,
+            "actual_rest_time_value": 1,
+            "posture_or_mode": "rest-like",
+            "counts_for_same_post_consecutive": false,
+            "counts_for_continuous_work_restriction": false,
+            "counts_as_meal_opportunity": true,
+            "counts_as_post_patrol_rest": true,
+            "barrier_install_flag": false,
+            "barrier_remove_flag": false,
+            "mode": "FM",
+            "rule_refs": [
+              "§4",
+              "§6–§11",
+              "§13",
+              "user-supplement"
+            ]
+          },
+          {
+            "employee_id": "3",
+            "slot": {
+              "index": 2
+            },
+            "displayed_assignment": {
+              "kind": "post",
+              "label": "I1"
+            },
+            "actual_post_or_work_type": {
+              "kind": "post",
+              "label": "I1"
+            },
+            "fatigue_value": 1,
+            "actual_work_time_value": 1,
+            "actual_rest_time_value": 0,
+            "posture_or_mode": "seated",
+            "counts_for_same_post_consecutive": true,
+            "counts_for_continuous_work_restriction": true,
+            "counts_as_meal_opportunity": false,
+            "counts_as_post_patrol_rest": false,
+            "barrier_install_flag": false,
+            "barrier_remove_flag": false,
+            "mode": "FM",
+            "rule_refs": [
+              "§4",
+              "§6–§11",
+              "§13",
+              "user-supplement"
+            ]
+          },
+          {
+            "employee_id": "3",
+            "slot": {
+              "index": 3
+            },
+            "displayed_assignment": {
+              "kind": "security_standby",
+              "label": "보안실 대기"
+            },
+            "actual_post_or_work_type": {
+              "kind": "security_standby",
+              "label": "보안실 대기"
+            },
+            "fatigue_value": 0,
+            "actual_work_time_value": 0,
+            "actual_rest_time_value": 1,
+            "posture_or_mode": "rest-like",
+            "counts_for_same_post_consecutive": false,
+            "counts_for_continuous_work_restriction": false,
+            "counts_as_meal_opportunity": true,
+            "counts_as_post_patrol_rest": true,
+            "barrier_install_flag": false,
+            "barrier_remove_flag": false,
+            "mode": "FM",
+            "rule_refs": [
+              "§4",
+              "§6–§11",
+              "§13",
+              "user-supplement"
+            ]
+          },
+          {
+            "employee_id": "3",
+            "slot": {
+              "index": 4
+            },
+            "displayed_assignment": {
+              "kind": "post",
+              "label": "G1"
+            },
+            "actual_post_or_work_type": {
+              "kind": "post",
+              "label": "G1"
+            },
+            "fatigue_value": 2,
+            "actual_work_time_value": 1,
+            "actual_rest_time_value": 0,
+            "posture_or_mode": "standing",
+            "counts_for_same_post_consecutive": true,
+            "counts_for_continuous_work_restriction": true,
+            "counts_as_meal_opportunity": false,
+            "counts_as_post_patrol_rest": false,
+            "barrier_install_flag": false,
+            "barrier_remove_flag": false,
+            "mode": "FM",
+            "rule_refs": [
+              "§4",
+              "§6–§11",
+              "§13",
+              "user-supplement"
+            ]
+          },
+          {
+            "employee_id": "3",
+            "slot": {
+              "index": 5
+            },
+            "displayed_assignment": {
+              "kind": "post",
+              "label": "L3"
+            },
+            "actual_post_or_work_type": {
+              "kind": "post",
+              "label": "L3"
+            },
+            "fatigue_value": 2,
+            "actual_work_time_value": 1,
+            "actual_rest_time_value": 0,
+            "posture_or_mode": "standing",
+            "counts_for_same_post_consecutive": true,
+            "counts_for_continuous_work_restriction": true,
+            "counts_as_meal_opportunity": false,
+            "counts_as_post_patrol_rest": false,
+            "barrier_install_flag": false,
+            "barrier_remove_flag": false,
+            "mode": "FM",
+            "rule_refs": [
+              "§4",
+              "§6–§11",
+              "§13",
+              "user-supplement"
+            ]
+          },
+          {
+            "employee_id": "3",
+            "slot": {
+              "index": 6
+            },
+            "displayed_assignment": {
+              "kind": "security_standby",
+              "label": "보안실 대기"
+            },
+            "actual_post_or_work_type": {
+              "kind": "security_standby",
+              "label": "보안실 대기"
+            },
+            "fatigue_value": 0,
+            "actual_work_time_value": 0,
+            "actual_rest_time_value": 1,
+            "posture_or_mode": "rest-like",
+            "counts_for_same_post_consecutive": false,
+            "counts_for_continuous_work_restriction": false,
+            "counts_as_meal_opportunity": true,
+            "counts_as_post_patrol_rest": true,
+            "barrier_install_flag": false,
+            "barrier_remove_flag": false,
+            "mode": "FM",
+            "rule_refs": [
+              "§4",
+              "§6–§11",
+              "§13",
+              "user-supplement"
+            ]
+          },
+          {
+            "employee_id": "3",
+            "slot": {
+              "index": 7
+            },
+            "displayed_assignment": {
+              "kind": "patrol",
+              "label": "upper"
+            },
+            "actual_post_or_work_type": {
+              "kind": "patrol",
+              "label": "upper"
+            },
+            "fatigue_value": 2,
+            "actual_work_time_value": 1,
+            "actual_rest_time_value": 0,
+            "posture_or_mode": null,
+            "counts_for_same_post_consecutive": false,
+            "counts_for_continuous_work_restriction": false,
+            "counts_as_meal_opportunity": false,
+            "counts_as_post_patrol_rest": false,
+            "barrier_install_flag": false,
+            "barrier_remove_flag": false,
+            "mode": "FM",
+            "rule_refs": [
+              "§4",
+              "§6–§11",
+              "§13",
+              "user-supplement"
+            ]
+          },
+          {
+            "employee_id": "3",
+            "slot": {
+              "index": 8
+            },
+            "displayed_assignment": {
+              "kind": "rest",
+              "label": "휴게"
+            },
+            "actual_post_or_work_type": {
+              "kind": "rest",
+              "label": "휴게"
+            },
+            "fatigue_value": 0,
+            "actual_work_time_value": 0,
+            "actual_rest_time_value": 1,
+            "posture_or_mode": "rest-like",
+            "counts_for_same_post_consecutive": false,
+            "counts_for_continuous_work_restriction": false,
+            "counts_as_meal_opportunity": true,
+            "counts_as_post_patrol_rest": true,
+            "barrier_install_flag": false,
+            "barrier_remove_flag": false,
+            "mode": "FM",
+            "rule_refs": [
+              "§4",
+              "§6–§11",
+              "§13",
+              "user-supplement"
+            ]
+          },
+          {
+            "employee_id": "3",
+            "slot": {
+              "index": 9
+            },
+            "displayed_assignment": {
+              "kind": "rest",
+              "label": "휴게"
+            },
+            "actual_post_or_work_type": {
+              "kind": "rest",
+              "label": "휴게"
+            },
+            "fatigue_value": 0,
+            "actual_work_time_value": 0,
+            "actual_rest_time_value": 1,
+            "posture_or_mode": "rest-like",
+            "counts_for_same_post_consecutive": false,
+            "counts_for_continuous_work_restriction": false,
+            "counts_as_meal_opportunity": true,
+            "counts_as_post_patrol_rest": true,
+            "barrier_install_flag": false,
+            "barrier_remove_flag": false,
+            "mode": "FM",
+            "rule_refs": [
+              "§4",
+              "§6–§11",
+              "§13",
+              "user-supplement"
+            ]
+          },
+          {
+            "employee_id": "3",
+            "slot": {
+              "index": 10
+            },
+            "displayed_assignment": {
+              "kind": "security_standby",
+              "label": "보안실 대기"
+            },
+            "actual_post_or_work_type": {
+              "kind": "barrier_only",
+              "label": "barrier_remove"
+            },
+            "fatigue_value": 1,
+            "actual_work_time_value": 1,
+            "actual_rest_time_value": 0,
+            "posture_or_mode": null,
+            "counts_for_same_post_consecutive": false,
+            "counts_for_continuous_work_restriction": false,
+            "counts_as_meal_opportunity": true,
+            "counts_as_post_patrol_rest": false,
+            "barrier_install_flag": false,
+            "barrier_remove_flag": true,
+            "mode": "FM",
+            "rule_refs": [
+              "§4",
+              "§6–§11",
+              "§13",
+              "user-supplement"
+            ]
+          },
+          {
+            "employee_id": "3",
+            "slot": {
+              "index": 11
+            },
+            "displayed_assignment": {
+              "kind": "post",
+              "label": "I1"
+            },
+            "actual_post_or_work_type": {
+              "kind": "post",
+              "label": "I1"
+            },
+            "fatigue_value": 1,
+            "actual_work_time_value": 1,
+            "actual_rest_time_value": 0,
+            "posture_or_mode": "seated",
+            "counts_for_same_post_consecutive": true,
+            "counts_for_continuous_work_restriction": true,
+            "counts_as_meal_opportunity": false,
+            "counts_as_post_patrol_rest": false,
+            "barrier_install_flag": false,
+            "barrier_remove_flag": false,
+            "mode": "FM",
+            "rule_refs": [
+              "§4",
+              "§6–§11",
+              "§13",
+              "user-supplement"
+            ]
+          },
+          {
+            "employee_id": "3",
+            "slot": {
+              "index": 12
+            },
+            "displayed_assignment": {
+              "kind": "post",
+              "label": "L3"
+            },
+            "actual_post_or_work_type": {
+              "kind": "post",
+              "label": "L3"
+            },
+            "fatigue_value": 2,
+            "actual_work_time_value": 1,
+            "actual_rest_time_value": 0,
+            "posture_or_mode": "standing",
+            "counts_for_same_post_consecutive": true,
+            "counts_for_continuous_work_restriction": true,
+            "counts_as_meal_opportunity": false,
+            "counts_as_post_patrol_rest": false,
+            "barrier_install_flag": false,
+            "barrier_remove_flag": false,
+            "mode": "FM",
+            "rule_refs": [
+              "§4",
+              "§6–§11",
+              "§13",
+              "user-supplement"
+            ]
+          },
+          {
+            "employee_id": "3",
+            "slot": {
+              "index": 13
+            },
+            "displayed_assignment": {
+              "kind": "post",
+              "label": "G1"
+            },
+            "actual_post_or_work_type": {
+              "kind": "post",
+              "label": "G1"
+            },
+            "fatigue_value": 2,
+            "actual_work_time_value": 1,
+            "actual_rest_time_value": 0,
+            "posture_or_mode": "standing",
+            "counts_for_same_post_consecutive": true,
+            "counts_for_continuous_work_restriction": true,
+            "counts_as_meal_opportunity": false,
+            "counts_as_post_patrol_rest": false,
+            "barrier_install_flag": false,
+            "barrier_remove_flag": false,
+            "mode": "FM",
+            "rule_refs": [
+              "§4",
+              "§6–§11",
+              "§13",
+              "user-supplement"
+            ]
+          },
+          {
+            "employee_id": "4",
+            "slot": {
+              "index": 0
+            },
+            "displayed_assignment": {
+              "kind": "post",
+              "label": "G2"
+            },
+            "actual_post_or_work_type": {
+              "kind": "post",
+              "label": "G2"
+            },
+            "fatigue_value": 2,
+            "actual_work_time_value": 1,
+            "actual_rest_time_value": 0,
+            "posture_or_mode": "standing",
+            "counts_for_same_post_consecutive": true,
+            "counts_for_continuous_work_restriction": true,
+            "counts_as_meal_opportunity": false,
+            "counts_as_post_patrol_rest": false,
+            "barrier_install_flag": false,
+            "barrier_remove_flag": false,
+            "mode": "FM",
+            "rule_refs": [
+              "§4",
+              "§6–§11",
+              "§13",
+              "user-supplement"
+            ]
+          },
+          {
+            "employee_id": "4",
+            "slot": {
+              "index": 1
+            },
+            "displayed_assignment": {
+              "kind": "rest",
+              "label": "휴게"
+            },
+            "actual_post_or_work_type": {
+              "kind": "rest",
+              "label": "휴게"
+            },
+            "fatigue_value": 0,
+            "actual_work_time_value": 0,
+            "actual_rest_time_value": 1,
+            "posture_or_mode": "rest-like",
+            "counts_for_same_post_consecutive": false,
+            "counts_for_continuous_work_restriction": false,
+            "counts_as_meal_opportunity": true,
+            "counts_as_post_patrol_rest": true,
+            "barrier_install_flag": false,
+            "barrier_remove_flag": false,
+            "mode": "FM",
+            "rule_refs": [
+              "§4",
+              "§6–§11",
+              "§13",
+              "user-supplement"
+            ]
+          },
+          {
+            "employee_id": "4",
+            "slot": {
+              "index": 2
+            },
+            "displayed_assignment": {
+              "kind": "post",
+              "label": "L3"
+            },
+            "actual_post_or_work_type": {
+              "kind": "post",
+              "label": "L3"
+            },
+            "fatigue_value": 2,
+            "actual_work_time_value": 1,
+            "actual_rest_time_value": 0,
+            "posture_or_mode": "standing",
+            "counts_for_same_post_consecutive": true,
+            "counts_for_continuous_work_restriction": true,
+            "counts_as_meal_opportunity": false,
+            "counts_as_post_patrol_rest": false,
+            "barrier_install_flag": false,
+            "barrier_remove_flag": false,
+            "mode": "FM",
+            "rule_refs": [
+              "§4",
+              "§6–§11",
+              "§13",
+              "user-supplement"
+            ]
+          },
+          {
+            "employee_id": "4",
+            "slot": {
+              "index": 3
+            },
+            "displayed_assignment": {
+              "kind": "post",
+              "label": "G1"
+            },
+            "actual_post_or_work_type": {
+              "kind": "post",
+              "label": "G1"
+            },
+            "fatigue_value": 2,
+            "actual_work_time_value": 1,
+            "actual_rest_time_value": 0,
+            "posture_or_mode": "standing",
+            "counts_for_same_post_consecutive": true,
+            "counts_for_continuous_work_restriction": true,
+            "counts_as_meal_opportunity": false,
+            "counts_as_post_patrol_rest": false,
+            "barrier_install_flag": false,
+            "barrier_remove_flag": false,
+            "mode": "FM",
+            "rule_refs": [
+              "§4",
+              "§6–§11",
+              "§13",
+              "user-supplement"
+            ]
+          },
+          {
+            "employee_id": "4",
+            "slot": {
+              "index": 4
+            },
+            "displayed_assignment": {
+              "kind": "patrol",
+              "label": "middle"
+            },
+            "actual_post_or_work_type": {
+              "kind": "patrol",
+              "label": "middle"
+            },
+            "fatigue_value": 2,
+            "actual_work_time_value": 1,
+            "actual_rest_time_value": 0,
+            "posture_or_mode": null,
+            "counts_for_same_post_consecutive": false,
+            "counts_for_continuous_work_restriction": false,
+            "counts_as_meal_opportunity": false,
+            "counts_as_post_patrol_rest": false,
+            "barrier_install_flag": false,
+            "barrier_remove_flag": false,
+            "mode": "FM",
+            "rule_refs": [
+              "§4",
+              "§6–§11",
+              "§13",
+              "user-supplement"
+            ]
+          },
+          {
+            "employee_id": "4",
+            "slot": {
+              "index": 5
+            },
+            "displayed_assignment": {
+              "kind": "rest",
+              "label": "휴게"
+            },
+            "actual_post_or_work_type": {
+              "kind": "rest",
+              "label": "휴게"
+            },
+            "fatigue_value": 0,
+            "actual_work_time_value": 0,
+            "actual_rest_time_value": 1,
+            "posture_or_mode": "rest-like",
+            "counts_for_same_post_consecutive": false,
+            "counts_for_continuous_work_restriction": false,
+            "counts_as_meal_opportunity": true,
+            "counts_as_post_patrol_rest": true,
+            "barrier_install_flag": false,
+            "barrier_remove_flag": false,
+            "mode": "FM",
+            "rule_refs": [
+              "§4",
+              "§6–§11",
+              "§13",
+              "user-supplement"
+            ]
+          },
+          {
+            "employee_id": "4",
+            "slot": {
+              "index": 6
+            },
+            "displayed_assignment": {
+              "kind": "rest",
+              "label": "휴게"
+            },
+            "actual_post_or_work_type": {
+              "kind": "rest",
+              "label": "휴게"
+            },
+            "fatigue_value": 0,
+            "actual_work_time_value": 0,
+            "actual_rest_time_value": 1,
+            "posture_or_mode": "rest-like",
+            "counts_for_same_post_consecutive": false,
+            "counts_for_continuous_work_restriction": false,
+            "counts_as_meal_opportunity": true,
+            "counts_as_post_patrol_rest": true,
+            "barrier_install_flag": false,
+            "barrier_remove_flag": false,
+            "mode": "FM",
+            "rule_refs": [
+              "§4",
+              "§6–§11",
+              "§13",
+              "user-supplement"
+            ]
+          },
+          {
+            "employee_id": "4",
+            "slot": {
+              "index": 7
+            },
+            "displayed_assignment": {
+              "kind": "post",
+              "label": "G1"
+            },
+            "actual_post_or_work_type": {
+              "kind": "post",
+              "label": "G1"
+            },
+            "fatigue_value": 1,
+            "actual_work_time_value": 1,
+            "actual_rest_time_value": 0,
+            "posture_or_mode": "seated",
+            "counts_for_same_post_consecutive": true,
+            "counts_for_continuous_work_restriction": true,
+            "counts_as_meal_opportunity": false,
+            "counts_as_post_patrol_rest": false,
+            "barrier_install_flag": false,
+            "barrier_remove_flag": false,
+            "mode": "FM",
+            "rule_refs": [
+              "§4",
+              "§6–§11",
+              "§13",
+              "user-supplement"
+            ]
+          },
+          {
+            "employee_id": "4",
+            "slot": {
+              "index": 8
+            },
+            "displayed_assignment": {
+              "kind": "security_standby",
+              "label": "보안실 대기"
+            },
+            "actual_post_or_work_type": {
+              "kind": "security_standby",
+              "label": "보안실 대기"
+            },
+            "fatigue_value": 0,
+            "actual_work_time_value": 0,
+            "actual_rest_time_value": 1,
+            "posture_or_mode": "rest-like",
+            "counts_for_same_post_consecutive": false,
+            "counts_for_continuous_work_restriction": false,
+            "counts_as_meal_opportunity": true,
+            "counts_as_post_patrol_rest": true,
+            "barrier_install_flag": false,
+            "barrier_remove_flag": false,
+            "mode": "FM",
+            "rule_refs": [
+              "§4",
+              "§6–§11",
+              "§13",
+              "user-supplement"
+            ]
+          },
+          {
+            "employee_id": "4",
+            "slot": {
+              "index": 9
+            },
+            "displayed_assignment": {
+              "kind": "post",
+              "label": "G1"
+            },
+            "actual_post_or_work_type": {
+              "kind": "post",
+              "label": "G1"
+            },
+            "fatigue_value": 1,
+            "actual_work_time_value": 1,
+            "actual_rest_time_value": 0,
+            "posture_or_mode": "seated",
+            "counts_for_same_post_consecutive": true,
+            "counts_for_continuous_work_restriction": true,
+            "counts_as_meal_opportunity": false,
+            "counts_as_post_patrol_rest": false,
+            "barrier_install_flag": false,
+            "barrier_remove_flag": false,
+            "mode": "FM",
+            "rule_refs": [
+              "§4",
+              "§6–§11",
+              "§13",
+              "user-supplement"
+            ]
+          },
+          {
+            "employee_id": "4",
+            "slot": {
+              "index": 10
+            },
+            "displayed_assignment": {
+              "kind": "post",
+              "label": "L3"
+            },
+            "actual_post_or_work_type": {
+              "kind": "post",
+              "label": "L3"
+            },
+            "fatigue_value": 2,
+            "actual_work_time_value": 1,
+            "actual_rest_time_value": 0,
+            "posture_or_mode": "standing",
+            "counts_for_same_post_consecutive": true,
+            "counts_for_continuous_work_restriction": true,
+            "counts_as_meal_opportunity": false,
+            "counts_as_post_patrol_rest": false,
+            "barrier_install_flag": false,
+            "barrier_remove_flag": false,
+            "mode": "FM",
+            "rule_refs": [
+              "§4",
+              "§6–§11",
+              "§13",
+              "user-supplement"
+            ]
+          },
+          {
+            "employee_id": "4",
+            "slot": {
+              "index": 11
+            },
+            "displayed_assignment": {
+              "kind": "post",
+              "label": "L3"
+            },
+            "actual_post_or_work_type": {
+              "kind": "post",
+              "label": "L3"
+            },
+            "fatigue_value": 2,
+            "actual_work_time_value": 1,
+            "actual_rest_time_value": 0,
+            "posture_or_mode": "standing",
+            "counts_for_same_post_consecutive": true,
+            "counts_for_continuous_work_restriction": true,
+            "counts_as_meal_opportunity": false,
+            "counts_as_post_patrol_rest": false,
+            "barrier_install_flag": false,
+            "barrier_remove_flag": false,
+            "mode": "FM",
+            "rule_refs": [
+              "§4",
+              "§6–§11",
+              "§13",
+              "user-supplement"
+            ]
+          },
+          {
+            "employee_id": "4",
+            "slot": {
+              "index": 12
+            },
+            "displayed_assignment": {
+              "kind": "security_standby",
+              "label": "보안실 대기"
+            },
+            "actual_post_or_work_type": {
+              "kind": "security_standby",
+              "label": "보안실 대기"
+            },
+            "fatigue_value": 0,
+            "actual_work_time_value": 0,
+            "actual_rest_time_value": 1,
+            "posture_or_mode": "rest-like",
+            "counts_for_same_post_consecutive": false,
+            "counts_for_continuous_work_restriction": false,
+            "counts_as_meal_opportunity": true,
+            "counts_as_post_patrol_rest": true,
+            "barrier_install_flag": false,
+            "barrier_remove_flag": false,
+            "mode": "FM",
+            "rule_refs": [
+              "§4",
+              "§6–§11",
+              "§13",
+              "user-supplement"
+            ]
+          },
+          {
+            "employee_id": "4",
+            "slot": {
+              "index": 13
+            },
+            "displayed_assignment": {
+              "kind": "post",
+              "label": "L3"
+            },
+            "actual_post_or_work_type": {
+              "kind": "post",
+              "label": "L3"
+            },
+            "fatigue_value": 2,
+            "actual_work_time_value": 1,
+            "actual_rest_time_value": 0,
+            "posture_or_mode": "standing",
+            "counts_for_same_post_consecutive": true,
+            "counts_for_continuous_work_restriction": true,
+            "counts_as_meal_opportunity": false,
+            "counts_as_post_patrol_rest": false,
+            "barrier_install_flag": false,
+            "barrier_remove_flag": false,
+            "mode": "FM",
+            "rule_refs": [
+              "§4",
+              "§6–§11",
+              "§13",
+              "user-supplement"
+            ]
+          },
+          {
+            "employee_id": "5",
+            "slot": {
+              "index": 0
+            },
+            "displayed_assignment": {
+              "kind": "security_standby",
+              "label": "보안실 대기"
+            },
+            "actual_post_or_work_type": {
+              "kind": "security_standby",
+              "label": "보안실 대기"
+            },
+            "fatigue_value": 0,
+            "actual_work_time_value": 0,
+            "actual_rest_time_value": 1,
+            "posture_or_mode": "rest-like",
+            "counts_for_same_post_consecutive": false,
+            "counts_for_continuous_work_restriction": false,
+            "counts_as_meal_opportunity": true,
+            "counts_as_post_patrol_rest": true,
+            "barrier_install_flag": false,
+            "barrier_remove_flag": false,
+            "mode": "FM",
+            "rule_refs": [
+              "§4",
+              "§6–§11",
+              "§13",
+              "user-supplement"
+            ]
+          },
+          {
+            "employee_id": "5",
+            "slot": {
+              "index": 1
+            },
+            "displayed_assignment": {
+              "kind": "rest",
+              "label": "휴게"
+            },
+            "actual_post_or_work_type": {
+              "kind": "rest",
+              "label": "휴게"
+            },
+            "fatigue_value": 0,
+            "actual_work_time_value": 0,
+            "actual_rest_time_value": 1,
+            "posture_or_mode": "rest-like",
+            "counts_for_same_post_consecutive": false,
+            "counts_for_continuous_work_restriction": false,
+            "counts_as_meal_opportunity": true,
+            "counts_as_post_patrol_rest": true,
+            "barrier_install_flag": false,
+            "barrier_remove_flag": false,
+            "mode": "FM",
+            "rule_refs": [
+              "§4",
+              "§6–§11",
+              "§13",
+              "user-supplement"
+            ]
+          },
+          {
+            "employee_id": "5",
+            "slot": {
+              "index": 2
+            },
+            "displayed_assignment": {
+              "kind": "post",
+              "label": "G1"
+            },
+            "actual_post_or_work_type": {
+              "kind": "post",
+              "label": "G1"
+            },
+            "fatigue_value": 2,
+            "actual_work_time_value": 1,
+            "actual_rest_time_value": 0,
+            "posture_or_mode": "standing",
+            "counts_for_same_post_consecutive": true,
+            "counts_for_continuous_work_restriction": true,
+            "counts_as_meal_opportunity": false,
+            "counts_as_post_patrol_rest": false,
+            "barrier_install_flag": false,
+            "barrier_remove_flag": false,
+            "mode": "FM",
+            "rule_refs": [
+              "§4",
+              "§6–§11",
+              "§13",
+              "user-supplement"
+            ]
+          },
+          {
+            "employee_id": "5",
+            "slot": {
+              "index": 3
+            },
+            "displayed_assignment": {
+              "kind": "post",
+              "label": "L3"
+            },
+            "actual_post_or_work_type": {
+              "kind": "post",
+              "label": "L3"
+            },
+            "fatigue_value": 2,
+            "actual_work_time_value": 1,
+            "actual_rest_time_value": 0,
+            "posture_or_mode": "standing",
+            "counts_for_same_post_consecutive": true,
+            "counts_for_continuous_work_restriction": true,
+            "counts_as_meal_opportunity": false,
+            "counts_as_post_patrol_rest": false,
+            "barrier_install_flag": false,
+            "barrier_remove_flag": false,
+            "mode": "FM",
+            "rule_refs": [
+              "§4",
+              "§6–§11",
+              "§13",
+              "user-supplement"
+            ]
+          },
+          {
+            "employee_id": "5",
+            "slot": {
+              "index": 4
+            },
+            "displayed_assignment": {
+              "kind": "post",
+              "label": "I1"
+            },
+            "actual_post_or_work_type": {
+              "kind": "post",
+              "label": "I1"
+            },
+            "fatigue_value": 1,
+            "actual_work_time_value": 1,
+            "actual_rest_time_value": 0,
+            "posture_or_mode": "seated",
+            "counts_for_same_post_consecutive": true,
+            "counts_for_continuous_work_restriction": true,
+            "counts_as_meal_opportunity": false,
+            "counts_as_post_patrol_rest": false,
+            "barrier_install_flag": false,
+            "barrier_remove_flag": false,
+            "mode": "FM",
+            "rule_refs": [
+              "§4",
+              "§6–§11",
+              "§13",
+              "user-supplement"
+            ]
+          },
+          {
+            "employee_id": "5",
+            "slot": {
+              "index": 5
+            },
+            "displayed_assignment": {
+              "kind": "patrol",
+              "label": "lower"
+            },
+            "actual_post_or_work_type": {
+              "kind": "patrol",
+              "label": "lower"
+            },
+            "fatigue_value": 1,
+            "actual_work_time_value": 1,
+            "actual_rest_time_value": 0,
+            "posture_or_mode": null,
+            "counts_for_same_post_consecutive": false,
+            "counts_for_continuous_work_restriction": false,
+            "counts_as_meal_opportunity": false,
+            "counts_as_post_patrol_rest": false,
+            "barrier_install_flag": false,
+            "barrier_remove_flag": false,
+            "mode": "FM",
+            "rule_refs": [
+              "§4",
+              "§6–§11",
+              "§13",
+              "user-supplement"
+            ]
+          },
+          {
+            "employee_id": "5",
+            "slot": {
+              "index": 6
+            },
+            "displayed_assignment": {
+              "kind": "rest",
+              "label": "휴게"
+            },
+            "actual_post_or_work_type": {
+              "kind": "rest",
+              "label": "휴게"
+            },
+            "fatigue_value": 0,
+            "actual_work_time_value": 0,
+            "actual_rest_time_value": 1,
+            "posture_or_mode": "rest-like",
+            "counts_for_same_post_consecutive": false,
+            "counts_for_continuous_work_restriction": false,
+            "counts_as_meal_opportunity": true,
+            "counts_as_post_patrol_rest": true,
+            "barrier_install_flag": false,
+            "barrier_remove_flag": false,
+            "mode": "FM",
+            "rule_refs": [
+              "§4",
+              "§6–§11",
+              "§13",
+              "user-supplement"
+            ]
+          },
+          {
+            "employee_id": "5",
+            "slot": {
+              "index": 7
+            },
+            "displayed_assignment": {
+              "kind": "rest",
+              "label": "휴게"
+            },
+            "actual_post_or_work_type": {
+              "kind": "rest",
+              "label": "휴게"
+            },
+            "fatigue_value": 0,
+            "actual_work_time_value": 0,
+            "actual_rest_time_value": 1,
+            "posture_or_mode": "rest-like",
+            "counts_for_same_post_consecutive": false,
+            "counts_for_continuous_work_restriction": false,
+            "counts_as_meal_opportunity": true,
+            "counts_as_post_patrol_rest": true,
+            "barrier_install_flag": false,
+            "barrier_remove_flag": false,
+            "mode": "FM",
+            "rule_refs": [
+              "§4",
+              "§6–§11",
+              "§13",
+              "user-supplement"
+            ]
+          },
+          {
+            "employee_id": "5",
+            "slot": {
+              "index": 8
+            },
+            "displayed_assignment": {
+              "kind": "post",
+              "label": "L3"
+            },
+            "actual_post_or_work_type": {
+              "kind": "post",
+              "label": "L3"
+            },
+            "fatigue_value": 2,
+            "actual_work_time_value": 1,
+            "actual_rest_time_value": 0,
+            "posture_or_mode": "standing",
+            "counts_for_same_post_consecutive": true,
+            "counts_for_continuous_work_restriction": true,
+            "counts_as_meal_opportunity": false,
+            "counts_as_post_patrol_rest": false,
+            "barrier_install_flag": false,
+            "barrier_remove_flag": false,
+            "mode": "FM",
+            "rule_refs": [
+              "§4",
+              "§6–§11",
+              "§13",
+              "user-supplement"
+            ]
+          },
+          {
+            "employee_id": "5",
+            "slot": {
+              "index": 9
+            },
+            "displayed_assignment": {
+              "kind": "post",
+              "label": "L3"
+            },
+            "actual_post_or_work_type": {
+              "kind": "post",
+              "label": "L3"
+            },
+            "fatigue_value": 2,
+            "actual_work_time_value": 1,
+            "actual_rest_time_value": 0,
+            "posture_or_mode": "standing",
+            "counts_for_same_post_consecutive": true,
+            "counts_for_continuous_work_restriction": true,
+            "counts_as_meal_opportunity": false,
+            "counts_as_post_patrol_rest": false,
+            "barrier_install_flag": false,
+            "barrier_remove_flag": false,
+            "mode": "FM",
+            "rule_refs": [
+              "§4",
+              "§6–§11",
+              "§13",
+              "user-supplement"
+            ]
+          },
+          {
+            "employee_id": "5",
+            "slot": {
+              "index": 10
+            },
+            "displayed_assignment": {
+              "kind": "post",
+              "label": "G1"
+            },
+            "actual_post_or_work_type": {
+              "kind": "post",
+              "label": "G1"
+            },
+            "fatigue_value": 1,
+            "actual_work_time_value": 1,
+            "actual_rest_time_value": 0,
+            "posture_or_mode": "seated",
+            "counts_for_same_post_consecutive": true,
+            "counts_for_continuous_work_restriction": true,
+            "counts_as_meal_opportunity": false,
+            "counts_as_post_patrol_rest": false,
+            "barrier_install_flag": false,
+            "barrier_remove_flag": false,
+            "mode": "FM",
+            "rule_refs": [
+              "§4",
+              "§6–§11",
+              "§13",
+              "user-supplement"
+            ]
+          },
+          {
+            "employee_id": "5",
+            "slot": {
+              "index": 11
+            },
+            "displayed_assignment": {
+              "kind": "rest",
+              "label": "휴게"
+            },
+            "actual_post_or_work_type": {
+              "kind": "rest",
+              "label": "휴게"
+            },
+            "fatigue_value": 0,
+            "actual_work_time_value": 0,
+            "actual_rest_time_value": 1,
+            "posture_or_mode": "rest-like",
+            "counts_for_same_post_consecutive": false,
+            "counts_for_continuous_work_restriction": false,
+            "counts_as_meal_opportunity": true,
+            "counts_as_post_patrol_rest": true,
+            "barrier_install_flag": false,
+            "barrier_remove_flag": false,
+            "mode": "FM",
+            "rule_refs": [
+              "§4",
+              "§6–§11",
+              "§13",
+              "user-supplement"
+            ]
+          },
+          {
+            "employee_id": "5",
+            "slot": {
+              "index": 12
+            },
+            "displayed_assignment": {
+              "kind": "post",
+              "label": "G1"
+            },
+            "actual_post_or_work_type": {
+              "kind": "post",
+              "label": "G1"
+            },
+            "fatigue_value": 2,
+            "actual_work_time_value": 1,
+            "actual_rest_time_value": 0,
+            "posture_or_mode": "standing",
+            "counts_for_same_post_consecutive": true,
+            "counts_for_continuous_work_restriction": true,
+            "counts_as_meal_opportunity": false,
+            "counts_as_post_patrol_rest": false,
+            "barrier_install_flag": false,
+            "barrier_remove_flag": false,
+            "mode": "FM",
+            "rule_refs": [
+              "§4",
+              "§6–§11",
+              "§13",
+              "user-supplement"
+            ]
+          },
+          {
+            "employee_id": "5",
+            "slot": {
+              "index": 13
+            },
+            "displayed_assignment": {
+              "kind": "post",
+              "label": "I1"
+            },
+            "actual_post_or_work_type": {
+              "kind": "post",
+              "label": "L3"
+            },
+            "fatigue_value": 2,
+            "actual_work_time_value": 1,
+            "actual_rest_time_value": 0,
+            "posture_or_mode": "standing",
+            "counts_for_same_post_consecutive": true,
+            "counts_for_continuous_work_restriction": true,
+            "counts_as_meal_opportunity": false,
+            "counts_as_post_patrol_rest": false,
+            "barrier_install_flag": false,
+            "barrier_remove_flag": false,
+            "mode": "FM",
+            "rule_refs": [
+              "§4",
+              "§6–§11",
+              "§13",
+              "user-supplement"
+            ]
+          },
+          {
+            "employee_id": "A",
+            "slot": {
+              "index": 0
+            },
+            "displayed_assignment": {
+              "kind": "post",
+              "label": "L3"
+            },
+            "actual_post_or_work_type": {
+              "kind": "security_standby",
+              "label": "보안실 대기"
+            },
+            "fatigue_value": 0,
+            "actual_work_time_value": 0,
+            "actual_rest_time_value": 1,
+            "posture_or_mode": "rest-like",
+            "counts_for_same_post_consecutive": false,
+            "counts_for_continuous_work_restriction": false,
+            "counts_as_meal_opportunity": true,
+            "counts_as_post_patrol_rest": true,
+            "barrier_install_flag": false,
+            "barrier_remove_flag": false,
+            "mode": "FM",
+            "rule_refs": [
+              "§4",
+              "§6–§11",
+              "§13",
+              "user-supplement"
+            ]
+          },
+          {
+            "employee_id": "A",
+            "slot": {
+              "index": 1
+            },
+            "displayed_assignment": {
+              "kind": "post",
+              "label": "L3"
+            },
+            "actual_post_or_work_type": {
+              "kind": "post",
+              "label": "L3"
+            },
+            "fatigue_value": 2,
+            "actual_work_time_value": 1,
+            "actual_rest_time_value": 0,
+            "posture_or_mode": "standing",
+            "counts_for_same_post_consecutive": true,
+            "counts_for_continuous_work_restriction": true,
+            "counts_as_meal_opportunity": false,
+            "counts_as_post_patrol_rest": false,
+            "barrier_install_flag": false,
+            "barrier_remove_flag": false,
+            "mode": "FM",
+            "rule_refs": [
+              "§4",
+              "§6–§11",
+              "§13",
+              "user-supplement"
+            ]
+          },
+          {
+            "employee_id": "A",
+            "slot": {
+              "index": 2
+            },
+            "displayed_assignment": {
+              "kind": "rest",
+              "label": "휴게"
+            },
+            "actual_post_or_work_type": {
+              "kind": "rest",
+              "label": "휴게"
+            },
+            "fatigue_value": 0,
+            "actual_work_time_value": 0,
+            "actual_rest_time_value": 1,
+            "posture_or_mode": "rest-like",
+            "counts_for_same_post_consecutive": false,
+            "counts_for_continuous_work_restriction": false,
+            "counts_as_meal_opportunity": true,
+            "counts_as_post_patrol_rest": true,
+            "barrier_install_flag": false,
+            "barrier_remove_flag": false,
+            "mode": "FM",
+            "rule_refs": [
+              "§4",
+              "§6–§11",
+              "§13",
+              "user-supplement"
+            ]
+          },
+          {
+            "employee_id": "A",
+            "slot": {
+              "index": 3
+            },
+            "displayed_assignment": {
+              "kind": "patrol",
+              "label": "upper"
+            },
+            "actual_post_or_work_type": {
+              "kind": "patrol",
+              "label": "upper"
+            },
+            "fatigue_value": 2,
+            "actual_work_time_value": 1,
+            "actual_rest_time_value": 0,
+            "posture_or_mode": null,
+            "counts_for_same_post_consecutive": false,
+            "counts_for_continuous_work_restriction": false,
+            "counts_as_meal_opportunity": false,
+            "counts_as_post_patrol_rest": false,
+            "barrier_install_flag": false,
+            "barrier_remove_flag": false,
+            "mode": "FM",
+            "rule_refs": [
+              "§4",
+              "§6–§11",
+              "§13",
+              "user-supplement"
+            ]
+          },
+          {
+            "employee_id": "A",
+            "slot": {
+              "index": 4
+            },
+            "displayed_assignment": {
+              "kind": "rest",
+              "label": "휴게"
+            },
+            "actual_post_or_work_type": {
+              "kind": "rest",
+              "label": "휴게"
+            },
+            "fatigue_value": 0,
+            "actual_work_time_value": 0,
+            "actual_rest_time_value": 1,
+            "posture_or_mode": "rest-like",
+            "counts_for_same_post_consecutive": false,
+            "counts_for_continuous_work_restriction": false,
+            "counts_as_meal_opportunity": true,
+            "counts_as_post_patrol_rest": true,
+            "barrier_install_flag": false,
+            "barrier_remove_flag": false,
+            "mode": "FM",
+            "rule_refs": [
+              "§4",
+              "§6–§11",
+              "§13",
+              "user-supplement"
+            ]
+          },
+          {
+            "employee_id": "A",
+            "slot": {
+              "index": 5
+            },
+            "displayed_assignment": {
+              "kind": "rest",
+              "label": "휴게"
+            },
+            "actual_post_or_work_type": {
+              "kind": "rest",
+              "label": "휴게"
+            },
+            "fatigue_value": 0,
+            "actual_work_time_value": 0,
+            "actual_rest_time_value": 1,
+            "posture_or_mode": "rest-like",
+            "counts_for_same_post_consecutive": false,
+            "counts_for_continuous_work_restriction": false,
+            "counts_as_meal_opportunity": true,
+            "counts_as_post_patrol_rest": true,
+            "barrier_install_flag": false,
+            "barrier_remove_flag": false,
+            "mode": "FM",
+            "rule_refs": [
+              "§4",
+              "§6–§11",
+              "§13",
+              "user-supplement"
+            ]
+          },
+          {
+            "employee_id": "A",
+            "slot": {
+              "index": 6
+            },
+            "displayed_assignment": {
+              "kind": "post",
+              "label": "G1"
+            },
+            "actual_post_or_work_type": {
+              "kind": "post",
+              "label": "G1"
+            },
+            "fatigue_value": 1,
+            "actual_work_time_value": 1,
+            "actual_rest_time_value": 0,
+            "posture_or_mode": "seated",
+            "counts_for_same_post_consecutive": true,
+            "counts_for_continuous_work_restriction": true,
+            "counts_as_meal_opportunity": false,
+            "counts_as_post_patrol_rest": false,
+            "barrier_install_flag": false,
+            "barrier_remove_flag": false,
+            "mode": "FM",
+            "rule_refs": [
+              "§4",
+              "§6–§11",
+              "§13",
+              "user-supplement"
+            ]
+          },
+          {
+            "employee_id": "A",
+            "slot": {
+              "index": 7
+            },
+            "displayed_assignment": {
+              "kind": "post",
+              "label": "I1"
+            },
+            "actual_post_or_work_type": {
+              "kind": "post",
+              "label": "I1"
+            },
+            "fatigue_value": 1,
+            "actual_work_time_value": 1,
+            "actual_rest_time_value": 0,
+            "posture_or_mode": "seated",
+            "counts_for_same_post_consecutive": true,
+            "counts_for_continuous_work_restriction": true,
+            "counts_as_meal_opportunity": false,
+            "counts_as_post_patrol_rest": false,
+            "barrier_install_flag": false,
+            "barrier_remove_flag": false,
+            "mode": "FM",
+            "rule_refs": [
+              "§4",
+              "§6–§11",
+              "§13",
+              "user-supplement"
+            ]
+          },
+          {
+            "employee_id": "A",
+            "slot": {
+              "index": 8
+            },
+            "displayed_assignment": {
+              "kind": "post",
+              "label": "G1"
+            },
+            "actual_post_or_work_type": {
+              "kind": "post",
+              "label": "G1"
+            },
+            "fatigue_value": 1,
+            "actual_work_time_value": 1,
+            "actual_rest_time_value": 0,
+            "posture_or_mode": "seated",
+            "counts_for_same_post_consecutive": true,
+            "counts_for_continuous_work_restriction": true,
+            "counts_as_meal_opportunity": false,
+            "counts_as_post_patrol_rest": false,
+            "barrier_install_flag": false,
+            "barrier_remove_flag": false,
+            "mode": "FM",
+            "rule_refs": [
+              "§4",
+              "§6–§11",
+              "§13",
+              "user-supplement"
+            ]
+          },
+          {
+            "employee_id": "A",
+            "slot": {
+              "index": 9
+            },
+            "displayed_assignment": {
+              "kind": "post",
+              "label": "I1"
+            },
+            "actual_post_or_work_type": {
+              "kind": "post",
+              "label": "I1"
+            },
+            "fatigue_value": 1,
+            "actual_work_time_value": 1,
+            "actual_rest_time_value": 0,
+            "posture_or_mode": "seated",
+            "counts_for_same_post_consecutive": true,
+            "counts_for_continuous_work_restriction": true,
+            "counts_as_meal_opportunity": false,
+            "counts_as_post_patrol_rest": false,
+            "barrier_install_flag": false,
+            "barrier_remove_flag": false,
+            "mode": "FM",
+            "rule_refs": [
+              "§4",
+              "§6–§11",
+              "§13",
+              "user-supplement"
+            ]
+          },
+          {
+            "employee_id": "A",
+            "slot": {
+              "index": 10
+            },
+            "displayed_assignment": {
+              "kind": "post",
+              "label": "I1"
+            },
+            "actual_post_or_work_type": {
+              "kind": "post",
+              "label": "I1"
+            },
+            "fatigue_value": 1,
+            "actual_work_time_value": 1,
+            "actual_rest_time_value": 0,
+            "posture_or_mode": "seated",
+            "counts_for_same_post_consecutive": true,
+            "counts_for_continuous_work_restriction": true,
+            "counts_as_meal_opportunity": false,
+            "counts_as_post_patrol_rest": false,
+            "barrier_install_flag": false,
+            "barrier_remove_flag": false,
+            "mode": "FM",
+            "rule_refs": [
+              "§4",
+              "§6–§11",
+              "§13",
+              "user-supplement"
+            ]
+          },
+          {
+            "employee_id": "A",
+            "slot": {
+              "index": 11
+            },
+            "displayed_assignment": {
+              "kind": "security_standby",
+              "label": "보안실 대기"
+            },
+            "actual_post_or_work_type": {
+              "kind": "security_standby",
+              "label": "보안실 대기"
+            },
+            "fatigue_value": 0,
+            "actual_work_time_value": 0,
+            "actual_rest_time_value": 1,
+            "posture_or_mode": "rest-like",
+            "counts_for_same_post_consecutive": false,
+            "counts_for_continuous_work_restriction": false,
+            "counts_as_meal_opportunity": true,
+            "counts_as_post_patrol_rest": true,
+            "barrier_install_flag": false,
+            "barrier_remove_flag": false,
+            "mode": "FM",
+            "rule_refs": [
+              "§4",
+              "§6–§11",
+              "§13",
+              "user-supplement"
+            ]
+          },
+          {
+            "employee_id": "A",
+            "slot": {
+              "index": 12
+            },
+            "displayed_assignment": {
+              "kind": "post",
+              "label": "G2"
+            },
+            "actual_post_or_work_type": {
+              "kind": "post",
+              "label": "G2"
+            },
+            "fatigue_value": 2,
+            "actual_work_time_value": 1,
+            "actual_rest_time_value": 0,
+            "posture_or_mode": "standing",
+            "counts_for_same_post_consecutive": true,
+            "counts_for_continuous_work_restriction": true,
+            "counts_as_meal_opportunity": false,
+            "counts_as_post_patrol_rest": false,
+            "barrier_install_flag": false,
+            "barrier_remove_flag": false,
+            "mode": "FM",
+            "rule_refs": [
+              "§4",
+              "§6–§11",
+              "§13",
+              "user-supplement"
+            ]
+          },
+          {
+            "employee_id": "A",
+            "slot": {
+              "index": 13
+            },
+            "displayed_assignment": {
+              "kind": "security_standby",
+              "label": "보안실 대기"
+            },
+            "actual_post_or_work_type": {
+              "kind": "security_standby",
+              "label": "보안실 대기"
+            },
+            "fatigue_value": 0,
+            "actual_work_time_value": 0,
+            "actual_rest_time_value": 1,
+            "posture_or_mode": "rest-like",
+            "counts_for_same_post_consecutive": false,
+            "counts_for_continuous_work_restriction": false,
+            "counts_as_meal_opportunity": true,
+            "counts_as_post_patrol_rest": true,
+            "barrier_install_flag": false,
+            "barrier_remove_flag": false,
+            "mode": "FM",
+            "rule_refs": [
+              "§4",
+              "§6–§11",
+              "§13",
+              "user-supplement"
+            ]
+          }
+        ],
+        "source_plan_id": null,
+        "confirmed_at": null
+      },
+      "attempts": [
+        {
+          "balance_target_probe": true,
+          "status": "OPTIMAL",
+          "seconds": 0.1955248,
+          "refinement": true,
+          "rules_v22": true,
+          "vacancy_policy": true,
+          "minimize_a": true,
+          "a_objective_value": 4593.0,
+          "a_objective_bound": 4593.0,
+          "unchanged_duty_slots": null
+        }
+      ],
+      "targets_met": true
+    },
+    "validation_errors": []
+  },
+  {
+    "headcount": 4,
+    "result": {
+      "status": "INFEASIBLE",
+      "record": null,
+      "attempts": [
+        {
+          "balance_target_probe": true,
+          "status": "INFEASIBLE",
+          "seconds": 0.050451,
+          "refinement": true,
+          "rules_v22": true,
+          "vacancy_policy": true,
+          "minimize_a": true,
+          "a_objective_value": null,
+          "a_objective_bound": 0.0,
+          "unchanged_duty_slots": null
+        },
+        {
+          "balance_target_probe": false,
+          "status": "INFEASIBLE",
+          "seconds": 0.0326361,
+          "refinement": true,
+          "rules_v22": true,
+          "vacancy_policy": true,
+          "minimize_a": true,
+          "a_objective_value": null,
+          "a_objective_bound": 0.0,
+          "unchanged_duty_slots": null
+        }
+      ],
+      "targets_met": false
+    },
+    "validation_errors": null
+  }
+]

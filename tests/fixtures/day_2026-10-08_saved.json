@@ -1,0 +1,265 @@
+{
+ "version": 1,
+ "kind": "day",
+ "date": "2026-10-08",
+ "people": [
+  {
+   "pid": "원종",
+   "name": "원종",
+   "status": "출근",
+   "number": 3,
+   "leave_from": null,
+   "join_from": null,
+   "note": ""
+  },
+  {
+   "pid": "도운",
+   "name": "도운",
+   "status": "출근",
+   "number": 1,
+   "leave_from": null,
+   "join_from": null,
+   "note": ""
+  },
+  {
+   "pid": "준형",
+   "name": "준형",
+   "status": "연차",
+   "number": null,
+   "leave_from": null,
+   "join_from": null,
+   "note": ""
+  },
+  {
+   "pid": "만년",
+   "name": "만년",
+   "status": "출근",
+   "number": 2,
+   "leave_from": null,
+   "join_from": null,
+   "note": ""
+  },
+  {
+   "pid": "용주",
+   "name": "용주",
+   "status": "출근",
+   "number": 8,
+   "leave_from": null,
+   "join_from": null,
+   "note": ""
+  },
+  {
+   "pid": "제욱",
+   "name": "제욱",
+   "status": "출근",
+   "number": 4,
+   "leave_from": null,
+   "join_from": null,
+   "note": ""
+  },
+  {
+   "pid": "광희",
+   "name": "광희",
+   "status": "출근",
+   "number": 6,
+   "leave_from": null,
+   "join_from": null,
+   "note": ""
+  },
+  {
+   "pid": "준호",
+   "name": "준호",
+   "status": "출근",
+   "number": 7,
+   "leave_from": null,
+   "join_from": null,
+   "note": ""
+  },
+  {
+   "pid": "성욱",
+   "name": "성욱",
+   "status": "출근",
+   "number": 5,
+   "leave_from": null,
+   "join_from": null,
+   "note": ""
+  },
+  {
+   "pid": "성호",
+   "name": "성호",
+   "status": "연차",
+   "number": null,
+   "leave_from": null,
+   "join_from": null,
+   "note": ""
+  },
+  {
+   "pid": "여진",
+   "name": "여진",
+   "status": "교육",
+   "number": 9,
+   "leave_from": null,
+   "join_from": null,
+   "note": ""
+  }
+ ],
+ "grid": {
+  "원종": [
+   "G3",
+   "L2",
+   "교육",
+   "L2",
+   "G1",
+   "휴게",
+   "G1",
+   "G2",
+   "순찰",
+   "G3"
+  ],
+  "도운": [
+   "G1",
+   "G2",
+   "교육",
+   "G3",
+   "L1",
+   "휴게",
+   "L2",
+   "G3",
+   "대기",
+   "G1"
+  ],
+  "준형": [
+   null,
+   null,
+   null,
+   null,
+   null,
+   null,
+   null,
+   null,
+   null,
+   null
+  ],
+  "만년": [
+   "G2",
+   "휴게",
+   "G3",
+   "L1",
+   "대기",
+   "L2",
+   "C1",
+   "순찰",
+   "G1",
+   "G2"
+  ],
+  "용주": [
+   "대기",
+   "G3",
+   "L1",
+   "휴게",
+   "L2",
+   "G2",
+   "교육",
+   "G1",
+   "G2",
+   "순찰"
+  ],
+  "제욱": [
+   "L1",
+   "대기",
+   "L2",
+   "C1",
+   "휴게",
+   "G1",
+   "G2",
+   "휴게",
+   "G3",
+   "L1"
+  ],
+  "광희": [
+   "C1",
+   "L1",
+   "순찰",
+   "G1",
+   "G2",
+   "대기",
+   "G3",
+   "L1",
+   "휴게",
+   "L2"
+  ],
+  "준호": [
+   "순찰",
+   "G1",
+   "G2",
+   "대기",
+   "G3",
+   "L1",
+   "순찰",
+   "L2",
+   "L1",
+   "대기"
+  ],
+  "성욱": [
+   "L2",
+   "순찰",
+   "G1",
+   "G2",
+   "휴게",
+   "G3",
+   "L1",
+   "대기",
+   "L2",
+   "C1"
+  ],
+  "성호": [
+   null,
+   null,
+   null,
+   null,
+   null,
+   null,
+   null,
+   null,
+   null,
+   null
+  ],
+  "여진": [
+   "순찰",
+   "G1",
+   "G2",
+   "대기",
+   "G3",
+   "L1",
+   "순찰",
+   "L2",
+   "L1",
+   "대기"
+  ]
+ },
+ "shuttle": {
+  "0": "광희",
+  "3": "제욱",
+  "5": "만년",
+  "8": "성욱"
+ },
+ "control": true,
+ "control_patrol": 3,
+ "control_patrol_slots": [],
+ "rule_exempt_names": [
+  "여진"
+ ],
+ "strict": false,
+ "fixed_template": 8,
+ "locked_through": null,
+ "emergency": null,
+ "control_as_worker_from": null,
+ "fill": {},
+ "source_layout": {},
+ "trainees": {
+  "여진": "준호"
+ },
+ "confirmed_at": "2026-10-07T21:51:35",
+ "note": "",
+ "control_e_slots": []
+}

@@ -9,8 +9,8 @@ from datetime import date
 from typing import Mapping
 
 from .models import (
-    AssignmentKind, Attendance, Employee, HistoryInput, Mode, NightType,
-    Posture, RecordKind, ShiftContext, ShiftRecord,
+    AssignmentKind, Attendance, Employee, HistoryInput, Mode, NightType, GENERATION_POST_OPERATIONS,
+    Posture, RecordKind, ShiftContext, ShiftRecord, barrier_v2, barrier_history_counts,
 )
 from .common import compile_common_policy
 from .preferences import avoid_cells, preference_weights
@@ -20,7 +20,13 @@ from .solver import SolveResult, solve_first_trial
 from .validator import validate_first_trial
 
 
-SERVICE_API_VERSION = "2.21.11"         # 2026-10-02: 17-1 근무자 선호 (공통 선호 보너스·개인 회피)
+SERVICE_API_VERSION = "2.21.69"         # 2026-10-18: 12-5 결원 1명 시간 대기 최소1명은 가능하면 지킬 규칙
+
+
+def rulebook_label(rules_version: str) -> str:
+    """화면·엑셀에 보이는 룰북 표기. 엔진 분기값 "2.20"은 v2.21 룰북 전체를 구현한다
+    (v2.21 조항은 별도 분기값 없이 2.20 경로에 들어감)."""
+    return "v2.21" if rules_version == "2.20" else f"v{rules_version}"
 
 
 POST_LABELS = ("G1", "L3", "I1", "G2", "G3", "G2(1)")
@@ -50,6 +56,8 @@ class ShiftRequest:
     day_instructions: tuple[str, ...] = ()
     # 유도리 포스트별 운영 (None = 룰북 기본). models.ShiftContext.post_operations 참고.
     post_operations: tuple[tuple[str, int, int, str], ...] | None = None
+    # 5-7 추가 남문 G2 슬롯 (생성 전 사용자 확인값). models.ShiftContext.extra_south_slots 참고.
+    extra_south_slots: tuple[int, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -71,10 +79,12 @@ class HistorySelection:
     previous_patrol_exclusion_ids: tuple[str, ...] | None = None
     forbid_install_ids: tuple[str, ...] | None = None
     # Per-record weights for actual_records (same order), e.g. 0.3/0.3/0.2/0.2
-    # for the last two cycles (6:4). None = every night counts equally.
+    # for the last two cycles (5:5 since 2026-10-13). None = every night counts equally.
     actual_weights: tuple[float, ...] | None = None
     # Up to six recent actual nights (3 cycles) for barrier/patrol-zone balance.
     duty_records: tuple[ShiftRecord, ...] = ()
+    patrol_events: tuple = ()
+    last_rest_records: tuple = ()
 
 
 @dataclass(frozen=True)
@@ -82,6 +92,7 @@ class SolveOptions:
     rules_version: str = "2.13"
     seconds: int = 30
     prioritize_history_within_daily_targets: bool = False
+    manager_a_end_slot: int = 14
     # One legacy flat schedule or multiple schedules. Display numbers are not
     # part of an exclusion: employee_id + slot + complete assignment state is.
     exclude_assignments: tuple[dict, ...] | tuple[tuple[dict, ...], ...] | None = None
@@ -93,6 +104,10 @@ class SolveOptions:
     forced_rest_cells: tuple[tuple[str, int], ...] = ()
     # 룰북 0-2-1: FM이면 'FM·유도리 모두 만족' 해를 먼저 찾고, 없으면 FM만 만족하는 해.
     prefer_dual_mode: bool = True
+    # H-17 일시 해제 (2명 완전결원 + 해 없음일 때만 run_schedule이 켠다)
+    relax_post_cap: bool = False
+    # H-09-1 미리 정한 반차자 (None = 계획 생성이면 반차자 전원, 긴급 재편성은 원래 표의 반차자만)
+    half_day_ids: tuple[str, ...] | None = None
 
 
 @dataclass(frozen=True)
@@ -122,6 +137,7 @@ class RunWindow:
     display_labels: tuple[str, ...]
     actual_labels: tuple[str, ...]
     postures: tuple[Posture | None, ...]
+    detail_labels: tuple[str, ...] = ()
 
     @property
     def hours(self) -> int:
@@ -152,6 +168,15 @@ class EmployeeStats:
     longest_rest: tuple[RunWindow, ...]
     available_time: int
     workload_rate: float
+    # 화면 자세 통계: 순찰·차단봉을 제외한 순수 포스트 실근무만 집계.
+    # standing/seated는 기존 이력 엔진 입력 의미를 유지한다.
+    post_standing: int = 0
+    post_seated: int = 0
+    # 입식(칸당 2)·좌식(칸당 1)·순찰 점수로 설명되지 않는 나머지 피로도 (2026-10-05 사용자 요청):
+    # 대기 차단봉 1점, 표시와 실제가 다른 특수 칸, 현장 피로도 주석 등
+    other_fatigue: float = 0
+    other_fatigue_reasons: tuple[str, ...] = ()
+    patrol_reasons: tuple[str, ...] = ()      # 하층 순찰이 있으면 ('하층',) — 순찰 피로도 칸 괄호 표시용
 
 
 @dataclass(frozen=True)
@@ -171,8 +196,12 @@ class PreparedEngineInputs:
     # 3-cycle duty rates ×100 per night: {"barrier"|"upper"|"middle"|"lower": {id: rate}}
     duty_rates: Mapping[str, Mapping[str, int]] | None = None
     # 17-1 선호 (2026-10-02): 공통 선호 보너스 가중치 {id: weight}, 개인 회피 칸 ((id, slot, label), ...)
+    history_fatigue_averages: Mapping[str, float] | None = None
     preference_weights: Mapping[str, int] | None = None
     avoid_cells: tuple[tuple[str, int, str], ...] = ()
+    patrol_actuals: tuple = ()
+    patrol_events: tuple = ()
+    last_rest_records: tuple = ()
 
 
 DUTY_METRICS = ("barrier", "upper", "middle", "lower")
@@ -184,6 +213,7 @@ def duty_rates_from(records, general_ids) -> dict | None:
         return None
     counts = {m: {p: 0 for p in general_ids} for m in DUTY_METRICS}
     nights = {p: 0 for p in general_ids}
+    barrier_nights = {p: 0 for p in general_ids}
     for record in records:
         present = {a.employee_id for a in record.context.attendance if a.present}
         for p in general_ids:
@@ -191,15 +221,18 @@ def duty_rates_from(records, general_ids) -> dict | None:
                 continue
             nights[p] += 1
             rows = [r for r in record.assignments if r.employee_id == p]
-            counts["barrier"][p] += sum(r.barrier_install_flag or r.barrier_remove_flag for r in rows)
+            if barrier_history_counts(record.context):
+                barrier_nights[p] += 1
+                counts["barrier"][p] += sum(r.barrier_install_flag or r.barrier_remove_flag for r in rows)
             for r in rows:
                 if r.actual_post_or_work_type.kind == AssignmentKind.PATROL and r.actual_post_or_work_type.label in counts:
                     counts[r.actual_post_or_work_type.label][p] += 1
     rates = {}
     for m in DUTY_METRICS:
-        seen = [counts[m][p] / nights[p] for p in general_ids if nights[p]]
+        metric_nights = barrier_nights if m == "barrier" else nights
+        seen = [counts[m][p] / metric_nights[p] for p in general_ids if metric_nights[p]]
         team = sum(seen) / len(seen) if seen else 0
-        rates[m] = {p: round(100 * (counts[m][p] / nights[p] if nights[p] else team)) for p in general_ids}
+        rates[m] = {p: round(100 * (counts[m][p] / metric_nights[p] if metric_nights[p] else team)) for p in general_ids}
     return rates
 
 
@@ -218,6 +251,8 @@ class ServiceResult:
     # dual_mode=True일 때: 두 기준 모두 17장 당일 목표(피로도 1점·실휴게 1시간 이하)까지 만족했는지와 실제 차이
     dual_balanced: bool | None = None
     dual_spreads: Mapping[str, Mapping[str, int]] | None = None
+    # H-17(같은 포스트 최대 3번)을 2명 완전결원 예외로 이 회차만 해제했는지
+    post_cap_relaxed: bool = False
 
     @property
     def record(self) -> ShiftRecord | None:
@@ -237,7 +272,9 @@ def build_context(request: ShiftRequest) -> ShiftContext:
     mode = Mode(request.requested_mode)
     return ShiftContext(request.shift_start_date, NightType(request.night_type), mode,
                         mode, employees, attendance, day_instructions=request.day_instructions,
-                        post_operations=request.post_operations)
+                        post_operations=(request.post_operations if request.post_operations is not None
+                                         else GENERATION_POST_OPERATIONS),
+                        extra_south_slots=tuple(sorted(request.extra_south_slots)))
 
 
 def consecutive_runs(rows, *, rule=False, rest=False):
@@ -264,7 +301,11 @@ def _window(rows) -> RunWindow:
     return RunWindow(rows[0].slot.index, rows[-1].slot.index + 1,
                      tuple(r.displayed_assignment.label for r in rows),
                      tuple(r.actual_post_or_work_type.label for r in rows),
-                     tuple(r.posture_or_mode for r in rows))
+                     tuple(r.posture_or_mode for r in rows),
+                     tuple(("차단봉 설치" if r.barrier_install_flag else "차단봉 철수") + f"(피로도 {r.fatigue_value:g})"
+                           if r.barrier_install_flag or r.barrier_remove_flag else
+                           f"순찰(피로도 {r.fatigue_value:g})" if r.actual_post_or_work_type.kind == AssignmentKind.PATROL else ""
+                           for r in rows))
 
 
 def _longest(rows, *, rule=False, rest=False):
@@ -279,11 +320,38 @@ def calculate_employee_stats(record: ShiftRecord, employee_id: str) -> EmployeeS
     rows = tuple(r for r in record.assignments if r.employee_id == employee_id)
     if len(rows) != 14:
         raise ValueError(f"Expected 14 assignments for {employee_id}")
+    # 포스트 근무 칸 (G2·I1 근무자가 겸임한 차단봉 칸도 포스트로 셈, 2026-10-05 15-0). 대기 차단봉은 별도(BARRIER_ONLY).
+    pure_posts = tuple(r for r in rows if r.actual_work_time_value == 1
+                       and r.actual_post_or_work_type.kind == AssignmentKind.POST)
+    other_reasons = []                       # 기타 피로도 사유 (입식×2·좌식×1·순찰 점수로 설명 안 되는 칸)
+    patrol_reasons = []                      # 순찰 피로도 내역 (시간·구역·점수)
+    for r in rows:
+        hour = f"{(18 + r.slot.index) % 24:02d}시"
+        if r.actual_post_or_work_type.kind == AssignmentKind.PATROL:
+            # 순찰 점수는 '순찰 피로도' 칸에 시간·구역과 함께 (기타에 넣지 않음, 사용자 요청)
+            if r.actual_post_or_work_type.label == "lower":   # 사용자 요청: 하층만 '(하층)'으로 표시
+                patrol_reasons.append("하층")
+            continue
+        expected = (2 if r.posture_or_mode == Posture.STANDING else 1 if r.posture_or_mode == Posture.SEATED else 0) \
+            if r in pure_posts else 0
+        diff = r.fatigue_value - expected
+        if not diff:
+            continue
+        shown, actual = r.displayed_assignment.label, r.actual_post_or_work_type.label
+        if r.actual_post_or_work_type.kind == AssignmentKind.BARRIER_ONLY:
+            why = f"{hour} 대기 차단봉{'설치' if r.barrier_install_flag else '철수'}"
+        elif r in pure_posts and r.posture_or_mode not in (Posture.STANDING, Posture.SEATED):
+            why = f"{hour} {shown}(유도리 04시 철수 칸)"
+        elif r in pure_posts:
+            why = f"{hour} {shown} 현장 피로도 주석"
+        else:
+            why = f"{hour} {shown}{'→' + actual if actual != shown else ''} 현장 피로도 주석"
+        other_reasons.append(f"{why} {diff:+g}")
     counts = Counter(r.displayed_assignment.label for r in rows)
     posture_by_post = {
         label: {
-            "standing": sum(r.displayed_assignment.label == label and r.posture_or_mode == Posture.STANDING for r in rows),
-            "seated": sum(r.displayed_assignment.label == label and r.posture_or_mode == Posture.SEATED for r in rows),
+            "standing": sum(r.displayed_assignment.label == label and r.posture_or_mode == Posture.STANDING for r in pure_posts),
+            "seated": sum(r.displayed_assignment.label == label and r.posture_or_mode == Posture.SEATED for r in pure_posts),
         } for label in POST_LABELS
     }
     max_work, work_windows = _longest(rows)
@@ -307,6 +375,14 @@ def calculate_employee_stats(record: ShiftRecord, employee_id: str) -> EmployeeS
         longest_actual_work=work_windows, longest_rule_work=rule_windows, longest_rest=rest_windows,
         available_time=available_time,
         workload_rate=(actual_work / available_time if available_time else 0),
+        post_standing=sum(r.posture_or_mode == Posture.STANDING for r in pure_posts),
+        post_seated=sum(r.posture_or_mode == Posture.SEATED for r in pure_posts),
+        other_fatigue=(sum(r.fatigue_value for r in rows)
+                       - 2 * sum(r.posture_or_mode == Posture.STANDING for r in pure_posts)
+                       - sum(r.posture_or_mode == Posture.SEATED for r in pure_posts)
+                       - sum(r.fatigue_value for r in patrol_rows)),   # 순찰 점수는 '순찰 피로도' 칸
+        other_fatigue_reasons=tuple(other_reasons),
+        patrol_reasons=tuple(patrol_reasons),
     )
 
 
@@ -340,6 +416,23 @@ def prepare_engine_inputs(context: ShiftContext, selection: HistorySelection) ->
                 totals[key][p] += values[p]
         for p in general_ids:
             nights[p] += selection.assumed_nights[p]
+    # 반차·이탈자는 당일 온전 출근 일반근무자 평균으로 피로도 이력만 대입한다.
+    # 실제 저장본·그 외 업무 지표는 변경하지 않는다.
+    def history_fatigue(actual_stats, pid):
+        person = actual_stats[pid]
+        full = [p.fatigue_value for p in actual_stats.values()
+                if not p.is_manager and p.available_time == 14]
+        return sum(full) / len(full) if person.available_time < 14 and full else person.fatigue_value
+
+    fatigue_weighted = {p: 0.0 for p in general_ids}
+    fatigue_weights = {p: 0.0 for p in general_ids}
+    for actual, weight in zip(actuals, selection.actual_weights or (1.0,) * len(actuals)):
+        actual_stats = calculate_all_stats(actual)
+        for pid in general_ids:
+            if pid in actual_stats:
+                fatigue_weighted[pid] += weight * history_fatigue(actual_stats, pid)
+                fatigue_weights[pid] += weight
+    averages = {p: fatigue_weighted[p] / fatigue_weights[p] for p in general_ids if fatigue_weights[p]}
     weights = selection.actual_weights
     if weights is not None and len(weights) != len(actuals):
         raise ValueError("History weights must match the selected actual records")
@@ -352,7 +445,7 @@ def prepare_engine_inputs(context: ShiftContext, selection: HistorySelection) ->
                 stats = actual_stats[p]
                 nights[p] += 1
                 for key in included_keys:
-                    totals[key][p] += getattr(stats, key)
+                    totals[key][p] += (history_fatigue(actual_stats, p) if key == "fatigue_value" else getattr(stats, key))
     else:
         # Weighted per-night average over the nights each person attended,
         # re-expressed as a total over those nights for the engine's
@@ -367,23 +460,40 @@ def prepare_engine_inputs(context: ShiftContext, selection: HistorySelection) ->
                 nights[p] += 1
                 weight_sum[p] += weight
                 for key in included_keys:
-                    weighted[key][p] += weight * getattr(actual_stats[p], key)
+                    weighted[key][p] += weight * (history_fatigue(actual_stats, p) if key == "fatigue_value" else getattr(actual_stats[p], key))
         for key in included_keys:
             for p in general_ids:
                 if weight_sum[p] > 0:
                     totals[key][p] += round(weighted[key][p] / weight_sum[p] * nights[p])
     last = max(actuals, key=lambda r: r.context.shift_start_date) if actuals else None
     last_rows = last.assignments if last else ()
-    derived_install = tuple(dict.fromkeys(r.employee_id for r in last_rows if r.barrier_install_flag))
-    derived_remove = tuple(dict.fromkeys(r.employee_id for r in last_rows if r.barrier_remove_flag))
-    derived_last_rest = tuple(dict.fromkeys(r.employee_id for r in last_rows if r.slot.index == 13 and r.employee_id in general_ids and r.actual_rest_time_value == 1))
+    barrier_last_rows = last_rows if last and barrier_history_counts(last.context) else ()
+    derived_install = tuple(dict.fromkeys(r.employee_id for r in barrier_last_rows if r.barrier_install_flag))
+    # 15-3: 연속 회차 설치 금지 대상. v2 기록(2026-10-05~)은 대기 설치자만 (포스트로 설치한 G2·I1은 제외)
+    derived_forbid = tuple(dict.fromkeys(r.employee_id for r in barrier_last_rows if r.barrier_install_flag and (
+        not barrier_v2(last.context) or r.displayed_assignment.label == "보안실 대기")))
+    derived_remove = tuple(dict.fromkeys(r.employee_id for r in barrier_last_rows if r.barrier_remove_flag))
+    rest_records = tuple(selection.last_rest_records or selection.duty_records or actuals)
+    derived_last_rest = []
+    for pid in general_ids:
+        attended = sorted((r for r in rest_records if any(a.employee_id==pid and a.present
+            and a.is_general_worker for a in r.context.attendance)),key=lambda r:r.context.shift_start_date)
+        if attended and any(x.employee_id==pid and x.slot.index==13 and x.actual_rest_time_value==1
+                            for x in attended[-1].assignments):
+            derived_last_rest.append(pid)
+    derived_last_rest = tuple(derived_last_rest)
     derived_patrol_excluded = ()
     if last and sum(a.present and a.is_general_worker for a in last.context.attendance) == 6:
         patrolled = {r.employee_id for r in last_rows if r.actual_post_or_work_type.kind == AssignmentKind.PATROL}
         derived_patrol_excluded = tuple(p for p in general_ids if p in {a.employee_id for a in last.context.attendance if a.present and a.is_general_worker} and p not in patrolled)
+    if selection.patrol_events:
+        current_names={e.employee_id:e.name[-2:] for e in context.employees}
+        derived_patrol_excluded=tuple(p for p in general_ids if any(e['excluded'] for e in
+            [e for e in selection.patrol_events if e['name']==current_names[p]][-2:]))
     previous_install = selection.previous_install_ids if selection.previous_install_ids is not None else derived_install
     previous_remove = selection.previous_remove_ids if selection.previous_remove_ids is not None else derived_remove
-    forbid_install = selection.forbid_install_ids if selection.forbid_install_ids is not None else previous_install
+    forbid_install = (selection.forbid_install_ids if selection.forbid_install_ids is not None
+                      else selection.previous_install_ids if selection.previous_install_ids is not None else derived_forbid)
     return PreparedEngineInputs(
         engine_history=HistoryInput((), ()),
         actual_record_count=len(actuals), assumed_history_used=selection.assumed_totals is not None,
@@ -396,8 +506,12 @@ def prepare_engine_inputs(context: ShiftContext, selection: HistorySelection) ->
         previous_install_ids=tuple(previous_install), previous_remove_ids=tuple(previous_remove),
         soft_debt=selection.soft_debt,
         duty_rates=duty_rates_from(selection.duty_records, general_ids),
+        history_fatigue_averages=averages or None,
         preference_weights=preference_weights(selection.duty_records, general_ids),
         avoid_cells=avoid_cells(context),
+        patrol_actuals=tuple(selection.duty_records or actuals),
+        patrol_events=selection.patrol_events,
+        last_rest_records=rest_records,
     )
 
 
@@ -421,7 +535,18 @@ def revalidate(result: "ServiceResult", record: ShiftRecord) -> "ServiceResult":
     """Validate a manually edited record exactly like a generated one."""
     errors = validate_first_trial(
         seat_form_record(record), result.prepared_inputs.engine_history,
+        manager_a_end_slot=(record.context.manager_handover[0] if record.context.manager_handover else 14),
+        locked_cells=tuple((r.employee_id, r.slot.index) for r in record.assignments
+                           if result.rebalance_info is not None and r.slot.index <= result.rebalance_info.locked_through_index),
         forbid_patrol_exclusion_ids=result.prepared_inputs.forbid_patrol_exclusion_ids,
+        patrol_actuals=result.prepared_inputs.patrol_actuals,
+        patrol_events=result.prepared_inputs.patrol_events,
+        last_rest_records=result.prepared_inputs.last_rest_records,
+        post_cap=not result.post_cap_relaxed and result.rules_version == "2.20",
+        half_day_ids=(None if result.rebalance_info is None else tuple(   # H-09-1: 재편성표는 빠진 사람 제외
+            a.employee_id for a in record.context.attendance if a.present and a.is_general_worker
+            and a.employee_id != result.rebalance_info.unavailable_employee_id
+            and not all(a.is_available(t) for t in range(14)))),
         **validator_flags_for(result.rules_version, result.rebalance_info is not None))
     if record.context.manager_handover and not errors:
         k, proxy = record.context.manager_handover
@@ -436,10 +561,11 @@ def revalidate(result: "ServiceResult", record: ShiftRecord) -> "ServiceResult":
 def flexible_view(record: ShiftRecord) -> ShiftRecord:
     """FM 표의 칸 배정은 그대로 두고 유도리로 다시 계산한 표 (룰북 0-2-1 확인용).
 
-    10-1 I1 00~03시 휴게성, 10-4 20시 설치 = 설치 포스트 + 보안실 대기 1명(FM에서 설치한 사람), 10-5 04시 I1 철수.
+    표에 저장된 유도리 운영값을 사용한다(새 생성 I1 22~03시, 종전 None 기록은 00~03시).
+    차단봉은 해당 날짜의 기존 규칙으로 다시 계산한다.
     """
     context = replace(record.context, requested_mode=Mode.FLEXIBLE, effective_mode=Mode.FLEXIBLE,
-                      post_operations=None)
+                      post_operations=record.context.post_operations)
     installer = _installer_post(compile_common_policy(context), context)
     fm_installers = {r.employee_id for r in record.assignments if r.barrier_install_flag and r.slot.index == 2}
     rows = []
@@ -448,17 +574,52 @@ def flexible_view(record: ShiftRecord) -> ShiftRecord:
         if r.displayed_assignment.kind == AssignmentKind.UNAVAILABLE:
             rows.append(replace(r, mode=Mode.FLEXIBLE))
             continue
-        install = slot == 2 and (label == installer or (label == "보안실 대기" and r.employee_id in fm_installers))
+        if barrier_v2(context):                           # 15-0: 차단봉 담당은 모드와 무관 → 그대로
+            install, remove = r.barrier_install_flag, r.barrier_remove_flag
+        else:
+            install = slot == 2 and (label == installer or (label == "보안실 대기" and r.employee_id in fm_installers))
+            remove = slot == 10 and label == "I1"
         rows.append(make_record(context, r.employee_id, slot, label, install=install,
-                                remove=slot == 10 and label == "I1", patrol_standing=True))
+                                remove=remove, patrol_standing=True))
     return replace(record, record_id=record.record_id + "-flexible-view", context=context, assignments=tuple(rows))
+
+
+def _post_cap(config: SolveOptions) -> tuple[bool, bool]:
+    """H-17 적용 여부 (Solver, Validator). LOCK 과거가 이미 3번을 넘었으면 Validator는 그 회차 검사를 끈다
+    (Solver는 미래 추가 배정만 막는다)."""
+    solver_cap = config.rules_version == "2.20" and not config.relax_post_cap
+    counts: dict = {}
+    for r in config.locked_assignments or ():
+        if r.slot.index == 0 and r.employee_id == "A":
+            continue                       # 18시 통제는 평일 L3 표기(세지 않음)·주말 휴게 고정이라 초과 판정에 영향 없음
+        if r.displayed_assignment.kind == AssignmentKind.POST:
+            key = (r.employee_id, r.displayed_assignment.label.partition("(")[0])
+            counts[key] = counts.get(key, 0) + 1
+    return solver_cap, solver_cap and all(n <= 3 for n in counts.values())
+
+
+def _full_absence_two(context: ShiftContext) -> bool:
+    """H-17 예외 대상: 출근 인원이 2명 빠진 회차(반차 등 부분 결원은 아님)."""
+    return sum(not a.present for a in context.attendance) == 2
 
 
 def run_schedule(request: ShiftRequest | ShiftContext, history: HistorySelection | None = None,
                  options: SolveOptions | None = None) -> ServiceResult:
-    """룰북 0-2-1: FM이면 두 기준(하드룰+당일 목표) → 두 기준 하드룰 → FM만 순서로 찾는다."""
+    """H-17: 해가 없고 2명 완전결원 회차일 때만 같은 포스트 최대 3번을 그 회차에 한해 해제해 다시 찾는다."""
     context = request if isinstance(request, ShiftContext) else build_context(request)
     config = options if options is not None else SolveOptions()
+    result = _run_schedule_modes(context, history, config)
+    if (result.record is None and result.solve_result.status == "INFEASIBLE" and config.rules_version == "2.20"
+            and not config.relax_post_cap and _full_absence_two(context)):
+        relaxed = _run_schedule_modes(context, history, replace(config, relax_post_cap=True))
+        if relaxed.record is not None:
+            return replace(relaxed, post_cap_relaxed=True)
+    return result
+
+
+def _run_schedule_modes(context: ShiftContext, history: HistorySelection | None,
+                        config: SolveOptions) -> ServiceResult:
+    """룰북 0-2-1: FM이면 두 기준(하드룰+당일 목표) → 두 기준 하드룰 → FM만 순서로 찾는다."""
     dual_applies = (config.prefer_dual_mode and context.requested_mode == Mode.FM
                     and context.flexible_from_slot is None and context.manager_handover is None
                     and config.diagnostic_relaxation_level == 0 and config.diagnostic_relaxed_families is None
@@ -475,7 +636,14 @@ def run_schedule(request: ShiftRequest | ShiftContext, history: HistorySelection
         flexible = flexible_view(dual.record)
         flexible_errors = validate_first_trial(        # 유도리 판정은 독립 Validator로 (Solver 제약만 믿지 않음)
             flexible, dual.prepared_inputs.engine_history,
+            manager_a_end_slot=config.manager_a_end_slot,
+            locked_cells=tuple((r.employee_id, r.slot.index) for r in config.locked_assignments or ()),
             forbid_patrol_exclusion_ids=dual.prepared_inputs.forbid_patrol_exclusion_ids,
+        patrol_actuals=dual.prepared_inputs.patrol_actuals,
+        patrol_events=dual.prepared_inputs.patrol_events,
+        last_rest_records=dual.prepared_inputs.last_rest_records,
+            post_cap=_post_cap(config)[1], work_spread=False,   # H-18은 실제 운영 모드(FM) 표만 본다
+            half_day_ids=config.half_day_ids,
             **validator_flags_for(config.rules_version, config.locked_assignments is not None))
         if flexible_errors:
             continue
@@ -522,11 +690,16 @@ def _run_schedule_once(context: ShiftContext, history: HistorySelection | None, 
                        else solver_flags)
     solved = solve_first_trial(
         context, prepared.engine_history, seconds=config.seconds,
+        manager_a_end_slot=config.manager_a_end_slot,
+        compensation_averages=prepared.history_fatigue_averages,
         historical_totals=prepared.historical_totals, historical_nights=prepared.historical_nights,
         prioritize_history_within_daily_targets=config.prioritize_history_within_daily_targets,
         forbid_install_ids=prepared.forbid_install_ids,
         forbid_last_rest_ids=prepared.forbid_last_rest_ids,
         forbid_patrol_exclusion_ids=prepared.forbid_patrol_exclusion_ids,
+        patrol_actuals=prepared.patrol_actuals,
+        patrol_events=prepared.patrol_events,
+        last_rest_records=prepared.last_rest_records,
         patrol_rotation_priority_ids=prepared.patrol_rotation_priority_ids,
         soft_debt=prepared.soft_debt,
         duty_rates=prepared.duty_rates,
@@ -540,12 +713,19 @@ def _run_schedule_once(context: ShiftContext, history: HistorySelection | None, 
         forced_rest_cells=config.forced_rest_cells,
         dual_flexible=dual >= 1, dual_balance=dual >= 2,
         preference_weights=prepared.preference_weights, avoid_cells=prepared.avoid_cells,
+        post_cap=_post_cap(config)[0], half_day_ids=config.half_day_ids,
         **solver_flags,
     )
     if solved.record is None:
         return ServiceResult(context, solved, (), {}, prepared, config.rules_version)
     errors = validate_first_trial(solved.record, prepared.engine_history,
+                                  manager_a_end_slot=config.manager_a_end_slot,
+                                  locked_cells=tuple((r.employee_id, r.slot.index) for r in config.locked_assignments or ()),
                                   forbid_patrol_exclusion_ids=prepared.forbid_patrol_exclusion_ids,
+        patrol_actuals=prepared.patrol_actuals,
+        patrol_events=prepared.patrol_events,
+        last_rest_records=prepared.last_rest_records,
+                                  post_cap=_post_cap(config)[1], half_day_ids=config.half_day_ids,
                                   **validator_flags)
     stats = calculate_all_stats(solved.record) if not errors else {}
     return ServiceResult(solved.record.context, solved, tuple(errors), stats, prepared,
@@ -712,7 +892,11 @@ def _reoptimize_core(base: ServiceResult, reoptimization_start_index: int,
         revised_context,
         history,
         replace(config, exclude_assignments=exclude or None, locked_assignments=locked,
-                forced_rest_cells=tuple(forced_rest)),
+                forced_rest_cells=tuple(forced_rest),
+                # H-09-1: 원래 표에서 미리 정한 반차자만 (긴급으로 빠지는 사람은 제외)
+                half_day_ids=tuple(a.employee_id for a in base.context.attendance
+                                   if a.present and a.is_general_worker and a.employee_id != unavailable_employee_id
+                                   and not all(a.is_available(t) for t in range(14)))),
     )
     info = RebalanceInfo(
         source_record_id=base.record.record_id,
@@ -832,6 +1016,11 @@ def run_reoptimization(base: ServiceResult, reoptimization_start_index: int,
                        options: SolveOptions | None = None,
                        reason: str = "긴급 반차", exclude=None) -> ServiceResult:
     """Emergency re-optimization. 통제 A leaving hands the manager role to 준호."""
+    handover = base.record.context.manager_handover if base.record else None
+    target = next((a for a in base.context.attendance if a.employee_id == unavailable_employee_id), None)
+    if handover or (target and target.acts_as_manager and target.display_number is None):
+        end = handover[0] if handover else unavailable_from_index
+        options = replace(options or SolveOptions(rules_version=base.rules_version), manager_a_end_slot=end)
     if base.record is not None and base.record.context.manager_handover:
         k, proxy = base.record.context.manager_handover
         manager = _manager_id(base.context)

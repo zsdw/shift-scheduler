@@ -13,11 +13,49 @@ be moved, whatever the browser sends.
 """
 from dataclasses import replace
 
-from .models import AssignmentKind
+from .models import AssignmentKind, post_operation
 from .presentation import assignment_view, flexible_band
 from .service import ServiceResult, calculate_all_stats
 
 HOUR_LABELS = tuple(f"{(18 + t) % 24:02d}시" for t in range(14))
+# 번호 칸 색: 주간 편성표와 같은 색 (day_shift.NUMBER_COLORS). 3번 빨간 계열·4번 노랑 (2026-10-06 사용자 요청)
+SHEET_COLORS = {1: "70AD47", 2: "00B0F0", 3: "FF7C80", 4: "FFE699", 5: "DEEBF7", 6: "8FAADC"}
+
+
+def sheet_meta(context) -> dict:
+    """야간 편성표 모양(세로 시간 × 가로 포스트, 2026-10-06 사용자 요청) 머리글·번호·CP.
+
+    표 컴포넌트는 같은 칸(사람·시간)을 이 정보로 다시 배치만 한다 (교환·기록·LOCK·반차는 그대로)."""
+    import os
+    from pathlib import Path
+    day = context.shift_start_date
+    names = {e.employee_id: e.name for e in context.employees}
+    tokens, colors, heads = {}, {}, []
+    present = sorted((a for a in context.attendance if a.present),
+                     key=lambda a: (a.display_number is not None, a.display_number or 0))
+    for a in present:
+        token = str(a.display_number) if a.display_number is not None else "A"
+        tokens[a.employee_id] = token
+        colors[a.employee_id] = SHEET_COLORS.get(a.display_number, "FFFFFF")
+        heads.append([a.employee_id, "통제A" if token == "A" and names[a.employee_id] == "통제"
+                      else ("A" if token == "A" else token) + names[a.employee_id]])
+    cp, shuttle = [""] * 14, [""] * 14
+    try:                                            # CP: 엑셀 표준 형태(같은 인원) 우선 (2026-10-11 사용자 확정)
+        from .cp_schedule import for_day, hourly, short
+        store = Path(os.environ.get("NIGHT_SHIFT_HISTORY_DIR") or Path(__file__).resolve().parent.parent / "history")
+        on = for_day(store, day, "night")
+        if on:
+            pattern = hourly(store, day, "night", on)
+            cp, shuttle[13] = pattern["hours"], pattern["shuttle"]
+            heads += [[f"cp{k}", f"CP{k}{short(v)}"] for k, v in sorted(on.items())]   # 명단 칸에 CP 이름도
+    except Exception:
+        pass
+    return {"title": "야간 근무 편성표",
+            "sub": f"{day.year}년 {day.month:02d}월 {day.day:02d}일 {'월화수목금토일'[day.weekday()]}요일 근무조 : A조",
+            "operations": {post: [post_operation(context, post, t) for t in range(14)]
+                           for post in ("G1", "L3", "I1", "G2", "G3")},
+            "tokens": tokens, "colors": colors, "heads": heads, "cp": cp, "shuttle": shuttle,
+            "hours": [f"{24 if t == 6 else (18 + t) % 24:02d}:00" for t in range(14)]}
 
 
 def locked_through(result: ServiceResult) -> int:
@@ -107,7 +145,8 @@ def grid_payload(result: ServiceResult, view: dict[str, str]) -> dict:
         payload_rows.append({"id": person.employee_id, "label": person_label(person),
                              "movable": person_movable(result, person.employee_id),
                              "cells": cells})
-    return {"hours": list(HOUR_LABELS), "rows": payload_rows, "band": flexible_band(result.context)}
+    return {"hours": list(HOUR_LABELS), "rows": payload_rows, "band": flexible_band(result.context),
+            "sheet": sheet_meta(result.context)}
 
 
 def record_grid_payload(record, changed: set | None = None, selected_hours=(),
@@ -154,11 +193,20 @@ def record_grid_payload(record, changed: set | None = None, selected_hours=(),
     return {"hours": list(HOUR_LABELS), "rows": payload_rows,
             "selected_hours": list(selected_hours), "hour_click": hour_click,
             "cell_click": cell_click, "selected_cell": list(selected_cell) if selected_cell else None,
-            "band": flexible_band(record.context)}
+            "band": flexible_band(record.context), "sheet": sheet_meta(record.context)}
 
 
 # ------------------------------------------------------------ real edits (pre-confirm)
 RULE_HINTS = {
+    "8-15": "통제A는 야간 전체 대기 표기를 두 번까지만 받을 수 있습니다",
+    "8-14": "통제A는 04시를 제외한 시간에 I1을 최소 한 번 맡아야 합니다",
+    "12-gap": "통제A를 제외한 출근자 사이의 대기 횟수 차이는 최대 한 번이어야 합니다",
+    "12-required": "결원 2명인 시간을 제외하고 18시부터 05시까지 대기자가 최소 한 명 있어야 합니다",
+    "12-block": "세 시간 연속 쉬는 구간에는 휴게 두 시간을 붙여 표시해야 합니다",
+    "12-protected": "순찰 뒤 두 시간의 쉬는 칸은 휴게로 표시해야 합니다",
+    "12-third": "순찰 뒤 세 번째 쉬는 칸은 대기로 표시해야 합니다",
+    "16-next": "직전 출근 야간에 막타임 휴게를 받아 이번에는 받을 수 없습니다",
+    "5-3-1": "다음날 평일·결원 2명 외에는 남문을 2시간 연속 맡을 수 없습니다",
     "H-02/§5": "필수 포스트 인원이 맞지 않게 됩니다",
     "§5": "남문 인원 구성이 맞지 않게 됩니다",
     "§14": "순찰 배치가 규칙과 맞지 않게 됩니다",

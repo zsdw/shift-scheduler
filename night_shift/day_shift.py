@@ -5,7 +5,7 @@ Time: 08:00~17:00, 10 hourly slots (index 0 = 08시).
 Facts taken from the 2026-07~09 Excel sheets and the 통합 근무표 고정틀 (8~11인):
 - 순찰 (하층부) exists at 08, 09, 10, 11, 14, 15, 16, 17 (not 12, 13).
 - 셔틀 해지/설치 at 08 해지, 11 설치, 13 해지, 16 설치 (17시는 CP 담당이라 제외).
-- 근근휴 사이클 HARD (8~10인 고정틀 그대로), 11인 이상·7인 이하는 §3-2 완화.
+- §28: 고정틀 8~11인은 유지. 그 밖의 근근휴는 HARD이며 불가능할 때만 A 일반 편입을 시도한다.
 - C2는 C1이 매시간 열려 있을 때만 (축소는 C2 전부 → C1 순서).
 - 대기 = 휴게 (표기상 1명), 순찰 부족 시 통제A 1회 → 선임 2회.
 - 선임(준호/태환)은 첫 타임을 휴게·대기·순찰로 시작 (가급적 순찰).
@@ -36,13 +36,15 @@ EDU_SLOTS = frozenset({2, 6})                      # 10시·14시: 그 시간 �
 CONTROL_SLOTS = frozenset({0, 2, 4, 6, 8})         # 통제A 퐁당퐁당 (08·10·12·14·16시)
 LAST_SLOT = 9                                      # 17시
 FIRST_ROW_ORDER = ("G1", "G2", "G3", "L1", "L2", "C1", "C2")   # §6 v0.7: 08시 번호 1..k 순서
-NUMBER_COLORS = {1: "70AD47", 2: "00B0F0", 3: "92D050", 4: "EDEDED", 5: "DEEBF7", 6: "8FAADC",
+NUMBER_COLORS = {1: "70AD47", 2: "00B0F0", 3: "FF7C80", 4: "FFE699", 5: "DEEBF7", 6: "8FAADC",
                  7: "7C7C7C", 8: "FFFF00", 9: "FF0000", 10: "FFFFCC", 11: "CC9900", 12: "006699",
-                 13: "CC00FF"}                     # 엑셀 편성표 조건부 서식과 같은 색
+                 13: "CC00FF"}                     # 엑셀 편성표 색. 3번 빨간 계열(1번과 구분)·4번 노랑(5번과 구분) (2026-10-06 사용자 요청)
 PATROL_SLOTS = frozenset({0, 1, 2, 3, 6, 7, 8, 9})
 CONTROL_PATROL_SLOTS = PATROL_SLOTS - CONTROL_SLOTS - {LAST_SLOT}   # §7 v0.7: 통제A 순찰은 09·11·15시만 (17시 금지)
 SHUTTLE = {0: "해지", 3: "설치", 5: "해지", 8: "설치"}
-STATUSES = ("출근", "연차", "오전반차", "오후반차")
+STATUSES = ("출근", "연차", "오전반차", "오후반차", "교육", "기타")   # 기타 = 그날 근무에서 빠짐 + 비고 (2026-10-04)
+CONTROL_LABEL = "통제"   # 교육 신입이 통제A를 따라 통제 칸(4C)에 함께 있는 시간
+TRAINEE = "교육"   # 교육받는 신입: 편성 인원에서 빼고 마지막 번호, 고른 사람과 같은 칸에 동행 (2026-10-07 사용자 요청)
 SENIOR_NAMES = ("태환", "준호")                   # 선임: 예전 태환, 이후 준호. 둘 다 있으면 태환 (9/1 실제표)
 DEFAULT_ROSTER = ("원종", "도운", "준형", "만년", "용주", "제욱", "광희", "준호", "성욱", "성호")
 ROTATION = {"G1": "G2", "G2": "G3", "G3": "L1", "L1": "L2", "L2": "G1"}
@@ -60,6 +62,8 @@ class DayPerson:
     status: str       # 출근 / 연차 / 오전반차 / 오후반차
     number: int | None = None
     leave_from: int | None = None   # 긴급 반차·이탈: 이 슬롯부터 근무 불가 (§25)
+    join_from: int | None = None    # 통제A가 긴급 재편성부터 일반 인원으로 합류한 시간
+    note: str = ""                  # 상태 '기타'의 비고 (예: 예비군)
 
 
 def slots_of(person: DayPerson) -> tuple[int, ...]:
@@ -67,6 +71,8 @@ def slots_of(person: DayPerson) -> tuple[int, ...]:
     slots = available_slots(person.status)
     if person.leave_from is not None:
         slots = tuple(t for t in slots if t < person.leave_from)
+    if person.join_from is not None:
+        slots = tuple(t for t in slots if t >= person.join_from)
     return slots
 
 
@@ -95,8 +101,92 @@ class DaySchedule:
     emergency: dict | None = None                   # {"pid", "from", "kind", "start"}
     fill: dict = field(default_factory=dict)        # §27 긴급 빈자리 메움: slot -> {post: "A" | "E"}
 
+    control_as_worker_from: int | None = None  # 이 시간 이후 통제A는 번호 있는 일반 근무자
+
+    rule_exempt_names: tuple = ()  # Confirmed newcomers keep their actual assignments, without rule judgment.
+    source_layout: dict = field(default_factory=dict)  # Full imported auxiliary posts and roster, shown on the program table.
+    control_patrol_slots: tuple = ()  # Imported actual records may contain several manager patrols.
+    trainees: dict = field(default_factory=dict)  # 교육 신입 pid -> 동행 대상 pid 또는 "A" (2026-10-07)
+
     def label(self, pid, t):
         return self.grid[pid][t]
+
+
+def control_patrol_at(schedule, t):
+    return t in schedule.control_patrol_slots if schedule.control_patrol_slots else schedule.control_patrol == t
+
+
+def control_active(schedule: DaySchedule, t: int) -> bool:
+    return schedule.control and (schedule.control_as_worker_from is None or t < schedule.control_as_worker_from)
+
+
+def _rotation_cost(model, ids, avail, cell, work, c1_open, c2_open, start=0):
+    """휴게·대기·순찰·교육을 건너뛴 다음 포스트의 순서 이탈 수."""
+    codes = {post: i + 1 for i, post in enumerate(POSTS)}
+    code = {}
+    for pid in ids:
+        for t in avail[pid]:
+            code[pid, t] = model.new_int_var(0, len(POSTS), "post_code")
+            model.add(code[pid, t] == sum(codes[post] * cell(pid, t, post) for post in POSTS))
+    table = []
+    for c1 in (0, 1):
+        for c2 in (0, 1):
+            pairs = [("G1", "G2"), ("G2", "G3"), ("G3", "L1"), ("L1", "L2"),
+                     ("L2", "C1" if c1 else "G1"), ("C1", "C2" if c2 else "G1"), ("C2", "G1")]
+            table.extend((codes[a], codes[b], c1, c2) for a, b in pairs)
+    c1_flags, c2_flags = {}, {}
+    for t in SLOTS:
+        c1_flags[t] = model.new_bool_var('c1_open')
+        c2_flags[t] = model.new_bool_var('c2_open')
+        model.add(c1_flags[t] == c1_open[t])
+        model.add(c2_flags[t] == c2_open[t])
+    violations = []
+    for pid in ids:
+        slots = sorted(avail[pid])
+        for i, t in enumerate(slots):
+            for u in slots[i + 1:]:
+                if u < start:
+                    continue
+                between = [v for v in slots if t < v < u]
+                nxt = model.new_bool_var("next_post")
+                model.add(nxt <= work(pid, t)); model.add(nxt <= work(pid, u))
+                for v in between:
+                    model.add(nxt <= 1 - work(pid, v))
+                model.add(nxt >= work(pid, t) + work(pid, u) - sum(work(pid, v) for v in between) - 1)
+                good = model.new_bool_var("rotation_ok")
+                model.add(good <= nxt)
+                model.add_allowed_assignments([code[pid, t], code[pid, u], c1_flags[u], c2_flags[u]], table).only_enforce_if(good)
+                violations.append(nxt - good)
+    return sum(violations)
+
+
+def _solve_priorities(model, rotation_cost, penalties, seconds, seed, protected=None):
+    """기존 HARD → 순환 → 그 밖의 선호. UNKNOWN을 INFEASIBLE로 바꾸지 않는다."""
+    from ortools.sat.python import cp_model
+    from time import perf_counter
+    objectives = ([protected] if protected is not None else []) + [rotation_cost, sum(penalties)]
+    deadline = perf_counter() + seconds
+    best = None
+    for i, objective in enumerate(objectives):
+        model.minimize(objective)
+        solver = cp_model.CpSolver()
+        # 앞 단계가 일찍 끝나면 남은 시간을 뒤 단계에 넘긴다 (순찰 1회 등 마지막 소프트가 시간 부족으로 덜 다듬어지지 않게)
+        # 앞 단계는 보통 최적해를 빨리 찾고 증명에 시간을 쓰므로 남은 시간의 1/3만, 마지막 단계는 남은 시간 전부
+        left = deadline - perf_counter()
+        last = i == len(objectives) - 1
+        solver.parameters.max_time_in_seconds = max(0.1, left if last else left / 3)
+        solver.parameters.num_search_workers = 8
+        solver.parameters.random_seed = seed
+        status = solver.solve(model)
+        if status not in (cp_model.OPTIMAL, cp_model.FEASIBLE):
+            return best if best is not None else (solver, status)
+        best = (solver, status)
+        model.add(objective <= int(solver.value(objective)))
+        model.clear_hints()                       # 다음 단계는 이번 해에서 출발
+        for index in range(len(model.proto.variables)):
+            var = model.get_int_var_from_proto_index(index)
+            model.add_hint(var, solver.value(var))
+    return best
 
 
 # ---------------------------------------------------------------- solver
@@ -301,26 +391,81 @@ def _template_schedule(day, people, size, control, exclude, seed):
     return schedule, schedule.status
 
 
+def control_row(schedule: DaySchedule) -> list:
+    """통제A의 시간별 자리: 빈자리 메움 포스트 → 통제(08·10·12·14·16시) → 순찰 → 그 밖에는 휴게."""
+    row = []
+    for t in SLOTS:
+        post = next((p for p, who in schedule.fill.get(t, {}).items() if who == "A"), None)
+        row.append(post or (CONTROL_LABEL if control_active(schedule, t) and t in CONTROL_SLOTS
+                            else PATROL if control_patrol_at(schedule, t) else REST))
+    return row
+
+
+def attach_trainees(schedule: DaySchedule | None, trainees: dict | None) -> DaySchedule | None:
+    """교육 신입: 마지막 번호를 주고 고른 사람(번호 근무자 또는 통제A)과 같은 칸에 동행시킨다.
+
+    편성·검증 인원에서는 빠지고(rule_exempt_names), 표에는 동행 칸이 '8.11'처럼 함께 표시된다.
+    """
+    if schedule is None or not trainees:
+        return schedule
+    people, grid = list(schedule.people), {pid: list(row) for pid, row in schedule.grid.items()}
+    exempt = [n for n in schedule.rule_exempt_names if n not in trainees]
+    last = max((p.number or 0 for p in people if p.pid not in trainees), default=0)
+    kept = {}
+    for pid, companion in trainees.items():
+        if companion == "A" and schedule.control:
+            row = control_row(schedule)
+        elif companion in grid and companion not in trainees:
+            row = list(grid[companion])
+        else:                     # 동행 미정: 번호만 받고 빈 줄. 표에서 이름을 근무자에게 끌어 붙인다.
+            companion, row = "", [None] * len(SLOTS)
+        last += 1
+        people = [replace(p, number=last) if p.pid == pid else p for p in people]
+        if not any(p.pid == pid for p in people):
+            people.append(DayPerson(pid, pid, TRAINEE, last))
+        grid[pid] = row
+        exempt.append(pid)
+        kept[pid] = companion
+    return replace(schedule, people=tuple(people), grid=grid, rule_exempt_names=tuple(dict.fromkeys(exempt)),
+                   trainees=kept)
+
+
 def solve_day(day: date, people: list[DayPerson], seconds: int = 20, exclude=(), seed: int = 0,
-              control: bool = True):
+              control: bool = True, trainees: dict | None = None):
+    result, status = _solve_day_with_a(day, people, seconds, exclude, seed, control)
+    return attach_trainees(result, trainees), status
+
+
+def _solve_day_with_a(day, people, seconds, exclude, seed, control):
+    result, status = _solve_day(day, people, seconds, exclude, seed, control)
+    if result is not None or not control or "INFEASIBLE" not in status or any(p.pid == "A" for p in people):
+        return result, status
+    extended = list(people) + [DayPerson("A", "통제A", "출근")]
+    result, status = _solve_day(day, extended, seconds, exclude, seed, control, integrated=True)
+    return result, status if result is not None or "INFEASIBLE" not in status else "INFEASIBLE: 통제A를 포함해도 근근휴와 필수 규칙을 만족하는 해가 없습니다."
+
+
+def _solve_day(day: date, people: list[DayPerson], seconds: int = 20, exclude=(), seed: int = 0,
+               control: bool = True, integrated=False):
     """Return (DaySchedule | None, solver status text).
 
-    v0.5: the strict 근근휴 cycle is HARD whenever head count allows it
-    (``strict_cycle_possible``); otherwise (예: 11인 이상, 7인 이하) the
-    rulebook §3-2 fallback keeps it as a strong soft rule.
+    §28: outside the retained 8–11 fixed templates, the cycle is mandatory.
+    The public wrapper retries with A only after proven INFEASIBLE.
     """
     present = [p for p in people if slots_of(p)]
     avail = {p.pid: set(slots_of(p)) for p in present}
     for t in SLOTS:
         need = len(CORE) + (1 if t in PATROL_SLOTS else 0)
         if sum(t in avail[p.pid] for p in present) < need:
-            return None, (f"{HOURS[t]} 근무 가능 인원이 {sum(t in avail[p.pid] for p in present)}명이라 "
+            return None, (f"INFEASIBLE: {HOURS[t]} 근무 가능 인원이 {sum(t in avail[p.pid] for p in present)}명이라 "
                           f"핵심 포스트 5곳{'과 순찰' if t in PATROL_SLOTS else ''}을 채울 수 없습니다.")
     size = fixed_template_size(present)
-    if size is not None:                                # §23 v0.7: 반차자 없는 8~11인은 고정틀 그대로
+    if size is not None and not integrated:             # §23 v0.7: 반차자 없는 8~11인은 고정틀 그대로
         return _template_schedule(day, people, size, control, exclude, seed)
     from ortools.sat.python import cp_model
-    strict = strict_cycle_possible(present, True)     # 통제A 출근 여부는 일반근무자 편성에 영향 없음 (v0.9)
+    strict = strict_cycle_possible(present, not integrated)
+    if not strict:
+        return None, "INFEASIBLE: 근근휴 사이클을 지킬 수 없는 인원 구성입니다(소프트 완화 없음)."
 
     m = cp_model.CpModel()
     x = {}
@@ -338,7 +483,7 @@ def solve_day(day: date, people: list[DayPerson], seconds: int = 20, exclude=(),
 
     ids = [p.pid for p in present]
     # 통제A 순찰 (§7 v0.5): 순찰이 모자랄 때 통제A가 비번 시간에 1회까지
-    a_patrol = {t: m.new_bool_var(f"a_patrol_{t}") for t in sorted(CONTROL_PATROL_SLOTS)}   # 결근이면 그 칸은 빈칸
+    a_patrol = {} if integrated else {t: m.new_bool_var(f"a_patrol_{t}") for t in sorted(CONTROL_PATROL_SLOTS)}   # 결근이면 그 칸은 빈칸
     if a_patrol:
         m.add(sum(a_patrol.values()) <= 1)
     c1_open, c2_open = {}, {}
@@ -364,6 +509,8 @@ def solve_day(day: date, people: list[DayPerson], seconds: int = 20, exclude=(),
     for pid in ids:
         for t in SLOTS:
             if t in avail[pid] and t + 1 in avail[pid]:
+                for a, b in (("G2", "G3"), ("L1", "L2")):
+                    m.add(x[pid, t, a] + x[pid, t + 1, b] <= 1)  # §28 비포스트를 거쳐 이동
                 for s in POSTS:             # §4 hard: no same post twice in a row
                     m.add(x[pid, t, s] + x[pid, t + 1, s] <= 1)
         m.add(sum(cell(pid, t, s) for t in SLOTS for s in C_POSTS) <= 2)   # §10 hard
@@ -413,12 +560,6 @@ def solve_day(day: date, people: list[DayPerson], seconds: int = 20, exclude=(),
                 m.add(late >= x[pid, t, PATROL] - w[t - 1])
                 m.add(late >= x[pid, t, PATROL] - w[t - 2])
                 penal(8, late)
-            for s, nxt in ROTATION.items():              # §5 soft: G1 → G2 → G3 → L1 → L2
-                if t + 1 in avail[pid]:
-                    follow = m.new_bool_var("")
-                    m.add(follow <= x[pid, t, s])
-                    m.add(follow <= x[pid, t + 1, nxt])
-                    penal(-3, follow)
         person = next(p for p in present if p.pid == pid)
         target = {"오후반차": ({0, 1, 3, 4}, 2), "오전반차": ({5, 6, 8, 9}, 7)}.get(person.status)
         if target and person is not senior:              # §13/§14 정배 (근근휴근근)
@@ -484,12 +625,8 @@ def solve_day(day: date, people: list[DayPerson], seconds: int = 20, exclude=(),
         if same:
             m.add(sum(same) <= len(same) - 12)
 
-    m.minimize(sum(penalties))
-    solver = cp_model.CpSolver()
-    solver.parameters.max_time_in_seconds = seconds
-    solver.parameters.num_search_workers = 8
-    solver.parameters.random_seed = seed
-    status = solver.solve(m)
+    rotation_cost = _rotation_cost(m, ids, avail, cell, work, c1_open, c2_open)
+    solver, status = _solve_priorities(m, rotation_cost, penalties, seconds, seed)
     if status not in (cp_model.OPTIMAL, cp_model.FEASIBLE):
         return None, solver.status_name(status)
     grid = {}
@@ -506,7 +643,7 @@ def solve_day(day: date, people: list[DayPerson], seconds: int = 20, exclude=(),
     numbers = first_row_numbers(grid, people)
     people = [DayPerson(p.pid, p.name, p.status, numbers.get(p.pid)) for p in people]
     schedule = DaySchedule(day, tuple(people), grid, {}, solver.status_name(status), control,
-                           control_patrol=a_slot, strict=strict)
+                           control_patrol=a_slot, strict=strict, control_as_worker_from=0 if integrated else None)
     schedule.shuttle = assign_shuttle(schedule)
     return schedule, solver.status_name(status)
 
@@ -538,13 +675,30 @@ def emergency_candidates(base: DaySchedule, start: int) -> list[DayPerson]:
 
 def reoptimize_day(base: DaySchedule, start: int, pid: str, leave_from: int, kind: str = EMERGENCY_KINDS[1],
                    seconds: int = 20, exclude=(), seed: int = 0):
+    trainees = dict(base.trainees)
+    if trainees:   # 교육 신입은 재편성 인원이 아니다. 재편성 뒤 같은 동행 대상에 다시 붙인다.
+        base = replace(base, people=tuple(p for p in base.people if p.pid not in trainees),
+                       grid={k: v for k, v in base.grid.items() if k not in trainees},
+                       rule_exempt_names=tuple(n for n in base.rule_exempt_names if n not in trainees), trainees={})
+    result, status = _reoptimize_day(base, start, pid, leave_from, kind, seconds, exclude, seed)
+    if result is not None or "INFEASIBLE" not in status or not base.control or any(p.pid == "A" for p in base.people):
+        return attach_trainees(result, trainees), status
+    number = max((p.number or 0 for p in base.people), default=0) + 1
+    augmented = replace(base, people=base.people + (DayPerson("A", "통제A", "출근", number, join_from=start),),
+                        grid={**base.grid, "A": [None] * 10}, control_as_worker_from=start)
+    result, status = _reoptimize_day(augmented, start, pid, leave_from, kind, seconds, exclude, seed)
+    return attach_trainees(result, trainees), status
+
+
+def _reoptimize_day(base: DaySchedule, start: int, pid: str, leave_from: int, kind: str = EMERGENCY_KINDS[1],
+                    seconds: int = 20, exclude=(), seed: int = 0):
     """§25 긴급 반차·이탈 재편성. Return (DaySchedule | None, 상태 문장).
 
     - start 이전 슬롯(08시 ~ start-1)은 기존 배정 그대로 LOCK.
     - pid는 leave_from 슬롯부터 근무 불가.
-    - start 이후: 근근휴 패턴(휴 2칸 연속·근 3칸 연속·휴-근-휴 금지, LOCK 경계 포함)만 HARD,
-      나머지 기존 하드룰은 큰 벌점의 '강력 권장'으로 지향한다.
-    - §27 v1.0: G1~L2는 무조건 채운다. 일반근무자로 안 되면 통제A → 통제E, 그래도 안 되면 INFEASIBLE(해 없음).
+    - 미래 근근휴·핵심 포스트·§28 전환 사이 비포스트는 HARD이며 LOCK 경계도 검사한다.
+    - 일반 인원으로 INFEASIBLE일 때만 A를 미래 일반 인원으로 편입한다.
+      새 미래 단독 A/E 메움은 없으며 A 포함 후에도 불가능하면 해 없음이다.
     """
     if not 1 <= start <= 9:
         return None, "재편성 시작 시간은 09시~17시 중에서 골라야 합니다."
@@ -591,26 +745,13 @@ def reoptimize_day(base: DaySchedule, start: int, pid: str, leave_from: int, kin
     # 통제A 순찰: 한 표에 1회만 표시할 수 있으므로 LOCK 구간에 이미 있으면 새로 두지 않음. 17시 제외.
     a_locked = base.control_patrol if base.control_patrol is not None and base.control_patrol < start else None
     a_patrol = ({t: m.new_bool_var("") for t in sorted(CONTROL_PATROL_SLOTS) if t >= start}
-                if a_locked is None else {})
+                if a_locked is None and base.control_as_worker_from is None else {})
     if a_patrol:
         m.add(sum(a_patrol.values()) <= 1)
-    # §27 v1.0: 일반근무자로 못 채우는 핵심 포스트는 통제A(출근, 통제 근무가 아닌 시간, 순찰 중이 아님) 1명 →
-    # 통제E 1명(통제A를 쓸 수 없을 때만) 순으로 채운다. 그래도 비면 해 없음.
+    # 사용자 2026-10-03: 새 미래 구간은 일반 인원으로 먼저 풀이한다.
+    # 불가능하면 A를 같은 근근휴 인원으로 편입하고, 그 뒤에도 불가능하면 해 없음.
+    # 과거 LOCK된 §27 메움은 결과 구성 시 그대로 보존한다.
     fill_a, fill_e = {}, {}
-    for t in range(start, 10):
-        a_free = base.control and t not in CONTROL_SLOTS
-        for st in CORE:
-            if a_free:
-                fill_a[t, st] = m.new_bool_var("")
-                penal(1_000_000, fill_a[t, st])
-            fill_e[t, st] = m.new_bool_var("")
-            penal(3_000_000, fill_e[t, st])
-        a_busy = sum(fill_a.get((t, st), 0) for st in CORE) + a_patrol.get(t, 0)
-        if a_free:
-            m.add(a_busy <= 1)
-            m.add(sum(fill_e[t, st] for st in CORE) <= a_busy)          # 통제A가 비어 있으면 E를 쓰지 않음
-        else:
-            m.add(sum(fill_e[t, st] for st in CORE) <= 1)
     c1_open, c2_open = {}, {}
     for t in SLOTS:
         c1_open[t] = sum(cell(q, t, "C1") for q in ids)
@@ -622,7 +763,7 @@ def reoptimize_day(base: DaySchedule, start: int, pid: str, leave_from: int, kin
         patrol = sum(cell(q, t, PATROL) for q in ids) + a_patrol.get(t, 0)
         m.add(patrol <= 1)
         for st in CORE:                                  # §27 HARD: 핵심 포스트는 한 타임도 비우지 않음
-            m.add(sum(cell(q, t, st) for q in ids) + fill_a.get((t, st), 0) + fill_e[t, st] == 1)
+            m.add(sum(cell(q, t, st) for q in ids) + fill_a.get((t, st), 0) + fill_e.get((t, st), 0) == 1)
         if t in PATROL_SLOTS:                            # 강력 권장: 순찰 충족
             penal(30000, 1 - patrol)
         else:
@@ -650,6 +791,8 @@ def reoptimize_day(base: DaySchedule, start: int, pid: str, leave_from: int, kin
     for q in ids:
         for t in SLOTS:
             if t + 1 >= start and t in avail[q] and t + 1 in avail[q]:
+                for a, b in (("G2", "G3"), ("L1", "L2")):
+                    m.add(cell(q, t, a) + cell(q, t + 1, b) <= 1)
                 for st in POSTS:                         # 강력 권장: 같은 포스트 연속 금지
                     same = m.new_bool_var("")
                     m.add(same >= cell(q, t, st) + cell(q, t + 1, st) - 1)
@@ -660,17 +803,6 @@ def reoptimize_day(base: DaySchedule, start: int, pid: str, leave_from: int, kin
                 m.add(late >= x[q, t, PATROL] - work(q, t - 1))
                 m.add(late >= x[q, t, PATROL] - work(q, t - 2))
                 penal(8, late)
-            # §25 v0.9 강력 권장: 묶음 순서 G1 → G2 → G3 → L1 → L2 → G1 (휴 1칸 건너서도 이어짐)
-            for gap in (1, 2):
-                u = t + gap
-                if u >= start and t in avail[q] and u in avail[q]:
-                    for st, nxt in ROTATION.items():
-                        follow = m.new_bool_var("")
-                        m.add(follow <= cell(q, t, st))
-                        m.add(follow <= x[q, u, nxt])
-                        if gap == 2:
-                            m.add(follow <= 1 - work(q, t + 1))
-                        penal(-300, follow)
         c_count = sum(cell(q, t, st) for t in SLOTS if t in avail[q] for st in C_POSTS)
         over_c = m.new_int_var(0, 10, "")                # 강력 권장: C1+C2 2회까지
         m.add(over_c >= c_count - 2)
@@ -706,12 +838,8 @@ def reoptimize_day(base: DaySchedule, start: int, pid: str, leave_from: int, kin
         if same:
             m.add(sum(same) <= len(same) - min(6, max(1, len(same) // 4)))
 
-    m.minimize(sum(penalties))
-    solver = cp_model.CpSolver()
-    solver.parameters.max_time_in_seconds = seconds
-    solver.parameters.num_search_workers = 8
-    solver.parameters.random_seed = seed
-    status = solver.solve(m)
+    rotation_cost = _rotation_cost(m, ids, avail, cell, work, c1_open, c2_open, start)
+    solver, status = _solve_priorities(m, rotation_cost, penalties, seconds, seed)
     if status == cp_model.INFEASIBLE:
         return None, "INFEASIBLE"
     if status not in (cp_model.OPTIMAL, cp_model.FEASIBLE):
@@ -739,7 +867,8 @@ def reoptimize_day(base: DaySchedule, start: int, pid: str, leave_from: int, kin
     info["history"] = [{k: v for k, v in e.items() if k != "history"} for e in emergency_events(base)] + [dict(info)]
     schedule = DaySchedule(base.day, people, grid, {}, f"긴급 재편성 ({solver.status_name(status)})", base.control,
                            control_patrol=a_slot, strict=True, fixed_template=None,
-                           locked_through=start - 1, emergency=info, fill=fill)
+                           locked_through=start - 1, emergency=info, fill=fill,
+                           control_as_worker_from=base.control_as_worker_from)
     shuttle = assign_shuttle(schedule)
     schedule.shuttle = {t: (base.shuttle[t] if t < start else shuttle[t])
                         for t in SHUTTLE if (t < start and t in base.shuttle) or (t >= start and t in shuttle)}
@@ -830,22 +959,56 @@ def _validator_cycle_possible(schedule: DaySchedule) -> bool:
 # §25 긴급 재편성: 근근휴 패턴(주간-3)과 표 자체가 성립하는 조건(근무가능시간·중복 배정)만 HARD,
 # 나머지 기존 하드룰은 '강력 권장'으로 따로 보여 준다.
 # §27 v1.0: 핵심 포스트 빈칸 금지(주간-2-1)와 통제A·E 메움 규칙(주간-27)은 긴급 재편성에서도 무조건 HARD.
-EMERGENCY_HARD_RULES = frozenset({"주간-1", "주간-2", "주간-2-1", "주간-3", "주간-27"})
+EMERGENCY_HARD_RULES = frozenset({"주간-1", "주간-2", "주간-2-1", "주간-3", "주간-27", "주간-28", "주간-A-편입"})
 
 
 def validate_day(schedule: DaySchedule) -> list[dict]:
     """HARD 위반 목록 (0건이어야 확정 가능). 긴급 재편성표는 §25 HARD만."""
+    schedule = rule_schedule(schedule)
     issues = _check_day(schedule)
     if schedule.emergency is None:
         return issues
     return [e for e in issues if e["rule"] in EMERGENCY_HARD_RULES]
 
 
+def rule_schedule(schedule):
+    if not schedule.rule_exempt_names:return schedule
+    excluded=set(schedule.rule_exempt_names)
+    return replace(schedule,people=tuple(p for p in schedule.people if p.pid not in excluded),
+                   grid={p:r for p,r in schedule.grid.items() if p not in excluded},rule_exempt_names=())
+
+
+def rotation_advisories(schedule: DaySchedule) -> list[dict]:
+    """완성표에서 독립적으로 순서를 다시 계산한다. 하드 위반과 분리한다."""
+    schedule = rule_schedule(schedule)
+    if schedule.fixed_template is not None:
+        return []
+    out = []
+    start = schedule.emergency["start"] if schedule.emergency else 0
+    names = {p.pid: p.name for p in schedule.people}
+    for pid, row in schedule.grid.items():
+        posts = [(t, label) for t, label in enumerate(row) if label in POSTS]
+        for (t, before), (u, after) in zip(posts, posts[1:]):
+            if u < start:
+                continue
+            if before in ("G1", "G2", "G3", "L1"):
+                expected = {"G1": "G2", "G2": "G3", "G3": "L1", "L1": "L2"}[before]
+            elif before == "L2":
+                expected = "C1" if any(r[u] == "C1" for r in schedule.grid.values()) else "G1"
+            elif before == "C1":
+                expected = "C2" if any(r[u] == "C2" for r in schedule.grid.values()) else "G1"
+            else:
+                expected = "G1"
+            if after != expected:
+                out.append({"rule": "주간-5-권장", "detail": f"{names[pid]} {HOURS[t]} {before} 다음 {HOURS[u]} {after} (권장 {expected})"})
+    return out
+
+
 def emergency_advisories(schedule: DaySchedule) -> list[dict]:
     """긴급 재편성표에서 지키지 못한 '강력 권장' 항목 (기존 하드룰)."""
     if schedule.emergency is None:
-        return []
-    return [e for e in _check_day(schedule) if e["rule"] not in EMERGENCY_HARD_RULES]
+        return rotation_advisories(schedule)
+    return [e for e in _check_day(schedule) if e["rule"] not in EMERGENCY_HARD_RULES] + rotation_advisories(schedule)
 
 
 def _check_day(schedule: DaySchedule) -> list[dict]:
@@ -858,7 +1021,8 @@ def _check_day(schedule: DaySchedule) -> list[dict]:
     full_house = [p for p in schedule.people if any(schedule.grid[p.pid])]
     emergency = schedule.emergency
     template_ok = (len(full_house) in (8, 9, 10, 11) and all(p.status == "출근" for p in full_house)
-                   and emergency is None and all(p.leave_from is None for p in full_house))
+                   and emergency is None and schedule.control_as_worker_from is None
+                   and all(p.leave_from is None for p in full_house))
     if schedule.fixed_template is not None:      # §23 v0.7: 고정틀 — 번호 자리와 칸이 고정틀과 같은지
         if not template_ok or schedule.fixed_template != len(full_house):
             add("주간-23", "반차자 없는 8~11인이 아닌데 고정틀로 표시됨")
@@ -876,10 +1040,18 @@ def _check_day(schedule: DaySchedule) -> list[dict]:
                     if a != b and not (t in outside and a == PATROL and b in (REST, EDU)):
                         add("주간-23", f"{p.name} 줄이 고정틀 {p.number}번 자리와 다름 ({HOURS[t]} {a} ≠ {b})")
                         break
-    cycle_required = (schedule.fixed_template is None and emergency is None
-                      and _validator_cycle_possible(schedule))
+    integrated = schedule.control_as_worker_from
+    if integrated is not None:
+        a = people.get("A")
+        if a is None or not schedule.control or a.status != "출근" or not 0 <= integrated <= 9:
+            add("주간-A-편입", "통제A 편입 정보와 실제 출근자가 일치하지 않음")
+        elif set(slots_of(a)) != set(range(integrated, a.leave_from if a.leave_from is not None else 10)):
+            add("주간-A-편입", "통제A 일반 근무 가용시간이 편입 시각과 다름")
+        if schedule.control_patrol is not None and schedule.control_patrol >= integrated:
+            add("주간-A-편입", "편입 이후 통제A를 별도 순찰자로 중복 배정함")
+    cycle_required = schedule.fixed_template is None and emergency is None
     if cycle_required and not schedule.strict:
-        add("주간-3", "근근휴 사이클을 지킬 수 있는 인원인데 완화 편성으로 표시됨")
+        add("주간-3", "고정틀 예외 밖에서는 근근휴 완화 편성을 허용하지 않음")
     if template_ok and schedule.fixed_template is None:
         add("주간-23", f"반차자 없는 {len(full_house)}인인데 고정틀을 쓰지 않음")
     by_number = sorted(full_house, key=lambda p: (p.number is None, p.number or 0))
@@ -900,6 +1072,9 @@ def _check_day(schedule: DaySchedule) -> list[dict]:
             if label is not None and label not in STATES + (EDU,):
                 add("주간-2", f"{people[pid].name} {HOURS[t]} 알 수 없는 배정 {label}")
         for t in range(9):
+            if schedule.fixed_template is None and (emergency is None or t + 1 >= emergency["start"]):
+                if (row[t], row[t + 1]) in (("G2", "G3"), ("L1", "L2")):
+                    add("주간-28", f"{people[pid].name} {HOURS[t]} {row[t]}→{HOURS[t + 1]} {row[t+1]} 사이 비포스트 없음")
             if row[t] in POSTS and row[t] == row[t + 1]:
                 add("주간-4", f"{people[pid].name} {HOURS[t]}~{HOURS[t + 1]} {row[t]} 연속")
         if sum(label in C_POSTS for label in row) > 2:
@@ -920,7 +1095,9 @@ def _check_day(schedule: DaySchedule) -> list[dict]:
                     elif trio == "OWO":
                         add("주간-3", f"{people[pid].name} {HOURS[t + 1]} 휴-근-휴 (외톨이 근무)")
     c1_hours = sum("C1" in [row[t] for row in schedule.grid.values()] for t in range(10))
-    for t, posts in schedule.fill.items():       # §27: 통제A·통제E 메움은 긴급 재편성의 핵심 포스트에만
+    for t, posts in schedule.fill.items():       # §27:
+        if emergency is not None and t >= emergency['start']:
+            add('주간-27', f'{HOURS[t]} 새 미래 구간은 통제A 일반 편입 또는 해 없음으로 처리하며 단독 A/E 메움을 허용하지 않음')
         if emergency is None:
             add("주간-27", f"{HOURS[t]} 긴급 재편성이 아닌데 통제A·E가 포스트를 맡음")
         whos = list(posts.values())
@@ -929,7 +1106,7 @@ def _check_day(schedule: DaySchedule) -> list[dict]:
                 add("주간-27", f"{HOURS[t]} {post} '{who}' 메움은 G1~L2에 A·E만 가능")
         if whos.count("A") > 1 or whos.count("E") > 1:
             add("주간-27", f"{HOURS[t]} 통제A·E는 한 시간에 각 1자리만 맡을 수 있음")
-        a_free = schedule.control and t not in CONTROL_SLOTS and schedule.control_patrol != t
+        a_free = control_active(schedule, t) and t not in CONTROL_SLOTS and not control_patrol_at(schedule, t)
         if "A" in whos and not a_free:
             add("주간-27", f"{HOURS[t]} 통제A가 결근·통제 근무·순찰 중인데 포스트를 맡음")
         if "E" in whos and a_free and "A" not in whos:
@@ -946,7 +1123,7 @@ def _check_day(schedule: DaySchedule) -> list[dict]:
         if column.count("C1") > 1 or column.count("C2") > 1:
             add("주간-2", f"{HOURS[t]} C1 {column.count('C1')}명 / C2 {column.count('C2')}명")
         expected = 1 if t in PATROL_SLOTS else 0
-        by_a = 1 if schedule.control_patrol == t else 0
+        by_a = 1 if control_patrol_at(schedule, t) else 0
         if column.count(PATROL) + by_a > 1:
             add("주간-2", f"{HOURS[t]} 순찰 {column.count(PATROL) + by_a}명 (중복 배정)")
         elif column.count(PATROL) + by_a != expected:
@@ -1019,6 +1196,7 @@ def fill_warnings(schedule: DaySchedule) -> list[str]:
 
 def day_findings(schedule: DaySchedule) -> list[str]:
     """Soft-rule notes (특이사항) in plain Korean."""
+    schedule = rule_schedule(schedule)
     notes = []
     people = {p.pid: p for p in schedule.people}
     if schedule.emergency:
@@ -1027,12 +1205,15 @@ def day_findings(schedule: DaySchedule) -> list[str]:
         for e in emergency_events(schedule):
             who = people[e["pid"]]
             notes.append(f"{who.number}번 {who.name} {e['kind']} → {HOURS[e['from']]}부터 근무 불가.")
-        notes.append("긴급 재편성표에서 꼭 지킨 규칙은 근근휴 패턴과 G1~L2 채우기이고, "
+        notes.append("긴급 재편성표에서 꼭 지킨 규칙은 근근휴·G1~L2 채우기·G2→G3/L1→L2 사이 비포스트이고, "
                      "나머지 규칙은 가능한 한 지켰습니다(§25·§27).")
         notes.extend(fill_warnings(schedule))
         for e in emergency_advisories(schedule):
             notes.append(f"가능하면 지킬 규칙을 못 지킴: {e['detail']}.")
     absent = [p.name for p in schedule.people if p.status == "연차"]
+    other = [f"{p.name}({p.note})" if p.note else p.name for p in schedule.people if p.status == "기타"]
+    if other:
+        notes.append("기타(근무 제외): " + ", ".join(other) + ".")
     half = [f"{p.name}({p.status})" for p in schedule.people if p.status in ("오전반차", "오후반차")]
     if absent:
         notes.append("연차: " + ", ".join(absent) + ".")
@@ -1058,7 +1239,7 @@ def day_findings(schedule: DaySchedule) -> list[str]:
     if schedule.fixed_template:
         notes.append(f"반차자 없는 {schedule.fixed_template}인: 통합 근무표 고정틀을 그대로 사용했습니다(§23).")
         for t, who in sorted(TEMPLATE_OUTSIDE_PATROL.get(schedule.fixed_template, {}).items()):
-            if schedule.control_patrol == t:
+            if control_patrol_at(schedule, t):
                 continue
             taker = next((people[pid] for pid, row in schedule.grid.items() if row[t] == PATROL), None)
             if taker:
@@ -1067,7 +1248,9 @@ def day_findings(schedule: DaySchedule) -> list[str]:
     elif not schedule.strict:
         notes.append("인원상 모든 사람이 근근휴 사이클을 지킬 수 없어(포스트 5~7곳에 맞지 않음) "
                      "일부는 휴게가 이어지거나 근무가 3시간 이어질 수 있습니다(§3-2).")
-    if schedule.control_patrol is not None:
+    if schedule.control_patrol_slots:
+        notes.append("가져온 실제 기록의 통제A 순찰: " + ", ".join(HOURS[t] for t in schedule.control_patrol_slots))
+    elif schedule.control_patrol is not None:
         notes.append(f"순찰 인원이 모자라 통제A가 {HOURS[schedule.control_patrol]} 순찰 1회를 맡았습니다(§7)."
                      if schedule.control else
                      f"통제A 결근: {HOURS[schedule.control_patrol]} 순찰(통제A 자리)은 빈칸으로 둡니다.")
@@ -1083,36 +1266,166 @@ def day_findings(schedule: DaySchedule) -> list[str]:
     c_hours = sum(1 for t in range(10) if "C1" in [row[t] for row in schedule.grid.values()])
     c2_hours = sum(1 for t in range(10) if "C2" in [row[t] for row in schedule.grid.values()])
     notes.append(f"C1 {c_hours}시간, C2 {c2_hours}시간 운영 (인원에 맞춰 자동 결정).")
+    if schedule.control_as_worker_from is not None:
+        notes.append(f"통제A를 {HOURS[schedule.control_as_worker_from]}부터 일반 인원으로 편입했습니다. 이후 퐁당퐁당 통제 근무 없이 같은 근근휴·포스트 순환 규칙을 적용합니다.")
+    if schedule.fixed_template is None:
+        deviations = rotation_advisories(schedule)
+        notes.append(f"강한 포스트 순환 권장: 이탈 {len(deviations)}건 (하드룰 다음에 우선).")
+        if not schedule.emergency:
+            notes.extend(e["detail"] for e in deviations)
     return notes
+
+
+# ---------------------------------------------------------------- 근무 교환 (2026-10-04, 표에서 끌기·누르기)
+COLUMN_LABELS = {**{p: p for p in POSTS}, PATROL: PATROL, STANDBY: STANDBY, REST: REST, EDU: EDU}
+
+
+def edit_day(schedule: DaySchedule, event: dict) -> DaySchedule:
+    """표 조작 하나를 적용한 새 근무표. 같은 시간끼리만 바꾼다. LOCK·근무불가 칸은 ValueError.
+
+    swap: {"a": [pid, t], "b": [pid, t]} — 두 사람의 그 시간 근무를 맞바꿈
+    move: {"a": [pid, t], "col": 칸, "t": t} — 그 시간 그 칸(포스트·순찰·대기·휴게·교육)으로 옮김.
+          그 포스트·순찰을 이미 다른 사람이 서고 있으면 그 사람과 맞바꿈
+    rowswap: {"a": pid, "b": pid} — 두 사람의 하루 근무 전체를 맞바꿈 (근무 가능 시간이 같을 때만)
+    """
+    grid = {pid: list(row) for pid, row in schedule.grid.items()}
+    shuttle = dict(schedule.shuttle)
+    lock = schedule.locked_through if schedule.locked_through is not None else -1
+    names = {p.pid: p.name for p in schedule.people}
+
+    def check(pid, t):
+        if pid not in grid:
+            raise ValueError("표에 없는 사람입니다.")
+        if t <= lock:
+            raise ValueError(f"{HOURS[t]}은 LOCK된 시간이라 바꿀 수 없습니다.")
+        if grid[pid][t] is None:
+            raise ValueError(f"{names.get(pid, pid)}은(는) {HOURS[t]}에 근무 불가(반차·연차·이탈)라 바꿀 수 없습니다.")
+
+    kind = event.get("kind")
+    # 교육·신입 동행자를 다른 근무자에게 끌어 놓으면 맞바꾸지 않고 그 사람과 같은 칸에 함께 넣는다 (2026-10-07).
+    followers = set(schedule.trainees) | set(schedule.rule_exempt_names)
+    if kind == "rowswap" and (str(event["a"]) in followers) != (str(event["b"]) in followers):
+        p1, p2 = str(event["a"]), str(event["b"])
+        trainee, companion = (p1, p2) if p1 in followers else (p2, p1)
+        if companion not in grid:
+            raise ValueError("표에 없는 사람입니다.")
+        for t in range(lock + 1, 10):
+            grid[trainee][t] = grid[companion][t]
+        trainees = {**schedule.trainees, trainee: companion}
+        return replace(schedule, grid=grid, trainees=trainees)
+    if kind == "swap" and (str(event["a"][0]) in followers) != (str(event["b"][0]) in followers):
+        (p1, t1), (p2, t2) = [(str(c[0]), int(c[1])) for c in (event["a"], event["b"])]
+        if t1 != t2:
+            raise ValueError("같은 시간 안에서만 동행 대상을 바꿀 수 있습니다.")
+        trainee, companion = (p1, p2) if p1 in followers else (p2, p1)
+        if t1 <= lock:
+            raise ValueError(f"{HOURS[t1]}은 LOCK된 시간이라 바꿀 수 없습니다.")
+        if grid[companion][t1] is None:
+            raise ValueError(f"{names.get(companion, companion)}은(는) {HOURS[t1]}에 근무하지 않습니다.")
+        grid[trainee][t1] = grid[companion][t1]
+        return replace(schedule, grid=grid)
+    if kind == "move" and str(event["a"][0]) in followers:
+        pid, t = str(event["a"][0]), int(event["a"][1])
+        label = COLUMN_LABELS.get(event.get("col"))
+        if label is None or int(event.get("t", t)) != t or t <= lock:
+            raise ValueError("같은 시간의 다른 칸으로만 옮길 수 있습니다.")
+        grid[pid][t] = label                             # 그 칸 근무자와 함께 (맞바꾸지 않음)
+        return replace(schedule, grid=grid)
+    if kind == "swap":
+        (p1, t1), (p2, t2) = [(str(c[0]), int(c[1])) for c in (event["a"], event["b"])]
+        if t1 != t2:
+            raise ValueError("같은 시간 안에서만 근무를 맞바꿀 수 있습니다.")
+        check(p1, t1)
+        check(p2, t2)
+        grid[p1][t1], grid[p2][t2] = grid[p2][t2], grid[p1][t1]
+    elif kind == "move":
+        pid, t = str(event["a"][0]), int(event["a"][1])
+        if int(event.get("t", t)) != t:
+            raise ValueError("같은 시간 안에서만 옮길 수 있습니다.")
+        label = COLUMN_LABELS.get(event.get("col"))
+        if label is None:
+            raise ValueError("옮길 수 없는 칸입니다.")
+        check(pid, t)
+        if label == EDU and t not in EDU_SLOTS:
+            raise ValueError("교육은 10시·14시에만 있습니다.")
+        holder = next((q for q, row in grid.items() if q != pid and row[t] == label and label in POSTS + (PATROL,)), None)
+        if holder is not None:                           # 그 자리를 서던 사람과 맞바꿈
+            grid[holder][t] = grid[pid][t]
+        grid[pid][t] = label
+    elif kind == "rowswap":
+        p1, p2 = str(event["a"]), str(event["b"])
+        if p1 not in grid or p2 not in grid or p1 == p2:
+            raise ValueError("바꿀 두 사람을 고르세요.")
+        if [x is None for x in grid[p1]] != [x is None for x in grid[p2]]:
+            raise ValueError("근무 가능 시간(반차·이탈)이 다른 사람끼리는 하루 전체를 바꿀 수 없습니다.")
+        for t in range(lock + 1, 10):
+            grid[p1][t], grid[p2][t] = grid[p2][t], grid[p1][t]
+        for t, who in list(shuttle.items()):
+            if t > lock and who in (p1, p2):
+                shuttle[t] = p2 if who == p1 else p1
+        if lock < 0:   # LOCK 없음: 두 사람이 번호만 서로 바꾼다 (표의 번호 칸·고정틀 순서는 그대로)
+            numbers = {p.pid: p.number for p in schedule.people}
+            people = tuple(replace(p, number=numbers[p2] if p.pid == p1 else numbers[p1] if p.pid == p2 else p.number)
+                           for p in schedule.people)
+            for trainee, companion in schedule.trainees.items():   # 동행자는 같은 사람을 계속 따른다
+                if companion in grid:
+                    grid[trainee] = list(grid[companion])
+            return replace(schedule, people=people, grid=grid, shuttle=shuttle)
+    else:
+        raise ValueError("알 수 없는 조작입니다.")
+    return replace(schedule, grid=grid, shuttle=shuttle)
+
+
+def changed_cells(before: dict, after: dict) -> int:
+    return sum(a != b for pid in after for a, b in zip(before.get(pid, []), after[pid]))
 
 
 # ---------------------------------------------------------------- storage
 def to_json(schedule: DaySchedule) -> dict:
     return {"version": 1, "kind": "day", "date": schedule.day.isoformat(),
             "people": [{"pid": p.pid, "name": p.name, "status": p.status, "number": p.number,
-                        "leave_from": p.leave_from} for p in schedule.people],
+                        "leave_from": p.leave_from, "join_from": p.join_from, "note": p.note} for p in schedule.people],
             "grid": schedule.grid, "shuttle": {str(t): pid for t, pid in schedule.shuttle.items()},
-            "control": schedule.control, "control_patrol": schedule.control_patrol, "strict": schedule.strict,
+            "control": schedule.control, "control_patrol": schedule.control_patrol, "control_patrol_slots": list(schedule.control_patrol_slots), "rule_exempt_names": list(schedule.rule_exempt_names), "strict": schedule.strict,
             "fixed_template": schedule.fixed_template, "locked_through": schedule.locked_through,
-            "emergency": schedule.emergency,
-            "fill": {str(t): posts for t, posts in schedule.fill.items()}}
+            "emergency": schedule.emergency, "control_as_worker_from": schedule.control_as_worker_from,
+            "fill": {str(t): posts for t, posts in schedule.fill.items()}, "source_layout": schedule.source_layout,
+            "trainees": dict(schedule.trainees)}
 
 
 def from_json(data: dict) -> DaySchedule:
-    people = tuple(DayPerson(p["pid"], p["name"], p["status"], p.get("number"), p.get("leave_from"))
-                   for p in data["people"])
+    people = tuple(DayPerson(p["pid"], p["name"], p["status"], p.get("number"), p.get("leave_from"), p.get("join_from"),
+                             p.get("note", "")) for p in data["people"])
     return DaySchedule(date.fromisoformat(data["date"]), people, {k: list(v) for k, v in data["grid"].items()},
                        {int(t): pid for t, pid in data.get("shuttle", {}).items()}, "saved",
                        data.get("control", True), data.get("control_patrol"), data.get("strict", True),
                        data.get("fixed_template"), data.get("locked_through"), data.get("emergency"),
-                       {int(t): dict(posts) for t, posts in (data.get("fill") or {}).items()})
+                       {int(t): dict(posts) for t, posts in (data.get("fill") or {}).items()},
+                       data.get("control_as_worker_from"), tuple(data.get("rule_exempt_names", ())), dict(data.get("source_layout") or data.get("source_review") or {}), tuple(data.get("control_patrol_slots", ())),
+                       dict(data.get("trainees") or {}))
 
 
-def save_day(store: Path, schedule: DaySchedule, note: str = "") -> Path:
+def save_day(store: Path, schedule: DaySchedule, note: str = "", extra: dict | None = None) -> Path:
+    """extra: 함께 저장할 값 (예: 편성표 일괄 가져오기의 source·source_hash)."""
     store = Path(store)
     store.mkdir(parents=True, exist_ok=True)
-    payload = {**to_json(schedule), "confirmed_at": datetime.now().isoformat(timespec="seconds"), "note": note}
+    extra=dict(extra or {});original_bytes=extra.pop("source_bytes",None)
+    payload = {**to_json(schedule), "confirmed_at": datetime.now().isoformat(timespec="seconds"), "note": note,
+               **(extra or {})}
+    from .day_control import control_e_slots
+    payload['control_e_slots'] = control_e_slots(store.parent, schedule.day)
     path = store / f"{schedule.day.isoformat()}.json"
+    if payload.get("final_save_method")=="upload" or str(payload.get("source","")).startswith(("excel","image")):
+        from .import_compare import identical,mark_overwrite
+        if identical(path,payload):return path
+        mark_overwrite(path,payload)
+        if path.exists():
+            import shutil
+            trash=store/".trash";trash.mkdir(exist_ok=True)
+            shutil.copy2(path,trash/f"{schedule.day}__deleted-import-{datetime.now():%Y%m%d-%H%M%S%f}.json")
+    if original_bytes is not None:
+        from .source_attachment import stash
+        payload["source_attachment"]=stash(store,original_bytes,payload["source_file"])
     path.write_text(json.dumps(payload, ensure_ascii=False, indent=1), encoding="utf-8")
     return path
 
@@ -1134,3 +1447,6 @@ def load_roster(path: Path) -> list[str]:
 def save_roster(path: Path, names: list[str]) -> None:
     Path(path).parent.mkdir(parents=True, exist_ok=True)
     Path(path).write_text(json.dumps(names, ensure_ascii=False), encoding="utf-8")
+
+
+

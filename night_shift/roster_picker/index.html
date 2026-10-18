@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="ko"><meta charset="utf-8">
+<style>
+/* 2026-10-03: Streamlit 테마(다크/라이트) 색을 그대로 따른다. 고정 진회색 글자가 다크 모드에서 안 보이던 문제 수정. */
+:root{--text:#31333f;--bg:#ffffff;--head:#f0f2f6;--line:#d5d9e0;--muted:#64748b;--away:#c2410c;--away-bg:#fff1e6;color-scheme:light}
+:root.dark{--away:#fdba74;--away-bg:rgba(251,146,60,.18);color-scheme:dark}
+body{margin:0;font-family:Arial,sans-serif;color:var(--text);background:var(--bg)}
+table{border-collapse:collapse;width:100%;font-size:15px;table-layout:fixed}
+th,td{border:1px solid var(--line);padding:0 10px;height:38px;text-align:left;color:var(--text)}
+th{background:var(--head);font-weight:600}th:first-child{width:22%}th:last-child{width:24%}
+td.status{padding:0 6px}
+select{width:100%;height:38px;border:0;background:transparent;color:var(--text);font:inherit;cursor:pointer;padding:0}
+select option{color:var(--text);background:var(--bg)}
+tr.away td{background:var(--away-bg)}tr.away td.status select{color:var(--away);font-weight:700}
+select:disabled{color:var(--muted);cursor:default}td.role{color:var(--muted)}
+</style><table><thead><tr><th>이름</th><th>상태</th><th>역할</th></tr></thead><tbody id="rows"></tbody></table>
+<script>
+function send(type,payload){parent.postMessage({isStreamlitMessage:true,apiVersion:1,type,...payload},'*')}
+function mix(a,b){return 'color-mix(in srgb,'+a+' 70%,'+b+')'}
+function applyTheme(theme){
+ if(!theme)return;const root=document.documentElement.style;
+ const text=theme.textColor||'#31333f', bg=theme.backgroundColor||'#ffffff', head=theme.secondaryBackgroundColor||'#f0f2f6';
+ root.setProperty('--text',text);root.setProperty('--bg',bg);root.setProperty('--head',head);
+ root.setProperty('--line',mix(head,text));root.setProperty('--muted',mix(text,bg));
+ document.documentElement.classList.toggle('dark',theme.base==='dark');
+}
+window.addEventListener('message',e=>{
+ if(e.data.type!=='streamlit:render')return;
+ applyTheme(e.data.theme);
+ const args=e.data.args, body=document.getElementById('rows');body.replaceChildren();
+ const normal=args.options[0];
+ for(const row of args.rows){
+  const tr=document.createElement('tr'), name=document.createElement('td'), status=document.createElement('td'),role=document.createElement('td');
+  name.textContent=row.name;role.textContent=row.role;role.className='role';status.className='status';
+  const select=document.createElement('select');select.setAttribute('aria-label',row.name+' 상태');select.disabled=row.locked;
+  for(const value of args.options){const option=document.createElement('option');option.value=value;option.textContent=value;select.append(option)}
+  select.value=row.status;tr.classList.toggle('away',row.status!==normal);
+  select.addEventListener('change',()=>{tr.classList.toggle('away',select.value!==normal);
+   send('streamlit:setComponentValue',{dataType:'json',value:{employee:row.id,status:select.value,nonce:Date.now()+'-'+Math.random()}})});
+  status.append(select);tr.append(name,status,role);body.append(tr);
+ }
+ send('streamlit:setFrameHeight',{height:document.querySelector('table').offsetHeight+2});
+});
+send('streamlit:componentReady',{});
+</script></html>

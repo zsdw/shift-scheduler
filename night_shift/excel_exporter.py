@@ -14,7 +14,7 @@ from openpyxl.worksheet.page import PageMargins
 
 from .models import AssignmentKind
 from .presentation import PATROL_LABELS, assignment_view, run_text
-from .service import ServiceResult
+from .service import ServiceResult, rulebook_label
 
 
 NAVY = "23395B"
@@ -94,7 +94,7 @@ def _schedule_sheet(workbook, result):
     manager = next((p for p in _sorted_people(result) if p.is_manager), None)
     ws["K2"] = _person_label(manager) if manager else "없음"
     ws["M2"] = "룰북"
-    ws["N2"] = f"v{result.rules_version}"
+    ws["N2"] = rulebook_label(result.rules_version)
     for key in ("A2", "D2", "G2", "J2", "M2"):
         ws[key].font = Font(name=FONT_NAME, size=10, bold=True, color=NAVY)
     for key in ("B2", "E2", "H2", "K2", "N2"):
@@ -152,8 +152,8 @@ def _summary_sheet(workbook, result):
     _header(ws, 4, headers)
     for row_number, stats in enumerate(_sorted_people(result), start=5):
         values = (_person_label(stats), stats.actual_work_time_value,
-                  stats.actual_rest_time_value, stats.fatigue_value, stats.standing,
-                  stats.seated, stats.patrol_count, stats.patrol_fatigue,
+                  stats.actual_rest_time_value, stats.fatigue_value, stats.post_standing,
+                  stats.post_seated, stats.patrol_count, stats.patrol_fatigue,
                   stats.displayed_post_total, stats.max_actual_work_run,
                   stats.max_rule_work_run, stats.max_rest_run)
         for column, value in enumerate(values, 1):
@@ -204,7 +204,7 @@ def _validation_sheet(workbook, result):
                ("Solver 상태", result.solve_result.status),
                ("목표 충족", "예" if result.solve_result.targets_met else "아니요"),
                ("시도 횟수", len(result.solve_result.attempts)),
-               ("룰북", f"v{result.rules_version}"))
+               ("룰북", rulebook_label(result.rules_version)))
     for row_number, (label, value) in enumerate(entries, start=2):
         ws.cell(row_number, 1, label)
         ws.cell(row_number, 2, value)

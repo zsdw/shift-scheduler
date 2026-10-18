@@ -15,23 +15,24 @@
   td { height: 58px; padding: 2px; border: 1px solid #fff; overflow: hidden; }
   td .post { font-size: .95rem; font-weight: 600; line-height: 1.2; }
   td small { display: block; font-size: .68rem; line-height: 1.1; color: #334155; margin-top: 2px; }
-  td.draggable { cursor: grab; }
-  td.locked { background-image: repeating-linear-gradient(135deg, rgba(0,0,0,.05) 0 6px, transparent 6px 12px); cursor: not-allowed; }
-  td.edited { outline: 2px dashed #2563eb; outline-offset: -3px; }
+  .pc.draggable { cursor: grab; }
+  .pc.locked { background-image: repeating-linear-gradient(135deg, rgba(0,0,0,.18) 0 2px, transparent 2px 8px) !important; cursor: not-allowed; }
+  .pc.edited { outline: 2px dashed #2563eb; outline-offset: -3px; }
   .over { box-shadow: inset 0 0 0 3px #f59e0b; }
   th.hour.clickable { cursor: pointer; }
   th.hour.clickable:hover { background: #eff6ff; }
   th.hour.sel { background: #dbeafe; color: #1d4ed8; }
-  td.changed { box-shadow: inset 0 0 0 3px #dc2626; }
+  .pc.changed { box-shadow: inset 0 0 0 3px #dc2626; }
   .band-l { border-left: 3px solid #0f172a !important; }
   .band-r { border-right: 3px solid #0f172a !important; }
   th.band-t { border-top: 3px solid #0f172a !important; }
   td.band-b { border-bottom: 3px solid #0f172a !important; }
   td small.lock { color: #64748b; font-size: .62rem; }
   .dragging { opacity: .45; }
-  td { position: relative; }
-  td.clickable { cursor: pointer; }
-  td.picked { box-shadow: inset 0 0 0 3px #7c3aed; }
+  td, .pc { position: relative; }
+  .pc.clickable { cursor: pointer; }
+  .pc.picked { box-shadow: inset 0 0 0 3px #7c3aed; }
+  .tapsel { box-shadow: inset 0 0 0 4px #f59e0b !important; }
   .note { position: absolute; top: 1px; right: 2px; font-size: .7rem; cursor: pointer; line-height: 1; }
   .fat { position: absolute; top: 1px; left: 3px; font-size: .62rem; font-weight: 700; color: #7c3aed; }
   #pop { position: absolute; display: none; max-width: 260px; background: #fffbea; border: 1px solid #eab308;
@@ -42,7 +43,51 @@
   th.hour.preview { background-image: repeating-linear-gradient(135deg, rgba(37,99,235,.35) 0 2px, transparent 2px 7px); }
   th.hour.pending { background-color: #bfdbfe;
     background-image: repeating-linear-gradient(135deg, rgba(29,78,216,.45) 0 2px, transparent 2px 7px); color: #1e3a8a; }
-  td.pending { background-image: repeating-linear-gradient(135deg, rgba(29,78,216,.22) 0 2px, transparent 2px 8px); }
+  .pc.pending { background-image: repeating-linear-gradient(135deg, rgba(29,78,216,.22) 0 2px, transparent 2px 8px) !important; }
+  /* 편성표 모양 (2026-10-06 사용자 요청): 주간 편성표처럼 세로 시간 × 가로 포스트, 번호 색 칸. 다크모드와 무관하게 흰 바탕 */
+  table.sheet { min-width: 640px; font-size: .9rem; background: #fff; color: #111827; }
+  table.sheet th, table.sheet td { border: 1px solid #9ca3af; height: 34px; padding: 0; color: #111827; }
+  table.sheet th { background: #d9d9d9; font-weight: 600; white-space: nowrap; }
+  table.sheet td { background: #fff; overflow: visible; }
+  table.sheet .title { font-size: 1.3rem; font-weight: 800; height: 46px; background: #fff; }
+  table.sheet .titlebar { display: flex; align-items: center; justify-content: space-between; gap: 6px; padding: 0 8px; }
+  table.sheet .vbtn { font: inherit; font-size: .85rem; font-weight: 700; min-width: 64px; min-height: 34px; padding: 4px 12px;
+    border: 2px solid #94a3b8; border-radius: 999px; background: #f1f5f9; color: #334155; cursor: pointer; }
+  table.sheet .vbtn.on { background: #1d4ed8; border-color: #1d4ed8; color: #fff; }
+  table.sheet .vbtn.on.flex { background: #D400FF; border-color: #D400FF; }
+  body.compact table.sheet .vbtn { font-size: .72rem; min-width: 52px; min-height: 30px; padding: 2px 8px; }
+  table.sheet .sub { font-size: 1.02rem; font-weight: 700; background: #fff; }
+  table.sheet th.person { position: static; background: #fff; font-weight: 500; white-space: normal; }
+  table.sheet th.person.draggable::before { content: ""; }
+  table.sheet .pc { display: block; min-height: 34px; line-height: 1.15; padding: 4px 2px; font-weight: 700; box-sizing: border-box; }
+  table.sheet .pc small { font-size: .62rem; font-weight: 400; color: #334155; margin-top: 0; }
+  table.sheet td.multi { padding: 2px; text-align: center; }
+  table.sheet td.multi .pc { display: inline-block; min-height: 0; padding: 2px 6px; margin: 1px; border-radius: 4px; border: 1px solid #cbd5e1; }
+  table.sheet td.closed { background: #e5e7eb; }
+  table.sheet .pc.off { color: #9ca3af; font-weight: 400; background: #f8fafc !important; }
+  /* 유도리 적용 범위: 쨍한 자홍색 굵은 테두리 (2026-10-13 사용자 요청, 번호 색과 겹치지 않게) */
+  table.sheet td.op-band { border-left: 4px solid #D400FF !important; border-right: 4px solid #D400FF !important; }
+  table.sheet td.op-start { border-top: 4px solid #D400FF !important; }
+  table.sheet td.op-end { border-bottom: 4px solid #D400FF !important; }
+  table.sheet th.hour.bandh { border-left: 4px solid #D400FF !important; border-right: 4px solid #D400FF !important; background: #F5D0FE !important; }
+  table.sheet th.hour.band-start { border-top: 4px solid #D400FF !important; }
+  table.sheet th.hour.band-end { border-bottom: 4px solid #D400FF !important; }
+  /* 번호에 마우스를 올리면 그 번호 칸만 또렷하게 (주간 편성표와 같음) */
+  table.sheet .dim { opacity: .22; }
+  table.sheet td.cell.hl { box-shadow: inset 0 0 0 3px #1d4ed8; }
+  table.sheet td.multi .pc.hl { outline: 2px solid #1d4ed8; }
+  table.sheet th.person.hl { background: #1d4ed8; color: #fff; }
+  table.sheet .legend { text-align: left; font-size: .76rem; color: #4b5563; height: auto; padding: 4px 8px; background: #fff; font-weight: 400; }
+  body.compact table.sheet { font-size: .74rem; }
+  body.compact table.sheet .title { font-size: 1rem; height: 34px; }
+  body.compact table.sheet .sub { font-size: .8rem; }
+  body.compact table.sheet .pc { min-height: 26px; padding: 2px 1px; }
+  /* 휴게·보안실 여러 명은 가로 한 줄로 (결원 0명 날 줄이 세로로 길어지지 않게, 2026-10-16 사용자 요청) */
+  table.sheet td.multi { white-space: nowrap; }
+  body.compact table.sheet td.multi { padding: 1px; }
+  body.compact table.sheet td.multi .pc { padding: 1px 3px; margin: 0 1px; }
+  body.compact table.sheet .pc small { line-height: 1.05; }
+  body.compact table.sheet td.cpcell { font-size: .58rem; line-height: 1.1; white-space: normal; overflow-wrap: anywhere; }
   th.person.pick { cursor: pointer; background: #fef9c3; box-shadow: inset 0 0 0 2px #eab308; }
   th.person.pick:hover, th.person.pick:focus-visible { background: #fde68a; }
   th.person.off { color: #9ca3af; }
@@ -59,11 +104,95 @@
   .steps span { padding: 5px 10px; border-radius: 999px; background: #f1f5f9; color: #64748b; border: 1px solid #e2e8f0; }
   .steps .now { background: #1d4ed8; color: #fff; border-color: #1d4ed8; font-weight: 700; }
   .steps .done { background: #dcfce7; color: #166534; border-color: #bbf7d0; }
+  /* 2026-10-06: 표 안에서 손가락으로 밀면 화면 스크롤(pan), 0.25초 꾹 누른 뒤 움직일 때만 교환 끌기 (touchmove에서 막음) */ [draggable="true"] { touch-action: pan-x pan-y; -webkit-touch-callout: none; user-select: none; -webkit-user-select: none; }
+  .dragging { opacity: .45; }
+.dragready { box-shadow: inset 0 0 0 3px #f59e0b !important; }
+/* 폰 한 화면 보기 (2026-10-05): 시간 = 줄, 사람 = 열, 짧은 글자, 옆으로 밀지 않음 */
+body.compact table { min-width: 0; font-size: .7rem; }
+body.compact th { height: auto; padding: 3px 1px; white-space: normal; font-size: .66rem; line-height: 1.1; }
+body.compact th.person { position: static; }
+body.compact th.person.draggable::before { content: ""; }
+body.compact td { height: 30px; padding: 1px; }
+/* 폰: 유도리 구간 표시는 하지 않음 (2026-10-05 사용자 요청, 특이사항의 0-4-2 전환 안내로 대신) */
+body.compact .steps { gap: 3px; margin: 4px 0 6px; font-size: .68rem; line-height: 1.3; }
+body.compact .steps span { padding: 2px 7px; border-radius: 8px; max-width: 100%; box-sizing: border-box; overflow-wrap: anywhere; }
+body.compact .steps .now { font-weight: 600; }
+body.compact td .post { font-size: .76rem; line-height: 1.05; }
+body.compact td small { font-size: .55rem; margin-top: 0; }
+body.compact .fat { font-size: .5rem; left: 1px; }
+body.compact .note { font-size: .55rem; }
+.touch-ghost { position:fixed; pointer-events:none; z-index:99999; background:#fef3c7; border:2px solid #f59e0b; border-radius:6px; padding:6px; max-width:100px; font-weight:700; color:#111827; }
 </style>
 </head>
 <body>
 <div id="steps"></div><div class="wrap"><table id="grid"></table></div><div id="pop"></div><div id="menu" role="menu"></div>
 <script>
+
+  // 터치 끌기: 스크롤과 구분하고, 끌기 뒤 발생하는 클릭은 교환 요청으로 다시 보내지 않는다.
+  function touchDrag(root, selector, accept, commit) {
+    let active = null, suppressUntil = 0;
+    root.addEventListener("click", e => {
+      if (Date.now() < suppressUntil) { e.preventDefault(); e.stopImmediatePropagation(); }
+    }, true);
+    root.addEventListener("contextmenu", e => {
+      if (e.target.closest(selector)) e.preventDefault();
+    });
+    // 꾹 눌러 끌기 준비가 된 뒤에만 스크롤을 막는다 (그 전에는 보통 스크롤)
+    root.addEventListener("touchmove", e => { if (active && active.ready && !active.cancelled) e.preventDefault(); }, {passive: false});
+    root.addEventListener("pointerdown", e => {
+      if (e.pointerType === "mouse" || !e.isPrimary) return;
+      const src = e.target.closest(selector);
+      if (!src || !root.contains(src)) return;
+      const a = active = {src, id:e.pointerId, x:e.clientX, y:e.clientY, ready:false, moved:false, target:null, ghost:null};
+      src.setPointerCapture(e.pointerId);
+      a.timer = setTimeout(() => {
+        if (active !== a) return;
+        a.ready = true;
+        src.classList.add("dragready");
+      }, 250);
+    });
+    function locate(a, x, y) {
+      if (a.target) a.target.classList.remove("over");
+      const hit = document.elementFromPoint(x,y);
+      a.target = hit && hit.closest(selector);
+      if (!a.target || !root.contains(a.target) || !accept(a.src,a.target)) a.target=null;
+      if (a.target) a.target.classList.add("over");
+    }
+    root.addEventListener("pointermove", e => {
+      if (!active || active.id !== e.pointerId) return;
+      const a=active;
+      if (Math.hypot(e.clientX-a.x,e.clientY-a.y)<8 && !a.moved) return;
+      if (!a.ready) { clearTimeout(a.timer); a.cancelled=true; return; }
+      if (a.cancelled) return;
+      e.preventDefault();
+      a.moved=true;
+      a.src.classList.add("dragging");
+      if (!a.ghost) {
+        a.ghost=document.createElement("div");
+        a.ghost.className="touch-ghost";
+        a.ghost.textContent=a.src.textContent.trim();
+        document.body.appendChild(a.ghost);
+      }
+      a.ghost.style.left=(e.clientX+10)+"px";
+      a.ghost.style.top=(e.clientY+10)+"px";
+      locate(a,e.clientX,e.clientY);
+    });
+    function finish(e,cancel) {
+      if (!active || active.id !== e.pointerId) return;
+      const a=active; active=null;
+      clearTimeout(a.timer);
+      if (a.moved && !cancel) locate(a,e.clientX,e.clientY);
+      a.src.classList.remove("dragging","dragready");
+      if (a.target) a.target.classList.remove("over");
+      if (a.ghost) a.ghost.remove();
+      if (a.moved || a.cancelled) suppressUntil=Date.now()+500;
+      if (!cancel && a.moved && a.target) commit(a.src,a.target);
+    }
+    root.addEventListener("pointerup",e=>finish(e,false));
+    root.addEventListener("pointercancel",e=>finish(e,true));
+    root.addEventListener("lostpointercapture",e=>finish(e,true));
+  }
+
   function send(type, payload) {
     window.parent.postMessage(Object.assign({ isStreamlitMessage: true, apiVersion: 1, type: type }, payload || {}), "*");
   }
@@ -71,6 +200,14 @@
   function esc(s) { return String(s).replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c])); }
 
   let dragged = null;
+  const isPc = el => el.classList.contains("pc");          // 사람·시간 한 칸 (가로 표의 td, 편성표의 번호 칸)
+  touchDrag(document.getElementById("grid"), ".pc[draggable='true'], th.person[draggable='true']",
+    (a, b) => a !== b && isPc(a) === isPc(b) && (!isPc(a) || a.dataset.t === b.dataset.t),
+    (a, b) => {
+      if (isPc(a)) emit({kind: "cell", source: [a.dataset.p, Number(a.dataset.t)], target: [b.dataset.p, Number(b.dataset.t)]});
+      else emit({kind: "person", source: a.dataset.person, target: b.dataset.person});
+    });
+
   function pressable(el) {             // 키보드: Enter·Space로 누르기
     el.addEventListener("keydown", e => {
       if (e.key === "Enter" || e.key === " ") { e.preventDefault(); el.click(); }
@@ -88,6 +225,135 @@
     value.nonce = Date.now() + "-" + Math.random().toString(36).slice(2);
     send("streamlit:setComponentValue", { value: value, dataType: "json" });
   }
+  // 편성표 모양 (2026-10-06 사용자 요청): 가로 표에서 만든 칸(교환·누르기·주석·LOCK·반차 속성 포함)을
+  // 그대로 떼어 세로 시간 × 가로 포스트(현장 양식 열 순서)에 번호로 다시 놓는다.
+  // 폰 편성표 칸 안 메모 줄임 (2026-10-16 사용자 요청: 좁은 칸에서 4~5줄로 꺾이지 않게)
+  const shortSheetNote = s => s.replace(/차단봉 설치/g, "↑차단").replace(/차단봉 철수/g, "↓차단")
+    .replace(/실제 보안실 대기/g, "실제대기").replace(/실제 (\S+)/g, "실제$1");
+
+  function sheetHtml(data, rowHtml) {
+    const s = data.sheet;
+    const tmp = document.createElement("table");
+    tmp.innerHTML = rowHtml;
+    const persons = Array.from(tmp.querySelectorAll("tbody th.person"));
+    const heads = Array.from(tmp.querySelectorAll("thead th.hour"));
+    const POSTS = ["G1", "L3", "I1", "G3", "G2", "G2(1)", "G2(2)"];
+    const ZONES = ["상층", "중층", "하층"];
+    const buckets = {}, used = new Set();
+    const colOf = label => POSTS.includes(label) ? label :
+      (ZONES.includes(label) || label.endsWith("순찰")) ? "순찰" :
+      label === "보안실 대기" ? "보안실" : (label === "휴게" || label === "×") ? "휴게" :
+      label === "—" ? null : "기타";
+    tmp.querySelectorAll("tbody td.pc").forEach(td => {
+      const label = (td.querySelector(".post") || {}).textContent || "";
+      const col = colOf(label);
+      if (!col) return;
+      used.add(col);
+      const p = td.dataset.p, t = Number(td.dataset.t);
+      const d = document.createElement("div");
+      d.className = td.className + (label === "×" ? " off" : "");
+      d.classList.remove("band-l", "band-r", "band-t", "band-b");
+      ["p", "t"].forEach(k => d.dataset[k] = td.dataset[k]);
+      if (td.getAttribute("draggable")) d.setAttribute("draggable", td.getAttribute("draggable"));
+      d.style.backgroundColor = label === "×" ? "" : "#" + ((s.colors || {})[p] || "FFFFFF");
+      const token = (s.tokens || {})[p] || "?";
+      const small = Array.from(td.querySelectorAll("small:not(.lock)")).map(x => x.textContent).filter(Boolean);
+      if (ZONES.includes(label)) small.unshift(label);
+      if (col === "기타") small.unshift(label);
+      const shown = data.compact ? small.map(shortSheetNote) : small;   // 폰은 짧게, 전체 문구는 title(누르고 있기)에 남김
+      d.innerHTML = esc(token) + (label === "×" ? "×" : "") + (shown.length ? "<small>" + esc(shown.join(" · ")) + "</small>" : "") +
+        Array.from(td.querySelectorAll(".fat, .note")).map(x => x.outerHTML).join("");
+      d.title = (s.heads.find(h => h[0] === p) || [p, p])[1] + (small.length ? " · " + small.join(" · ") : "");
+      (buckets[t + "|" + col] = buckets[t + "|" + col] || []).push([token, d.outerHTML, d.style.backgroundColor]);
+    });
+    const aFirst = (a, b) => (a[0] !== "A") - (b[0] !== "A") || (Number(a[0]) || 99) - (Number(b[0]) || 99);
+    for (let t = 0; t < 14; t++) {           // G2 두 명(추가 남문 운영)이면 A 아닌 사람은 G3 칸에 (현장 양식과 같음, 2026-10-06)
+      const g2 = buckets[t + "|G2"];
+      if (g2 && g2.length > 1 && !buckets[t + "|G3"]) {
+        g2.sort(aFirst);
+        buckets[t + "|G3"] = g2.splice(1);
+        used.add("G3");
+      }
+    }
+    const hasCp = (s.cp || []).some(Boolean);
+    const hasShuttle = (s.shuttle || []).some(Boolean);
+    // 그날 한 번도 안 쓰인 열은 숨긴다 (G1·L3·I1·G2 기본 포스트는 항상, 2026-10-16 사용자 요청)
+    const cols = POSTS.filter(c => ["G1", "L3", "I1", "G2"].includes(c) || used.has(c))
+      .concat(hasCp ? ["CP"] : [], hasShuttle ? ["셔틀"] : [],
+              ["순찰", "보안실", "휴게", "기타"].filter(c => used.has(c)));
+    const multi = new Set(["보안실", "휴게", "기타"]);
+    const n = cols.length + 1;
+    const band = data.band || null;
+    // 휴게·보안실 열은 그날 한 시간 최대 인원만큼 폭을 잡아 배지를 가로 한 줄로 (폰은 시간 열도 좁게)
+    const most = c => Math.max(0, ...Array.from({ length: 14 }, (_, t) => (buckets[t + "|" + c] || []).length));
+    const colW = c => multi.has(c) && most(c) > 1 ? " style='width:" + (most(c) * (data.compact ? 19 : 30) + 6) + "px'" : "";
+    let out = "<colgroup><col style='width:" + (data.compact ? 44 : 68) + "px'>" + cols.map(c => "<col" + colW(c) + ">").join("") + "</colgroup>" +
+      "<tr><td class='title' colspan='" + n + "'>" + (data.view_toggle ?        // FM·유도리 보기 전환 (2026-10-13 사용자 요청)
+        "<div class='titlebar'><button type='button' class='vbtn" + (data.view_mode !== "유도리" ? " on" : "") +
+        "' data-view='FM' title='FM 기준으로 보기'>FM</button><span>" + esc(s.title) + "</span>" +
+        "<button type='button' class='vbtn" + (data.view_mode === "유도리" ? " on flex" : "") +
+        "' data-view='유도리' title='유도리 적용 시간대·포스트와 분석을 유도리 기준으로 보기'>유도리</button></div>"
+        : esc(s.title)) + "</td></tr>" +
+      "<tr><td class='sub' colspan='" + n + "'>" + esc(s.sub) + "</td></tr>";
+    const names = s.heads.map(h => {
+      const th = persons.find(x => x.dataset.person === h[0]);
+      if (!th) return "<th class='person'>" + esc(h[1]) + "</th>";
+      const c = th.cloneNode(true); c.textContent = h[1];
+      return c.outerHTML;
+    });
+    for (let i = 0; i < Math.max(1, names.length); i += cols.length) {
+      const part = names.slice(i, i + cols.length);
+      out += "<tr>" + (i === 0 ? "<th rowspan='" + Math.ceil(names.length / cols.length) + "'>근무자명</th>" : "") +
+        part.join("") + "<td></td>".repeat(cols.length - part.length) + "</tr>";
+    }
+    out += "<tr><th>근무시간</th>" + cols.map(c => "<th>" + esc(c) + "</th>").join("") + "</tr>";
+    const operations = s.operations || {};
+    const outlineState = (col, t) => {
+      // 표시 범위만 확장한다. 운영값·피로도 계산은 원래 operations를 사용한다.
+      if (band && t >= band[0] && t <= band[1]) {
+        if (col === "I1") return "outline";
+        if (col === "G1" && t >= 6 && t <= 10) return "outline";
+      }
+      return (operations[col] || [])[t] || "";
+    };
+    const operationClasses = (col, t) => {
+      const state = outlineState(col, t);
+      if (!state) return "";
+      return " op-band" + (outlineState(col, t-1) !== state ? " op-start" : "") + (outlineState(col, t+1) !== state ? " op-end" : "");
+    };
+    const ranges = [];
+    Object.entries(operations).forEach(([post, states]) => {
+      for (let t = 0; t < states.length; t++) {
+        if (!states[t]) continue;
+        const start = t, state = states[t];
+        while (t+1 < states.length && states[t+1] === state) t++;
+        ranges.push(post + " " + (state === "rest" ? "휴게성" : "좌식") + " " + (s.hours || data.hours)[start] + "~" + (s.hours || data.hours)[t] + " 시간대");
+      }
+    });
+    heads.forEach((h, t) => {
+      const c = h.cloneNode(true);
+      const lockMark = c.textContent.includes("🔒") ? " 🔒" : "";
+      c.textContent = (s.hours || [])[t] + lockMark;
+      c.classList.remove("band-l", "band-r", "band-t", "band-b");
+      c.classList.remove("bandh", "band-start", "band-end");
+      out += "<tr>" + c.outerHTML + cols.map(col => {
+        if (col === "CP") return "<td class='cpcell'>" + esc(s.cp[t] || "").replace(".", ".<wbr>") + "</td>";
+        if (col === "셔틀") return "<td class='cpcell'>" + esc(s.shuttle[t] || "") + "</td>";
+        const op = operationClasses(col, t);
+        const items = (buckets[t + "|" + col] || []).sort(aFirst);      // A를 항상 앞에
+        if (!items.length) return "<td class='" + op + "'></td>";
+        if (multi.has(col) || items.length > 1) return "<td class='multi" + op + "'>" + items.map(x => x[1]).join("") + "</td>";
+        // 한 사람 칸은 칸 전체를 번호 색으로 (줄 높이가 달라도 흰 틈이 생기지 않게)
+        return "<td class='cell" + op + "' style='background-color:" + (items[0][2] || "#fff") + "'>" + items[0][1] + "</td>";
+      }).join("") + "</tr>";
+    });
+    if (ranges.length) out += "<tr><td class='legend' colspan='" + n + "'><b style='color:#D400FF'>자홍색 테두리</b> = 유도리 적용 · " + esc(ranges.join(" · ")) + "</td></tr>";
+    out += "<tr><td class='legend' colspan='" + n + "'>번호 끌기 → 같은 시간 교환 · " +
+      (data.cell_click ? "번호 누르기 → 피로도·사유 기록 · " : "") + "📝 → 주석 · 빨간 테두리 = 계획과 달라진 칸 · 빗금 = LOCK" +
+      (band ? " · 자홍색 테두리: I1 04시까지 · G1 00~04시(표시 범위)" : "") + "</td></tr>";
+    return out;
+  }
+
   function render(data) {
     const grid = document.getElementById("grid");
     let html = "<colgroup><col class='person-col'>" + data.hours.map(() => "<col>").join("") + "</colgroup>" +
@@ -123,7 +389,7 @@
                      data.cell_click && cell.label !== "—" ? "clickable" : "",
                      picked === row.id + "|" + cell.t ? "picked" : "",
                      bandCls(cell.t, rowIndex === lastRow, false)].join(" ");
-        html += "<td class='" + cls + "' style='background-color:#" + esc(cell.color) + "' data-p='" + esc(row.id) +
+        html += "<td class='pc " + cls + "' style='background-color:#" + esc(cell.color) + "' data-p='" + esc(row.id) +
                 "' data-t='" + cell.t + "'" + (cell.movable ? " draggable='true'" : "") + "><div class='post'>" + esc(cell.label) + "</div>" +
                 (cell.notes ? "<small>" + esc(cell.notes) + "</small>" : "") +
                 (cell.locked ? "<small class='lock'>LOCK</small>" : "") +
@@ -133,8 +399,54 @@
       html += "</tr>";
     });
     html += "</tbody>";
+    document.body.classList.toggle("compact", !!data.compact);
+    grid.classList.toggle("sheet", !!data.sheet);
+    if (data.sheet) {                       // 편성표: 같은 칸을 세로 시간 × 가로 포스트로 다시 배치 (PC·폰 공통)
+      html = sheetHtml(data, html);
+    } else if (data.compact) {              // 폰: 같은 칸·같은 속성을 시간 = 줄, 사람 = 열로 다시 그린다
+      const short = s => ({"보안실 대기": "대기", "휴게": "휴", "상층순찰": "상층", "중층순찰": "중층", "하층순찰": "하층"}[s] || s);
+      const shortNote = s => s.replace(/차단봉 설치/g, "↑설치").replace(/차단봉 철수/g, "↓철수");
+      const tmp = document.createElement("table");
+      tmp.innerHTML = html;
+      const heads = Array.from(tmp.querySelectorAll("thead th.hour"));
+      const people = Array.from(tmp.querySelectorAll("tbody th.person"));
+      let out = "<colgroup><col style='width:30px'>" + people.map(() => "<col>").join("") + "</colgroup>" +
+                "<thead><tr><th>시</th>" + people.map(p => p.outerHTML).join("") + "</tr></thead><tbody>";
+      heads.forEach((h, t) => {
+        h.textContent = h.textContent.replace("시", "");
+        // 유도리 구간 굵은 테두리는 가로 표 기준이라 뒤집으면 어긋남 → 폰 표에서는 표시하지 않음 (2026-10-05)
+        h.classList.remove("band-l", "band-r", "band-t", "band-b");
+        out += "<tr>" + h.outerHTML + Array.from(tmp.querySelectorAll("tbody tr")).map(tr => {
+          const td = tr.querySelector("td[data-t='" + t + "']");
+          td && td.classList.remove("band-l", "band-r", "band-t", "band-b");
+          const post = td && td.querySelector(".post");
+          if (post) post.textContent = short(post.textContent);
+          td && td.querySelectorAll("small").forEach(s => { s.textContent = shortNote(s.textContent); });
+          return td ? td.outerHTML : "<td></td>";
+        }).join("") + "</tr>";
+      });
+      html = out + "</tbody>";
+    }
     grid.innerHTML = html;
+    if (data.sheet) {                       // 번호(또는 근무자명)에 마우스 → 그 사람 칸만 강조, 나머지는 흐리게
+      const mark = p => grid.querySelectorAll(".pc").forEach(el => {
+        const on = p !== null && el.dataset.p === p;
+        const box = el.closest("td.cell");
+        (box || el).classList.toggle("dim", p !== null && !on);
+        (box || el).classList.toggle("hl", on);
+      });
+      const markHead = p => grid.querySelectorAll("th.person").forEach(th =>
+        th.classList.toggle("hl", p !== null && th.dataset.person === p));
+      grid.querySelectorAll(".pc, th.person").forEach(el => {
+        el.addEventListener("mouseenter", () => { const p = el.dataset.p || el.dataset.person; mark(p); markHead(p); });
+      });
+      grid.onmouseleave = () => { mark(null); markHead(null); };     // 다시 그릴 때마다 덮어씀 (중복 등록 방지)
+    }
 
+    grid.querySelectorAll("button.vbtn").forEach(el => el.addEventListener("click", e => {
+      e.stopPropagation();
+      if ((el.dataset.view === "유도리") !== (data.view_mode === "유도리")) emit({ kind: "view", mode: el.dataset.view });
+    }));
     if (data.hour_click) {
       grid.querySelectorAll("th.hour").forEach(el => {
         el.addEventListener("click", () => emit({ kind: "hour", t: Number(el.dataset.hour) }));
@@ -181,11 +493,12 @@
     grid.querySelectorAll(".note").forEach(el => {
       el.addEventListener("click", e => {
         e.stopPropagation();
-        if (pop.style.display === "block" && pop.dataset.owner === el.parentElement.dataset.p + el.parentElement.dataset.t) {
+        const owner = el.closest(".pc");
+        if (pop.style.display === "block" && pop.dataset.owner === owner.dataset.p + owner.dataset.t) {
           pop.style.display = "none"; setHeight(); return;
         }
         pop.textContent = el.dataset.note;
-        pop.dataset.owner = el.parentElement.dataset.p + el.parentElement.dataset.t;
+        pop.dataset.owner = owner.dataset.p + owner.dataset.t;
         const r = el.getBoundingClientRect();
         pop.style.left = Math.max(4, Math.min(r.left + window.scrollX - 120, document.body.clientWidth - 270)) + "px";
         pop.style.top = (r.bottom + window.scrollY + 4) + "px";
@@ -194,8 +507,26 @@
       });
     });
     if (data.cell_click) {
-      grid.querySelectorAll("td.clickable").forEach(el => {
+      grid.querySelectorAll(".pc.clickable").forEach(el => {
         el.addEventListener("click", () => emit({ kind: "click", cell: [el.dataset.p, Number(el.dataset.t)] }));
+      });
+    }
+    // 폰(터치): HTML5 끌기가 안 되므로 '눌러서 교환' — 칸(또는 이름)을 누르고, 바꿀 칸(이름)을 누르면 끌기와 같은 요청
+    if (data.tap_swap && !data.cell_click) {
+      let first = null;
+      grid.querySelectorAll("[draggable='true']").forEach(el => {
+        el.addEventListener("click", e => {
+          e.stopPropagation();
+          if (first === el) { el.classList.remove("tapsel"); first = null; return; }
+          if (first && isPc(first) === isPc(el)) {
+            const a = first; first = null; a.classList.remove("tapsel");
+            if (isPc(el)) emit({ kind: "cell", source: [a.dataset.p, Number(a.dataset.t)], target: [el.dataset.p, Number(el.dataset.t)] });
+            else emit({ kind: "person", source: a.dataset.person, target: el.dataset.person });
+            return;
+          }
+          if (first) first.classList.remove("tapsel");
+          first = el; el.classList.add("tapsel");
+        });
       });
     }
     grid.querySelectorAll("[draggable='true']").forEach(el => {
@@ -207,16 +538,16 @@
     });
     function sameKind(target) {
       if (!dragged || target === dragged || target.getAttribute("draggable") !== "true") return false;
-      return (dragged.tagName === "TD") === (target.tagName === "TD");
+      return isPc(dragged) === isPc(target);
     }
-    grid.querySelectorAll("td, th.person").forEach(el => {
+    grid.querySelectorAll(".pc, th.person").forEach(el => {
       el.addEventListener("dragover", e => { if (sameKind(el)) { e.preventDefault(); el.classList.add("over"); } });
       el.addEventListener("dragleave", () => el.classList.remove("over"));
       el.addEventListener("drop", e => {
         el.classList.remove("over");
         if (!sameKind(el)) return;
         e.preventDefault();
-        if (el.tagName === "TD") {
+        if (isPc(el)) {
           emit({ kind: "cell", source: [dragged.dataset.p, Number(dragged.dataset.t)], target: [el.dataset.p, Number(el.dataset.t)] });
         } else {
           emit({ kind: "person", source: dragged.dataset.person, target: el.dataset.person });

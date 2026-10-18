@@ -5,12 +5,14 @@ from datetime import date
 from types import SimpleNamespace
 from html import escape
 import os
+import re
 from pathlib import Path
 
 import pandas as pd
 import streamlit as st
 
 from night_shift import history_store
+from night_shift.models import barrier_history_counts
 from night_shift.actual_edit import (actual_checks, add_state_edit, apply_edits, cell_notes, changed_cells,
                                     describe_edit)
 from night_shift.schedule_edit import record_grid_payload
@@ -20,9 +22,23 @@ def store_dir() -> Path:
     """History folder; NIGHT_SHIFT_HISTORY_DIR overrides it (tests use a temp dir)."""
     override = os.environ.get("NIGHT_SHIFT_HISTORY_DIR")
     return Path(override) if override else Path(__file__).resolve().parent / "history"
+
+
+def upload_saved_label(data: dict) -> str:
+    """주간·야간 파일 저장 출처를 같은 문구로 표시한다(기존 저장본도 지원)."""
+    if not str(data.get('source', '')).startswith(('excel', 'image')):
+        return ''
+    name = data.get('source_file', '')
+    if not name:
+        match = re.search(r'(?:가져온 파일|엑셀 편성표 일괄 가져오기):\s*([^\n]+)', data.get('note', ''))
+        name = match.group(1).split(' / ')[0].strip() if match else ''
+    label = '📥 업로드 파일로 최종 실제 근무표 저장됨' + (f' · {name}' if name else '')
+    if data.get('final_save_method') == 'screen-edit' or data.get('edited_at'):
+        label += ' · 이후 화면 수정 반영'
+    return label
 HOURS = [f"{(18 + t) % 24:02d}시" for t in range(14)]
 STAT_COLUMNS = (("fatigue_value", "피로도"), ("actual_work_time_value", "실근무"),
-                ("actual_rest_time_value", "실휴게"), ("standing", "입식"), ("seated", "좌식"),
+                ("actual_rest_time_value", "실휴게"), ("post_standing", "입식"), ("post_seated", "좌식"),
                 ("patrol_count", "순찰"), ("max_rule_work_run", "최장 연속근무"))
 
 
@@ -36,8 +52,7 @@ def history_caption(shift_date: date) -> str:
         return "저장된 확정 근무표가 없습니다."
     weights = history_store.cycle_weights(len(dates))
     parts = [f"{d.strftime('%m/%d')} {w * 100:.0f}%" for d, w in zip(dates, weights)]
-    return "실제 근무 이력 반영: " + ", ".join(parts) + (" (직전 싸이클 60% : 이전 싸이클 40%)" if len(dates) >= 4
-                                                         else " (4회 미만이라 균등)")
+    return "실제 근무 이력 반영: " + ", ".join(parts) + " (최근 4근무 똑같은 비중)"
 
 
 def confirm_button(result, key: str) -> None:
@@ -93,7 +108,8 @@ def day_store_dir() -> Path:
 
 
 def render_trash(prefix: str) -> None:
-    stores = ((store_dir(), "야간"), (day_store_dir(), "주간"))
+    stores = ((store_dir(), "야간"), (day_store_dir(), "주간"),
+              (day_store_dir().parent / "weekend_day", "주말 주간"))   # 주말 주간 삭제도 같은 휴지통 (2026-10-18)
     items = [(store, kind, item) for store, kind in stores for item in history_store.list_trash(store)]
     with st.expander(f"🗑 휴지통 ({len(items)})"):
         if not items:
@@ -134,11 +150,38 @@ def saved_dates_caption() -> str:
     return "저장된 근무표: " + ", ".join(d.strftime("%m/%d") for d in dates[-10:])
 
 
-def _hints(items) -> None:
+EMERGENCY_BOXES: dict = {}                  # 이번 실행에서 만든 긴급 반차 접힌 칸 (폰 입력칸을 그 안에 넣음)
+
+
+def emergency_toggle(key: str, force: bool = False, lock_key: str | None = None) -> bool:
+    """긴급 반차·이탈 재편성은 '🧭 앞으로의 편성 방향'처럼 접힌 칸(>)을 눌러야 보인다 (2026-10-05 사용자 요청).
+    칸 안: '표의 시간 칸을 눌러 LOCK하기' 스위치(켜야 파란 안내·시간 칸 LOCK) + 폰 입력칸(emergency_box).
+    야간·주간, 생성표·저장본, PC·폰 공통. force: LOCK을 고르는 중이면 펼치고 켠 상태로 둔다."""
+    box = st.expander("🚨 긴급 반차·이탈 재편성", expanded=bool(force))
+    EMERGENCY_BOXES[key] = box
+    def cancel_lock():                       # 끄면 고른 LOCK을 취소하고 아무 일 없던 상태로 (2026-10-05 사용자 요청)
+        if not st.session_state.get(key) and lock_key:
+            st.session_state[lock_key] = None
+    with box:
+        if force:
+            st.session_state[key] = True
+        return st.toggle("표의 시간 칸을 눌러 LOCK하기", key=key, on_change=cancel_lock,
+                         help="켜면 표의 시간 칸을 눌러 LOCK하고 빠지는 사람(이름)을 골라 남은 시간을 다시 편성합니다. "
+                              "끄면 고른 LOCK이 취소됩니다.")
+
+
+def emergency_box(key: str):
+    """emergency_toggle이 만든 접힌 칸 (없으면 새 접힌 칸)."""
+    return EMERGENCY_BOXES.get(key) or st.expander("🚨 긴급 반차·이탈 재편성", expanded=False)
+
+
+def _hints(items, small: bool = False) -> None:
+    size = "padding:0 6px;margin:0 3px 3px 0;font-size:.66rem" if small else "padding:1px 9px;margin:0 6px 4px 0;font-size:.78rem"
     chips = "".join(f"<span style='display:inline-block;background:#F1F5F9;border:1px solid #E2E8F0;"
-                    f"border-radius:999px;padding:1px 9px;margin:0 6px 4px 0;font-size:.78rem;color:#334155'>{i}</span>"
+                    f"border-radius:999px;{size};color:#334155'>{i}</span>"
                     for i in items)
-    st.markdown(f"<div>{chips}</div>", unsafe_allow_html=True)
+    # 칩이 아래 표(iframe)와 겹치지 않게 아래 여백 확보 (2026-10-05)
+    st.markdown(f"<div style='padding-bottom:14px;line-height:1.6'>{chips}</div>", unsafe_allow_html=True)
 
 
 def saved_status(prefix: str, day: date) -> dict:
@@ -156,22 +199,92 @@ def _md(text: str) -> str:
     return str(text).replace("~", "\\~")
 
 
-def _summary_tabs(prefix: str, record, summary_table, summary_detail, baseline_record=None) -> None:
+def _toggle_applies(record) -> bool:
+    """FM·유도리 보기 버튼은 FM으로 만든 표에만 (유도리로 만든 표·도중 유도리 전환 표는 이미 유도리 표시)."""
+    from night_shift.models import Mode
+    return record.context.effective_mode == Mode.FM and record.context.flexible_from_slot is None
+
+
+def view_mode(key: str, record) -> str:
+    return st.session_state.get(key, "FM") if _toggle_applies(record) else "FM"
+
+
+def view_toggle(payload: dict, record, key: str) -> str:
+    """표 제목 줄의 FM·유도리 보기 버튼 (2026-10-13 사용자 요청). 처음엔 FM, 유도리를 누르면 유도리 적용
+    시간대·포스트(기본값 I1 22~03시 등)를 자홍색 테두리로 보여 준다. 배정·교환은 FM 표 그대로."""
+    if not _toggle_applies(record):
+        return "FM"
+    mode = view_mode(key, record)
+    payload["view_toggle"], payload["view_mode"] = True, mode
+    if mode == "유도리":
+        from night_shift.service import flexible_view
+        from night_shift.schedule_edit import sheet_meta
+        from night_shift.presentation import flexible_band
+        flex = flexible_view(record)
+        if payload.get("sheet"):
+            payload["sheet"]["operations"] = sheet_meta(flex.context)["operations"]
+        payload["band"] = flexible_band(flex.context)
+    return mode
+
+
+def handle_view_event(event, key: str) -> bool:
+    """표에서 FM·유도리 버튼을 누른 이벤트면 보기만 바꾸고 True."""
+    if not (isinstance(event, dict) and event.get("kind") == "view"):
+        return False
+    if event.get("nonce") != st.session_state.get(key + "_nonce"):
+        st.session_state[key + "_nonce"] = event.get("nonce")
+        st.session_state[key] = "유도리" if event.get("mode") == "유도리" else "FM"
+        st.rerun()
+    return True
+
+
+def view_record(record, key: str):
+    """분석(전체 비교·직원 상세분석)용 기록: 유도리 보기면 같은 배정을 유도리로 다시 계산한 표."""
+    if record is not None and view_mode(key, record) == "유도리":
+        from night_shift.service import flexible_view
+        return flexible_view(record)
+    return record
+
+
+def _summary_tabs(prefix: str, record, summary_table, summary_detail, baseline_record=None, view_key=None) -> None:
     if summary_table is None or summary_detail is None:
         return
+    if view_key and view_mode(view_key, record) == "유도리":
+        st.caption("🟣 유도리 기준으로 다시 계산한 값입니다(배정은 같음, 유도리 적용 칸은 휴게성·좌식 회계).")
+        record, baseline_record = view_record(record, view_key), view_record(baseline_record, view_key)
     view = SimpleNamespace(employee_stats=calculate_all_stats(record), record=record)
     baseline = (calculate_all_stats(baseline_record)
                 if baseline_record is not None and baseline_record.assignments != record.assignments else None)
-    tab_all, tab_person = st.tabs(("전 직원 핵심 비교", "직원 상세분석"))
+    tab_all, tab_person = st.tabs(("전체 비교", "직원 상세분석"))
     with tab_all:
         summary_table(view, heading=False, baseline=baseline, key=f"{prefix}_summary_cols")
     with tab_person:
         summary_detail(view, f"{prefix}_summary_person", heading=False)
 
 
+def load_saved(selected: date) -> dict | None:
+    """저장된 야간 근무표를 화면 없이 읽는다 (폰 보기용). render_history_editor와 같은 값 + 원본 data.
+
+    수정 내역을 적용할 수 없으면 ValueError."""
+    if not history_store.exists(store_dir(), selected):
+        return None
+    data = history_store.load(store_dir(), selected)
+    from image_import_ui import render_saved_image
+    render_saved_image(data)
+    plan = data["plan_record"]
+    return {"plan": plan, "actual": apply_edits(plan, data["edits"]), "notes": cell_notes(data["edits"]),
+            "rebalance": data.get("rebalance"), "lock": history_store.locked_through(data),
+            "note": data.get("note", ""), "source": data.get("source"), "data": data}
+
+
 def render_history_editor(prefix: str, drag_grid, selected: date,
-                          summary_table=None, summary_detail=None) -> None:
-    """Stored schedule of one date: first save, latest revision, corrections."""
+                          summary_table=None, summary_detail=None, mobile: bool = False, leave=None) -> None:
+    """Stored schedule of one date: first save, latest revision, corrections.
+
+    mobile: 폰(터치) — 끌기 대신 '눌러서 교환'. 표를 누를 때 교환할지 피로도·사유를 기록할지 고른다.
+    기능·저장 방식은 PC와 같다.
+    leave: 긴급 반차·이탈 (생성표와 같은 방식 — 시간 칸 누르기 → 그 시간까지 LOCK 빗금, 이름 누르기 → 반차·이탈).
+           {"eligible": f(actual, start) -> set[id], "run": f(plan, actual, start, id, half)}"""
     if not history_store.exists(store_dir(), selected):
         return
     data = history_store.load(store_dir(), selected)
@@ -187,6 +300,15 @@ def render_history_editor(prefix: str, drag_grid, selected: date,
         st.error(f"수정 내역을 적용할 수 없습니다: {exc}")
         return
 
+    # 2026-10-13 사용자 요청: 날짜를 누르면 근무표가 맨 먼저 — 표 자리를 먼저 잡고 나머지 메뉴는 그 아래
+    grid_slot = st.container()
+    from night_shift.presentation import barrier_role_summary
+    st.caption(barrier_role_summary(actual))
+    from night_shift.models import barrier_v2
+    if barrier_v2(actual.context) and any(
+            r.employee_id == "A" and r.barrier_remove_flag for r in actual.assignments):
+        st.warning("저장표의 04시 I1이 통제A입니다. 철수자는 I1로 표시했지만 통제A 차단봉 불참 규칙과 충돌하므로 근무 배정 재편성이 필요합니다.")
+
     lock = history_store.locked_through(data)
     if lock >= 0:
         info = data.get("rebalance") or {}
@@ -194,9 +316,9 @@ def render_history_editor(prefix: str, drag_grid, selected: date,
         detail = f" · {who} {HOURS[info['from']]}부터 근무불가 ({info.get('reason', '')})" if info.get("from") is not None else ""
         st.info(_md(f"🔒 긴급 재편성 근무표입니다. 18시~{HOURS[lock]}은 재편성 당시 이미 진행된 시간이라 "
                     f"LOCK(빗금)으로 표시하고 드래그로 바꿀 수 없습니다{detail}."))
-    if data.get("source", "").startswith("excel"):
-        st.caption("📥 엑셀 근무표에서 옮겨 온 실제 기록입니다. 설명은 아래 특이사항에 있습니다.")
     views = ("최종 수정본", "최초 저장본") if data["edits"] else ("최초 저장본",)
+    if st.session_state.pop(f"{prefix}_return_final_{selected}", False):
+        st.session_state[f"{prefix}_view_{selected}"] = views[0]
     view = st.radio("보기", views, horizontal=True, key=f"{prefix}_view_{selected}")
     confirmed = data["confirmed_at"].replace("T", " ")
     edited = data.get("edited_at", "").replace("T", " ")
@@ -219,26 +341,113 @@ def render_history_editor(prefix: str, drag_grid, selected: date,
         st.rerun()
 
     if view == "최초 저장본" and data["edits"]:
-        st.markdown(f"#### {selected} 최초 저장본 (읽기 전용)")
-        drag_grid(data=record_grid_payload(plan, editable=False, locked_through=lock),
-                  key=f"{prefix}_plan_grid_{selected}",
-                  default=None)
-        _summary_tabs(f"{prefix}_plan", plan, summary_table, summary_detail)
+        grid_slot.markdown(f"#### {selected} 최초 저장본")
+        st.caption("✋ 꾹 누르고 끌어 교환하면 최초 저장본을 바탕으로 새 최종 수정본을 만듭니다. 최초 저장 기록은 유지됩니다.")
+        plan_payload = {**record_grid_payload(plan, editable=True, locked_through=lock), "compact": mobile}
+        view_toggle(plan_payload, plan, f"{prefix}_fmview_{selected}")        # FM·유도리 보기 (2026-10-13)
+        with grid_slot:
+            event = drag_grid(data=plan_payload, key=f"{prefix}_plan_grid_{selected}", default=None)
+        if handle_view_event(event, f"{prefix}_fmview_{selected}"):
+            event = None
+        if isinstance(event, dict) and event.get('kind') == 'cell' and event.get('nonce') != st.session_state.get(f'{prefix}_plan_nonce'):
+            st.session_state[f'{prefix}_plan_nonce'] = event.get('nonce')
+            edit = {'type':'swap','a':event['source'],'b':event['target']}
+            try:
+                apply_edits(plan,[edit])
+            except ValueError as exc:st.error(str(exc))
+            else:
+                edits[:] = [edit]
+                st.session_state[f"{prefix}_return_final_{selected}"] = True
+                st.rerun()
+        p1, p2 = st.columns(2)
+        from night_shift.source_attachment import render_button
+        render_button(data, f"night-{prefix}-plan-{selected}", p2)
+        from night_shift.upload_review import revert_button      # 덮어쓰기 전 버전으로 (2026-10-11)
+        revert_button(store_dir(), selected, "night", f"night-{prefix}-plan-{selected}", p2)
+        if p1.button('💾 실제 근무 저장',key=f'{prefix}_plan_save_{selected}',type='primary'):
+            history_store.save_edits(store_dir(), selected, edits)
+            st.session_state[f"{prefix}_return_final_{selected}"] = True
+            st.rerun()
+        _summary_tabs(f"{prefix}_plan", plan, summary_table, summary_detail, view_key=f"{prefix}_fmview_{selected}")
         return {"plan": plan, "actual": actual, "notes": cell_notes(edits), "rebalance": data.get("rebalance"), "lock": lock, "note": data.get("note", ""), "source": data.get("source")}
 
     notes = cell_notes(edits)
     cell_key = f"{prefix}_cell_{selected}"
     picked = st.session_state.get(cell_key)
 
-    st.markdown(f"#### {selected} 저장본 · 실제 근무 수정")
-    _hints(("✋ 칸 끌기 → 실제 근무 교환", "👆 칸 누르기 → 피로도·사유 기록", "📝 누르기 → 주석 보기",
-            "빨간 테두리 = 계획과 달라진 칸", "빗금 = LOCK"))
-    event = drag_grid(data=record_grid_payload(actual, changed_cells(plan, actual), notes=notes,
-                                               cell_click=True, selected_cell=picked, locked_through=lock),
-                      key=f"{prefix}_grid_{selected}", default=None)
+    grid_slot.markdown(f"#### {selected} 저장본 · 실제 근무 수정")   # 표와 함께 맨 위
+    tap_swap = mobile and st.radio("표를 누르면", ("피로도·사유 기록", "실제 근무 교환"), horizontal=True,
+                                   key=f"{prefix}_tap_mode_{selected}") == "실제 근무 교환"
+    if mobile:
+        _hints(("✋ 꾹 눌러 끌기 = 교환", "📝 = 주석", "빨간 테두리 = 변경", "빗금 = LOCK"), small=True)
+    else:
+        _hints(("✋ 칸 끌기 → 실제 근무 교환", "👆 칸 누르기 → 피로도·사유 기록", "📝 누르기 → 주석 보기",
+                "빨간 테두리 = 계획과 달라진 칸", "빗금 = LOCK"))
+    payload = record_grid_payload(actual, changed_cells(plan, actual), notes=notes,
+                                  cell_click=not tap_swap, selected_cell=picked, locked_through=lock)
+    payload["tap_swap"] = tap_swap
+    payload["compact"] = mobile                          # 폰: 시간 = 줄, 사람 = 열 한 화면 표 (2026-10-05)
+    movable_people = {a.employee_id for a in actual.context.attendance
+                      if a.present and not a.acts_as_manager and a.display_number is not None}
+    for row in payload["rows"]:                          # 번호·자리 교환: 이름(번호) 끌기·누르기 (2026-10-05)
+        row["movable"] = row["id"] in movable_people
+    lock_key = f"{prefix}_leave_lock_{selected}"
+    pending, menus = st.session_state.get(lock_key), {}
+    opened = leave is not None and emergency_toggle(      # 눌러야 켜지는 긴급 반차·이탈 (2026-10-05)
+        f"{prefix}_emergency_{selected}",
+        force=pending is not None or f"{prefix}_leave_request_{selected}" in st.session_state, lock_key=lock_key)
+    if opened:
+        lock_hours = list(range(lock + 1, 13))            # 07시는 LOCK 뒤에 남는 시간이 없어 제외
+        if pending not in lock_hours:
+            pending = st.session_state[lock_key] = None
+        if pending is not None:
+            start = pending + 1
+            for pid in leave["eligible"](actual, start):
+                menus[pid] = ([{"label": "후반부 반차 (01시 퇴근)", "value": "half"}] if start <= 7 else [])
+                menus[pid].append({"label": f"긴급 이탈 ({HOURS[start]}부터)", "value": "leave"})
+            for row in payload["rows"]:                  # 이름 고르는 동안 교환·칸 누르기 끔
+                row["pick"] = row["id"] in menus
+                row["off"] = not row["pick"]
+            payload["cell_click"] = False
+            payload["tap_swap"] = False
+            steps = ([("done", f"① {HOURS[pending]}까지 LOCK ✓"), ("now", "② 빠질 사람 이름 누르기")] if mobile else
+                     [("done", f"① {HOURS[pending]}까지 LOCK ✓ (같은 시간을 다시 누르면 취소)"),
+                      ("now", "② 빠지는 사람의 이름(노란 칸)을 누르세요"), ("", "③ 재편성표가 아래에 생김")])
+        else:
+            steps = ([("now", "🚨 긴급: ① 지난 시간 칸 누르기"), ("", "② 이름"), ("", "③ 재편성")] if mobile else
+                     [("now", "🚨 긴급 반차·이탈: ① 파란 시간 칸에서 이미 지나간(진행 중) 마지막 시간을 누르세요"),
+                      ("", "② 빠지는 사람 이름 누르기"), ("", "③ 재편성표가 아래에 생김")])
+        payload.update(lock_hours=lock_hours, pending_lock=pending, menus=menus,
+                       steps_html="<div class='steps'>" + "".join(f"<span class='{c}'>{escape(s)}</span>" for c, s in steps)
+                                  + "</div>")
+    view_toggle(payload, actual, f"{prefix}_fmview_{selected}")            # FM·유도리 보기 (2026-10-13)
+    with grid_slot:                                                      # 표는 맨 위 자리에 (2026-10-13)
+        event = drag_grid(data=payload, key=f"{prefix}_grid_{selected}", default=None)
+    if handle_view_event(event, f"{prefix}_fmview_{selected}"):
+        event = None
+    queued = st.session_state.pop(f"{prefix}_leave_request_{selected}", None)   # 화면 테스트용 같은 요청 길
+    if queued:
+        event = {**queued, "nonce": f"queued-{selected}-{len(edits)}-{queued}"}
     nonce_key = f"{prefix}_nonce"
     if isinstance(event, dict) and event.get("nonce") and event["nonce"] != st.session_state.get(nonce_key):
         st.session_state[nonce_key] = event["nonce"]
+        if leave is not None and event.get("kind") == "lockhour":
+            hour = int(event["t"])
+            st.session_state[lock_key] = None if pending == hour else hour
+            st.rerun()
+        if leave is not None and event.get("kind") == "leave" and pending is not None and event.get("pid") in menus:
+            st.session_state[lock_key] = None
+            leave["run"](plan, actual, pending + 1, str(event["pid"]), event.get("choice") == "half")
+            st.rerun()
+        if event.get("kind") == "person":
+            edit = {"type": "person", "a": str(event["source"]), "b": str(event["target"])}
+            try:
+                apply_edits(plan, [*edits, edit])
+            except ValueError as exc:
+                st.session_state[f"{prefix}_warn"] = str(exc)
+            else:
+                edits.append(edit)
+            st.rerun()
         if event.get("kind") == "cell":
             edit = {"type": "swap", "a": event["source"], "b": event["target"]}
             try:
@@ -331,18 +540,25 @@ def render_history_editor(prefix: str, drag_grid, selected: date,
                 edits.pop(index)
                 st.rerun()
     saved = edits == data["edits"]
-    c1, c2 = st.columns(2)
-    if c1.button("💾 실제 근무 저장", key=f"{prefix}_save_{selected}", disabled=saved, type="primary"):
+    c1, c3, c2 = st.columns(3)
+    from night_shift.source_attachment import render_button   # 원본 보기 = 실제 근무 저장 바로 옆 (2026-10-07)
+    render_button(data, f"night-{prefix}-{selected}", c3)
+    from night_shift.upload_review import revert_button          # 덮어쓰기 전 버전으로 (2026-10-11)
+    revert_button(store_dir(), selected, "night", f"night-{prefix}-{selected}", c3)
+    # 2026-10-04 사용자 요청: 항상 켜 두고, 마지막으로 누른 시점의 화면 근무표를 최종 실제 근무로 덮어쓴다.
+    if c1.button("💾 실제 근무 저장", key=f"{prefix}_save_{selected}", type="primary",
+                 help="지금 화면의 근무표를 이 날의 최종 실제 근무로 저장합니다 (누를 때마다 덮어씀)."):
         history_store.save_edits(store_dir(), selected, edits)
-        st.success("실제 근무를 저장했습니다. 이후 근무표 생성에 이 실제 기록이 반영됩니다.")
+        st.session_state["flash"] = (f"{selected} 실제 근무를 최종본으로 저장했습니다. "
+                                     "이후 근무표 생성에 이 실제 기록이 반영됩니다.")
         st.rerun()
     if c2.button("저장본으로 되돌리기", key=f"{prefix}_revert_{selected}", disabled=saved):
         st.session_state[edit_key] = list(data["edits"])
         st.rerun()
     if not saved:
-        st.caption("저장하지 않은 수정이 있습니다.")
+        st.caption("저장하지 않은 수정이 있습니다. '💾 실제 근무 저장'을 누르면 지금 화면이 최종본이 됩니다.")
 
-    _summary_tabs(prefix, actual, summary_table, summary_detail, baseline_record=plan)
+    _summary_tabs(prefix, actual, summary_table, summary_detail, baseline_record=plan, view_key=f"{prefix}_fmview_{selected}")
     return {"plan": plan, "actual": actual, "notes": notes, "rebalance": data.get("rebalance"), "lock": lock, "note": data.get("note", ""), "source": data.get("source")}
 
 
@@ -363,6 +579,30 @@ def _leave_label(attendance, handover) -> str | None:
     return f"부분 근무 {HOURS[slots[0]]}~"
 
 
+def field_changes(day: date, plan, actual, edits: list, names: dict) -> list[dict]:
+    """그날 현장에서 생긴 변동(근무 교환·피로도/사유 주석·실제 운영 변경)과 사람별 피로도 변화 (2026-10-05).
+    반환: [{'날짜','직원','내용','피로도 변화'}] — 피로도가 바뀐 사람마다 그 사람에 관련된 변경을 붙인다."""
+    from night_shift.actual_edit import describe_edit
+    if not edits:
+        return []
+    before, after = calculate_all_stats(plan), calculate_all_stats(actual)
+    out = []
+    for pid, person in after.items():
+        delta = person.fatigue_value - (before[pid].fatigue_value if pid in before else 0)
+        mine = []
+        for edit in edits:
+            kind = edit.get("type")
+            involved = ({str(edit["a"][0]), str(edit["b"][0])} if kind == "swap" else
+                        {str(edit["a"]), str(edit["b"])} if kind == "person" else
+                        {str(edit["cell"][0])} if kind == "fatigue" else None)   # state = 그 시간 해당 포스트 전원
+            if involved is None and delta or involved and pid in involved:
+                mine.append(describe_edit(edit, names))
+        if delta or mine:
+            out.append({"날짜": day.strftime("%m/%d"), "직원": names.get(pid, pid),
+                        "내용": " · ".join(mine) or "현장 기록 변경", "피로도 변화": f"{delta:+g}"})
+    return out
+
+
 def render_monthly(shift_date: date) -> list[dict]:
     """Monthly average fatigue per worker and leave records, from saved actual nights."""
     dates = history_store.list_dates(store_dir())
@@ -372,25 +612,40 @@ def render_monthly(shift_date: date) -> list[dict]:
     months = sorted({(d.year, d.month) for d in dates} | {(shift_date.year, shift_date.month)}, reverse=True)
     year, month = st.selectbox("월 선택", months, format_func=lambda ym: f"{ym[0]}년 {ym[1]}월",
                                key="monthly_month")
-    days = [d for d in dates if (d.year, d.month) == (year, month)]
+    days = [d for d in dates if (d.year, d.month) == (year, month) and d <= shift_date]
     if not days:
-        st.info("이 달에 저장된 근무표가 없습니다. 근무표를 확정 저장하면 여기에 쌓입니다.")
+        st.info(f"{shift_date:%Y년 %m월 %d일} 기준으로 이 달에 저장된 근무표가 없습니다.")
         return []
     totals: dict[str, dict] = {}
     leaves = []
+    changes = []                                         # 현장 변동 (월간 분석에서만 설명, 2026-10-05)
+    from night_shift import leave_schedule
     for day in days:
         record = history_store.actual_record(store_dir(), day)
         names = {e.employee_id: e.name for e in record.context.employees}
+        try:
+            data = history_store.load(store_dir(), day)
+            day_changes = field_changes(day, history_store.record_from_json(data["plan"]), record,
+                                        data.get("edits") or [], {**names, "A": "통제"})
+        except Exception:
+            day_changes = []
+        changes.extend(day_changes)
+        others = leave_schedule.other_labels(store_dir(), day, "night", list(names.values()))   # 기타(근무 제외)
         stats = calculate_all_stats(record)
         for a in record.context.attendance:
             label = _leave_label(a, record.context.manager_handover)
             name = "통제" if a.acts_as_manager and a.display_number is None else names[a.employee_id]
+            if label in ("연차", "결근") and names.get(a.employee_id) in others:
+                note = others[names[a.employee_id]]
+                label = "기타" + (f"({note})" if note else "")
             item = totals.setdefault(a.employee_id, {"직원": name, "온전 출근일": 0, "fatigue": 0,
-                                                     "work": 0, "연차": 0, "반차": 0})
+                                                     "work": 0, "연차": 0, "반차": 0, "기타": 0})
             if label:
                 leaves.append({"날짜": day.strftime("%m/%d"), "직원": name, "구분": label})
                 if label in ("연차", "결근"):
                     item["연차"] += 1
+                elif label.startswith("기타"):
+                    item["기타"] += 1
                 elif "반차" in label:
                     item["반차"] += 1
             person = stats.get(a.employee_id)
@@ -404,11 +659,13 @@ def render_monthly(shift_date: date) -> list[dict]:
         item = totals[employee_id]
         nights = item["온전 출근일"]
         rows.append({**item, "id": employee_id, "is_manager": employee_id == "A", "평균 피로도": round(item["fatigue"] / nights, 2) if nights else None,
-                     "평균 실근무": round(item["work"] / nights, 2) if nights else None})
-    st.markdown(f"##### {year}년 {month}월 근무자별 피로도 · 저장된 {len(days)}일, 실제 근무 기준")
-    st.dataframe(pd.DataFrame(rows)[["직원", "온전 출근일", "평균 피로도", "평균 실근무", "연차", "반차"]],
+                     "평균 실근무": round(item["work"] / nights, 2) if nights else None,
+                     "집계 기준일": shift_date.isoformat(),
+                     "현장 변동": [c for c in changes if c["직원"] == item["직원"]]})
+    st.markdown(f"##### {year}년 {month}월 근무자별 피로도 · {shift_date:%m/%d}까지 저장된 {len(days)}일, 실제 근무 기준")
+    st.dataframe(pd.DataFrame(rows)[["직원", "온전 출근일", "평균 피로도", "평균 실근무", "연차", "반차", "기타"]],
                  hide_index=True, width="stretch")
-    st.caption("평균은 연차·반차·긴급 이탈 없이 온전히 출근한 날만 집계합니다.")
+    st.caption(f"선택한 {shift_date:%Y-%m-%d} 당일까지의 저장된 실제 근무만 집계합니다. 이후 날짜는 제외하며, 평균은 연차·반차·긴급 이탈 없이 온전히 출근한 날만 계산합니다.")
     chart = monthly_dot_chart(rows)
     if chart is not None:
         st.markdown("##### 월간 평균 피로도 (점이 팀 평균선보다 오른쪽이면 부담이 큰 사람)")
@@ -416,6 +673,12 @@ def render_monthly(shift_date: date) -> list[dict]:
             st.altair_chart(chart, width="stretch")
         except TypeError:  # older Streamlit
             st.altair_chart(chart, use_container_width=True)
+    st.markdown("##### 현장 변동 (근무표 생성 후 실제로 바뀐 것, 주석 참조)")
+    if changes:
+        st.dataframe(pd.DataFrame(changes), hide_index=True, width="stretch")
+        st.caption("근무표 특이사항은 생성 당시 기준이라 이 변동을 넣지 않습니다. 월간 평균 피로도에는 이 변동이 포함됩니다.")
+    else:
+        st.caption("이 달에 현장에서 바뀐 기록이 없습니다.")
     st.markdown("##### 연차·반차·이탈 기록")
     if leaves:
         st.dataframe(pd.DataFrame(leaves), hide_index=True, width="stretch")
@@ -433,9 +696,9 @@ def _duty_tokens(record) -> dict:
     for r in sorted(record.assignments, key=lambda r: r.slot.index):
         hour = f"{(18 + r.slot.index) % 24:02d}"
         tokens = out.setdefault(r.employee_id, [])
-        if r.barrier_install_flag:
+        if barrier_history_counts(record.context) and r.barrier_install_flag:
             tokens.append("설치")
-        if r.barrier_remove_flag:
+        if barrier_history_counts(record.context) and r.barrier_remove_flag:
             tokens.append("철수")
         if r.actual_post_or_work_type.kind.value == "patrol":
             tokens.append(ZONE.get(r.actual_post_or_work_type.label, r.actual_post_or_work_type.label) + hour)
@@ -531,7 +794,7 @@ def duty_grid_html(frame: pd.DataFrame) -> str:
             + "</tr></thead><tbody>" + "".join(rows) + "</tbody></table></div>"
             + legend.replace("class='chip'", "style='display:inline-flex;align-items:center;gap:3px'")
             .replace("class='dot' style='", "style='width:9px;height:9px;border-radius:50%;display:inline-block;")
-            + "</div>")
+            + "</div><div style='height:16px'></div>")   # 아래 안내 글과 겹침 방지 (Streamlit 마지막 요소 음수 여백, 2026-10-13)
 
 
 # 직접 그린 HTML 표·격자의 공통 바탕: 테마와 관계없이 흰 바탕·검은 글자 (다크모드 가시성)
@@ -568,3 +831,156 @@ def monthly_dot_chart(rows: list[dict]):
     rule_label = alt.Chart(pd.DataFrame({"m": [mean], "t": [f"팀 평균 {mean:.1f}"]})).mark_text(
         dy=-8, align="left", dx=4, fontSize=11, color=faint).encode(x="m:Q", y=alt.value(0), text="t:N")
     return (rule + rule_label + dots + labels).properties(height=34 * len(data) + 30)
+
+
+def recent_fatigue_html(shift_date: date, view: str | None = None) -> str:
+    """선택일 이전 최근 실제 6근무. 날짜 링크로 저장된 근무표 이동. 맨 아래 평균 줄(가장 높음 주황·낮음 파랑)."""
+    from urllib.parse import urlencode
+    records = sorted(history_store.recent_actuals(store_dir(), shift_date, limit=6),
+                     key=lambda r: r.context.shift_start_date)
+    if not records:
+        return ""
+    names = {}
+    for record in records:
+        names.update({e.employee_id: "통제A" if e.employee_id == "A" else e.name
+                      for e in record.context.employees})
+    people = sorted(names, key=lambda p: (p != "A", p))
+    header = "<th>날짜</th>" + "".join(f"<th>{escape(names[p])}</th>" for p in people)
+    rows = []
+    totals = {pid: [] for pid in people}
+    for record in records:
+        day = record.context.shift_start_date
+        params = {"night_date": day.isoformat()}
+        if view in ("pc", "mobile"):
+            params["view"] = view
+        href = escape("?" + urlencode(params), quote=True)
+        stats = calculate_all_stats(record)
+        full = [person.fatigue_value for person in stats.values()
+                if not person.is_manager and person.available_time == 14]
+        day_average = sum(full) / len(full) if full else None
+        cells = []
+        for pid in people:
+            person = stats.get(pid)
+            if person is None:
+                cells.append('<td class="off">—</td>')
+            else:
+                partial = person.available_time < 14
+                value = day_average if partial else person.fatigue_value
+                if value is not None:
+                    totals[pid].append(value)
+                suffix = f'<sup title="반차·이탈: 실제 {person.fatigue_value:g}점, 당일 온전 일반근무자 평균 대입">반</sup>' if partial else ""
+                number = f"{value:.1f}".rstrip("0").rstrip(".") if value is not None else "—"
+                cells.append(f"<td>{number}{suffix}</td>")
+        rows.append(f'<tr><td><a target="_self" href="{href}" aria-label="{day.isoformat()} 야간 근무표">{day:%m/%d}</a></td>' + "".join(cells) + "</tr>")
+    # 평균 줄: 일반근무자(통제A 제외) 중 가장 높은 사람 주황·가장 낮은 사람 파랑 (2026-10-14 사용자 요청, 동점은 모두)
+    averages = {pid: round(sum(totals[pid]) / len(totals[pid]), 2) for pid in people if totals[pid]}
+    general = {p: v for p, v in averages.items() if p != "A"}
+    top = max(general.values()) if len(general) >= 2 else None
+    bottom = min(general.values()) if len(general) >= 2 else None
+    average_cells = ""
+    for pid in people:
+        if pid not in averages:
+            average_cells += '<td class="off">—</td>'
+            continue
+        tag = ("" if pid == "A" or top == bottom else
+               ' class="more" title="최근 6근무 평균 가장 높음"' if averages[pid] == top else
+               ' class="less" title="최근 6근무 평균 가장 낮음"' if averages[pid] == bottom else "")
+        average_cells += f"<td{tag}>{averages[pid]:.2f}</td>"
+    footer = '<tfoot><tr><th>평균</th>' + average_cells + '</tr></tfoot>'
+    css = '<style>.recent-fatigue tfoot td.less{color:#3B82F6}.recent-fatigue tfoot td.more{color:#F97316}.recent-fatigue{width:100%;max-width:760px;table-layout:fixed;border-collapse:collapse;font-size:clamp(11px,2.9vw,13px);font-variant-numeric:tabular-nums}.recent-fatigue th,.recent-fatigue td{text-align:center;padding:7px 1px;border-bottom:1px solid #94a3b833;overflow-wrap:anywhere}.recent-fatigue th:first-child{width:52px}.recent-fatigue a{display:block;padding:3px 0;color:#3182f6;font-weight:600;text-decoration:underline}.recent-fatigue sup{font-size:9px;margin-left:1px}.recent-fatigue .off{opacity:.45} .recent-fatigue tfoot{font-weight:700;background:#3182f610}.recent-fatigue tfoot td{border-top:1px solid #94a3b855}</style>'
+    return css + '<table class="recent-fatigue"><thead><tr>' + header + '</tr></thead><tbody>' + "".join(rows) + '</tbody>' + footer + '</table>'
+
+
+def _last_rest_people(record) -> tuple[dict, list[str]]:
+    """그 밤 07시(막타임) 실휴게를 받은 일반근무자와 그 밤 일반근무자 이름표. 관리자(통제A·대행) 제외."""
+    stats = calculate_all_stats(record)
+    names = {p: s.name for p, s in stats.items() if not s.is_manager}
+    rest = [r.employee_id for r in record.assignments
+            if r.slot.index == 13 and r.employee_id in names and r.actual_rest_time_value == 1]
+    return names, rest
+
+
+def last_rest_table_html(shift_date: date, current=None) -> str:
+    """막타임(07시) 휴게 표 (2026-10-13 사용자 요청: 비고 문장 대신 순찰표처럼). 사람 × 최근 6근무(+이번 근무),
+    받은 칸에만 🛌. 위 한 줄 판정(최근 6근무 고르기·직전에 이어 또 받음). 저장된 실제 근무 기준, 관리자 제외."""
+    store = store_dir()
+    recent = sorted(history_store.recent_actuals(store, shift_date, limit=6), key=lambda r: r.context.shift_start_date)
+    if not recent:
+        return ""
+    nights = [(f"{r.context.shift_start_date:%m/%d}", *_last_rest_people(r)) for r in recent]
+    if current is not None:
+        nights.append(("이번", *_last_rest_people(current)))
+    names = {}
+    for _, day_names, _ in nights:
+        names.update(day_names)
+    people = sorted(names, key=lambda p: (not p.isdigit(), int(p) if p.isdigit() else 0, p))
+    recent6 = {p: sum(p in rest for _, _, rest in nights) for p in people}
+    repeats, prev = [], set()
+    for label, day_names, rest in nights:
+        repeats += [f"{label} {day_names[p]}" for p in rest if p in prev]
+        prev = (prev - set(day_names)) | set(rest)
+    # 2026-10-13 사용자 요청: 날짜별로 누가 07시 휴게했는지만 — 점·실선·횟수 열·주석 없음, 폰 한 화면(고정 폭)
+    css = ("<style>.lastrest{border-collapse:collapse;width:100%;table-layout:fixed;font-size:.82rem}"
+           ".lastrest th{font-weight:600;color:#475569;padding:6px 2px;border-bottom:1px solid #e2e8f066;text-align:center;"
+           "white-space:nowrap;font-size:.78rem}.lastrest th:first-child{width:3.6em}"
+           ".lastrest td{padding:6px 2px;border-bottom:1px solid #e2e8f033;text-align:center;height:1.6em}"
+           ".lastrest td.name{text-align:left;font-weight:600;white-space:nowrap}</style>")
+    gap = max(recent6.values()) - min(recent6.values()) if recent6 else 0
+    head = "<th>직원</th>" + "".join(f"<th>{escape(label)}</th>" for label, _, _ in nights)
+    rows = []
+    for p in people:
+        cells = [f"<td class='name'>{escape(names[p])}</td>"]
+        cells += [f"<td>{'🛌' if p in rest else ''}</td>" for _, _, rest in nights]
+        rows.append("<tr>" + "".join(cells) + "</tr>")
+    verdict = ("배정 기준: 직전 출근 수혜자 제외 · 마지막 수혜가 오래된 사람 우선 · "
+               + f"표에 표시된 수혜 횟수 차이 {gap}회 · "
+               + ("연속 수혜 없음" if not repeats else "연속 수혜: " + ", ".join(repeats)))
+    return (css + f"<div style='font-size:.85rem;margin:2px 0 4px'>{escape(verdict)}</div>"
+            + "<table class='lastrest'><tr>" + head + "</tr>" + "".join(rows) + "</table>"
+            + "<div style='height:12px'></div>")
+
+def link_night_dates(text: str, year: int) -> str:
+    """문장 속 'MM/DD'가 저장된 야간 근무표 날짜면 그 근무표로 가는 링크로 (2026-10-13 사용자 요청: 현장 변동 날짜 클릭).
+    결과는 HTML(같은 창 이동, PC·폰 view 유지). 나머지 글자는 그대로 이스케이프."""
+    from urllib.parse import urlencode
+    saved = set(history_store.list_dates(store_dir()))
+    view = st.query_params.get("view")
+    out, last = [], 0
+    for m in re.finditer(r"(?<!\d)(\d{2})/(\d{2})(?!\d)", text):
+        try:
+            day = date(year, int(m.group(1)), int(m.group(2)))
+        except ValueError:
+            continue
+        if day not in saved:
+            continue
+        params = {"night_date": day.isoformat(), **({"view": view} if view in ("pc", "mobile") else {})}
+        out.append(escape(text[last:m.start()]))
+        out.append(f'<a target="_self" href="{escape("?" + urlencode(params), quote=True)}" '
+                   f'style="color:#3182f6;font-weight:600;text-decoration:underline" '
+                   f'aria-label="{day.isoformat()} 야간 근무표">{m.group(0)}</a>')
+        last = m.end()
+    out.append(escape(text[last:]))
+    return "".join(out)
+
+
+def apply_fatigue_navigation() -> None:
+    raw = st.query_params.get("night_date")
+    if not raw:
+        return
+    try:
+        day = date.fromisoformat(raw)
+        if history_store.exists(store_dir(), day):
+            st.session_state["shift_date"] = day
+            st.session_state["app_tab"] = "🗓 근무표"
+    except (ValueError, TypeError):
+        pass
+    del st.query_params["night_date"]
+
+
+def render_recent_fatigue(shift_date: date) -> None:
+    html = recent_fatigue_html(shift_date, st.query_params.get("view"))
+    if html:
+        st.markdown("**참조한 최근 3싸이클 · 피로도**")
+        st.markdown(html, unsafe_allow_html=True)
+        st.caption("평균=최근 6근무 단순평균(미출근 제외) · 주황=가장 높음 · 파랑=가장 낮음 · "
+                   "반=당일 온전 일반근무자 평균 대입 · 날짜를 누르면 저장표로 이동")

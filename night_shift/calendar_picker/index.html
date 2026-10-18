@@ -30,6 +30,7 @@
   .d.red { color: #dc2626; }
   .k { font-size: .62rem; color: #475569; }
   .dot { color: #16a34a; font-size: .6rem; vertical-align: top; }
+  .wed { font-size: .62rem; vertical-align: top; margin-left: 1px; }
   .legend { font-size: .66rem; color: #475569; margin-top: 4px; line-height: 1.5; }
   .legend span.b { padding: 0 4px; border-radius: 3px; }
   .hint { font-size: .62rem; color: #94a3b8; }
@@ -56,7 +57,7 @@
 <div class="legend">
   <span class="b" style="background:#FEF3C7">주</span> 주간 · <span class="b" style="background:#DBEAFE">야</span> 야간 ·
   <span class="b" style="background:#F1F5F9">휴</span> 휴무 · <span style="color:#DC2626">빨간 숫자</span> 주말·공휴일 ·
-  <span style="color:#16A34A">●</span> 저장된 근무표<br><span class="hint">날짜를 누르면 선택 · 달력 위에서 휠을 굴리면 달 이동</span>
+  <span style="color:#16A34A">●</span> 저장된 근무표 · 💒 웨딩<br><span class="hint">날짜를 누르면 선택 · 달력 위에서 휠을 굴리면 달 이동</span>
 </div>
 <script>
   function send(type, payload) {
@@ -86,6 +87,7 @@
   function draw() {
     fillSelectors();
     const saved = new Set(data.saved || []);
+    const weddings = new Set(data.weddings || []);   // 💒 웨딩 있는 날 (2026-10-13)
     const first = new Date(Date.UTC(viewY, viewM - 1, 1)).getUTCDay();   // 0 = Sunday
     const days = new Date(Date.UTC(viewY, viewM, 0)).getUTCDate();
     let html = "<table><tr>" + "일월화수목금토".split("").map((d, i) =>
@@ -100,7 +102,8 @@
       const cls = [s === data.selected ? "sel" : "", s === data.today ? "today" : ""].join(" ");
       html += "<td class='" + cls + "' data-date='" + s + "' style='background:" + COLORS[k] + "' title='" +
               (holiday || "") + "'><div class='d" + (red ? " red" : "") + "'>" + d +
-              (saved.has(s) ? "<span class='dot'>●</span>" : "") + "</div><div class='k'>" + k + "</div></td>";
+              (saved.has(s) ? "<span class='dot'>●</span>" : "") +
+              (weddings.has(s) ? "<span class='wed' title='웨딩 있음'>💒</span>" : "") + "</div><div class='k'>" + k + "</div></td>";
     }
     while (col % 7) { html += "<td class='empty'></td>"; col++; }
     html += "</tr></table>";

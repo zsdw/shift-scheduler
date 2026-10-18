@@ -20,7 +20,7 @@ from __future__ import annotations
 
 from dataclasses import replace
 
-from .models import Assignment, AssignmentKind as K, NightType, Posture, ShiftRecord
+from .models import Assignment, AssignmentKind as K, NightType, Posture, ShiftRecord, barrier_single
 from .profiles import make_record, options_for
 
 HOUR = lambda t: f"{(18 + t) % 24:02d}시"  # noqa: E731
@@ -65,7 +65,8 @@ def _state(record: ShiftRecord, start: int, end: int, posts: dict) -> ShiftRecor
     for r in record.assignments:
         state = posts.get(r.displayed_assignment.label)
         if (state in ("seated", "rest") and lo <= r.slot.index <= hi
-                and r.displayed_assignment.kind == K.POST):
+                and r.displayed_assignment.kind == K.POST
+                and not (barrier_single(record.context) and (r.barrier_install_flag or r.barrier_remove_flag))):
             if state == "seated":
                 r = replace(r, posture_or_mode=Posture.SEATED, fatigue_value=1, actual_work_time_value=1,
                             actual_rest_time_value=0, counts_for_continuous_work_restriction=True,
@@ -129,6 +130,27 @@ def cell_notes(edits: list[dict]) -> dict:
     return notes
 
 
+def _person(record: ShiftRecord, first: str, second: str) -> ShiftRecord:
+    """번호·자리 교환 (2026-10-05): X가 Y의 번호와 하루 근무를 그대로 받는다 (표의 줄은 그대로, 사람만 바뀜)."""
+    context = record.context
+    attendance = {a.employee_id: a for a in context.attendance}
+    if first == second or first not in attendance or second not in attendance:
+        raise ValueError("바꿀 두 사람을 고르세요.")
+    for who in (first, second):
+        a = attendance[who]
+        if a.acts_as_manager or a.display_number is None or not a.present:
+            raise ValueError("통제(관리자)·대행이나 번호 없는 사람은 자리를 바꿀 수 없습니다.")
+    if attendance[first].available_slot_indices != attendance[second].available_slot_indices:
+        raise ValueError("근무 가능 시간이 다른 사람끼리는 자리를 바꿀 수 없습니다 (반차·이탈자).")
+    other = {first: second, second: first}
+    numbers = {e: a.display_number for e, a in attendance.items()}
+    numbers[first], numbers[second] = numbers[second], numbers[first]
+    new_context = replace(context, attendance=tuple(replace(a, display_number=numbers[a.employee_id])
+                                                    for a in context.attendance))
+    return replace(record, context=new_context, assignments=tuple(
+        replace(r, employee_id=other[r.employee_id]) if r.employee_id in other else r for r in record.assignments))
+
+
 def apply_edits(plan: ShiftRecord, edits: list[dict]) -> ShiftRecord:
     record = plan
     for edit in edits:
@@ -138,6 +160,8 @@ def apply_edits(plan: ShiftRecord, edits: list[dict]) -> ShiftRecord:
             record = _swap(record, edit["a"], edit["b"])
         elif edit.get("type") == "state":
             record = _state(record, edit["from"], edit["to"], edit.get("posts", {}))
+        elif edit.get("type") == "person":
+            record = _person(record, str(edit["a"]), str(edit["b"]))
         else:
             raise ValueError(f"알 수 없는 수정 항목: {edit.get('type')}")
     for (employee, slot), item in cell_notes(edits).items():
@@ -149,6 +173,8 @@ def describe_edit(edit: dict, names: dict) -> str:
     if edit.get("type") == "swap":
         (p1, t1), (p2, t2) = edit["a"], edit["b"]
         return f"{names.get(p1, p1)} {HOUR(t1)} ↔ {names.get(p2, p2)} {HOUR(t2)} 근무 교환"
+    if edit.get("type") == "person":
+        return f"{names.get(edit['a'], edit['a'])} ↔ {names.get(edit['b'], edit['b'])} 번호·자리 교환 (근무표는 그대로)"
     if edit.get("type") == "state":
         lo, hi = sorted((edit["from"], edit["to"]))
         parts = [f"{post} {'좌식' if state == 'seated' else '휴게성'}"

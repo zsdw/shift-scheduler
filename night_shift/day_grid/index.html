@@ -20,6 +20,9 @@
   .hovering [data-who]:not(.hl) { opacity: .3; }
   td.hl, th.hl { outline: 3px solid #1d4ed8; outline-offset: -3px; }
   span.hl { background: #1d4ed8; color: #fff !important; border-radius: 3px; padding: 0 3px; }
+  /* 이름 칸 눌러 고정: 야간처럼 이름 칸을 파랗게 (2026-10-16 사용자 요청) */
+  td.name.hl { background: #1d4ed8 !important; color: #fff !important; }
+  .namepin td.name[data-who] { cursor: pointer; text-decoration: underline dotted; }
   #menu { position: absolute; display: none; background: #fff; border: 1px solid #cbd5e1; border-radius: 8px;
           box-shadow: 0 6px 20px rgba(0,0,0,.18); padding: 6px; z-index: 10; min-width: 200px; }
   #menu .who { font-size: .8rem; color: #475569; padding: 4px 8px 6px; border-bottom: 1px solid #e2e8f0; margin-bottom: 4px; }
@@ -27,11 +30,86 @@
                  padding: 9px 10px; border-radius: 6px; font-size: .9rem; cursor: pointer; }
   #menu button:hover, #menu button:focus-visible { background: #eff6ff; }
   #menu button.cancel { color: #64748b; }
+  /* 근무 교환 (2026-10-04): 번호 끌기(PC) / 누르고 바꿀 곳 누르기(폰) */
+  .editing [data-t][data-who], .editing td.name[data-who] { cursor: grab; }
+  .editing td[data-col] { cursor: pointer; }
+  .over { box-shadow: inset 0 0 0 3px #f59e0b !important; }
+  .tapsel { box-shadow: inset 0 0 0 4px #f59e0b !important; background: #fde68a !important; }
+  /* 2026-10-06: 표 안에서 손가락으로 밀면 화면 스크롤(pan), 0.25초 꾹 누른 뒤 움직일 때만 교환 끌기 (touchmove에서 막음) */ [draggable="true"] { touch-action: pan-x pan-y; -webkit-touch-callout: none; user-select: none; -webkit-user-select: none; }
+  .dragging { opacity: .45; }
+.dragready { box-shadow: inset 0 0 0 3px #f59e0b !important; }
+.touch-ghost { position:fixed; pointer-events:none; z-index:99999; background:#fef3c7; border:2px solid #f59e0b; border-radius:6px; padding:6px; max-width:100px; font-weight:700; color:#111827; }
 </style>
 </head>
 <body>
 <div id="sheet"></div><div id="menu" role="menu"></div>
 <script>
+
+  // 터치 끌기: 스크롤과 구분하고, 끌기 뒤 발생하는 클릭은 교환 요청으로 다시 보내지 않는다.
+  function touchDrag(root, selector, accept, commit) {
+    let active = null, suppressUntil = 0;
+    root.addEventListener("click", e => {
+      if (Date.now() < suppressUntil) { e.preventDefault(); e.stopImmediatePropagation(); }
+    }, true);
+    root.addEventListener("contextmenu", e => {
+      if (e.target.closest(selector)) e.preventDefault();
+    });
+    // 꾹 눌러 끌기 준비가 된 뒤에만 스크롤을 막는다 (그 전에는 보통 스크롤)
+    root.addEventListener("touchmove", e => { if (active && active.ready && !active.cancelled) e.preventDefault(); }, {passive: false});
+    root.addEventListener("pointerdown", e => {
+      if (e.pointerType === "mouse" || !e.isPrimary) return;
+      const src = e.target.closest(selector);
+      if (!src || !root.contains(src)) return;
+      const a = active = {src, id:e.pointerId, x:e.clientX, y:e.clientY, ready:false, moved:false, target:null, ghost:null};
+      src.setPointerCapture(e.pointerId);
+      a.timer = setTimeout(() => {
+        if (active !== a) return;
+        a.ready = true;
+        src.classList.add("dragready");
+      }, 250);
+    });
+    function locate(a, x, y) {
+      if (a.target) a.target.classList.remove("over");
+      const hit = document.elementFromPoint(x,y);
+      a.target = hit && hit.closest(selector);
+      if (!a.target || !root.contains(a.target) || !accept(a.src,a.target)) a.target=null;
+      if (a.target) a.target.classList.add("over");
+    }
+    root.addEventListener("pointermove", e => {
+      if (!active || active.id !== e.pointerId) return;
+      const a=active;
+      if (Math.hypot(e.clientX-a.x,e.clientY-a.y)<8 && !a.moved) return;
+      if (!a.ready) { clearTimeout(a.timer); a.cancelled=true; return; }
+      if (a.cancelled) return;
+      e.preventDefault();
+      a.moved=true;
+      a.src.classList.add("dragging");
+      if (!a.ghost) {
+        a.ghost=document.createElement("div");
+        a.ghost.className="touch-ghost";
+        a.ghost.textContent=a.src.textContent.trim();
+        document.body.appendChild(a.ghost);
+      }
+      a.ghost.style.left=(e.clientX+10)+"px";
+      a.ghost.style.top=(e.clientY+10)+"px";
+      locate(a,e.clientX,e.clientY);
+    });
+    function finish(e,cancel) {
+      if (!active || active.id !== e.pointerId) return;
+      const a=active; active=null;
+      clearTimeout(a.timer);
+      if (a.moved && !cancel) locate(a,e.clientX,e.clientY);
+      a.src.classList.remove("dragging","dragready");
+      if (a.target) a.target.classList.remove("over");
+      if (a.ghost) a.ghost.remove();
+      if (a.moved || a.cancelled) suppressUntil=Date.now()+500;
+      if (!cancel && a.moved && a.target) commit(a.src,a.target);
+    }
+    root.addEventListener("pointerup",e=>finish(e,false));
+    root.addEventListener("pointercancel",e=>finish(e,true));
+    root.addEventListener("lostpointercapture",e=>finish(e,true));
+  }
+
   function send(type, payload) {
     window.parent.postMessage(Object.assign({ isStreamlitMessage: true, apiVersion: 1, type: type }, payload || {}), "*");
   }
@@ -71,15 +149,76 @@
   sheet.addEventListener("mouseleave", () => highlight(pinned));
   sheet.addEventListener("focusin", e => { const el = e.target.closest("[data-who]"); if (el) highlight(el.dataset.who); });
   sheet.addEventListener("focusout", () => highlight(pinned));
+  let editing = false, namePin = false;
   sheet.addEventListener("click", e => {
-    const el = e.target.closest("[data-who]");
+    // namePin(주말 주간): 이름 칸 누르기 = 그 사람 칸만 보기 고정/해제 — 교환 모드에서도 (야간과 같음, 2026-10-16)
+    const name = namePin && e.target.closest("td.name[data-who]");
+    if (editing && !name) return;                 // 교환 모드에서는 누르기 = 교환 선택
+    const el = name || e.target.closest("[data-who]");
     if (!el || el.classList.contains("pick")) return;
     pinned = pinned === el.dataset.who ? null : el.dataset.who;
     highlight(pinned);
   });
 
+  // ---- 근무 교환: 같은 시간의 번호끼리 → 맞바꿈, 칸(포스트·순찰·대기·휴게)으로 → 그 근무로 옮김, 이름끼리 → 하루 전체 교환
+  function cellOf(el) { return [el.dataset.who, Number(el.dataset.t)]; }
+  function drop(src, target) {
+    if (!src || !target || src === target) return;
+    const srcCell = src.dataset.t !== undefined;
+    const person = target.closest("[data-who]");
+    if (!srcCell) {                               // 이름 칸 → 이름 칸
+      if (person && person.dataset.t === undefined && person.classList.contains("name") && person !== src)
+        emit({ kind: "rowswap", a: src.dataset.who, b: person.dataset.who });
+      return;
+    }
+    if (person && person.dataset.t !== undefined && person !== src) {
+      emit({ kind: "swap", a: cellOf(src), b: cellOf(person) });
+      return;
+    }
+    const td = target.closest("td[data-col]");
+    if (td) emit({ kind: "move", a: cellOf(src), col: td.dataset.col, t: Number(td.dataset.t) });
+  }
+  let dragged = null, first = null;
+  touchDrag(sheet, "[draggable='true'][data-t], td.name[draggable='true']",   // 폰: 이름 칸끼리 끌기 = 번호만 교환
+    (a, b) => a !== b && (a.dataset.t !== undefined) === (b.dataset.t !== undefined)
+      && (a.dataset.t === undefined || a.dataset.t === b.dataset.t),
+    (a, b) => { first = null; sheet.querySelectorAll(".tapsel").forEach(el => el.classList.remove("tapsel")); drop(a, b); });
+
+  sheet.addEventListener("click", e => {          // 누르기: 첫 번째 = 선택, 두 번째 = 교환/옮김 (한 번만 등록)
+    if (!editing || e.target.closest("th.hour") || e.target.closest("td.pick")) return;
+    if (namePin && e.target.closest("td.name")) return;          // 이름 칸은 보기 고정용
+    const person = e.target.closest(namePin ? "[data-who][data-t]" : "[data-who][data-t], td.name[data-who]");
+    if (!first) {
+      if (person) { first = person; person.classList.add("tapsel"); }
+      return;
+    }
+    const src = first; first = null; src.classList.remove("tapsel");
+    if (person === src) return;
+    drop(src, e.target);
+  });
+  function setupEditing(data) {
+    editing = !!data.edit;
+    first = null; dragged = null;
+    sheet.classList.toggle("editing", editing);
+    if (!editing) return;
+    const movable = sheet.querySelectorAll(namePin ? "[data-who][data-t]" : "[data-who][data-t], td.name[data-who]");
+    movable.forEach(el => {
+      el.setAttribute("draggable", "true");
+      el.addEventListener("dragstart", e => { dragged = el; e.dataTransfer.effectAllowed = "move"; e.dataTransfer.setData("text/plain", "x"); });
+      el.addEventListener("dragend", () => { dragged = null; });
+    });
+    sheet.querySelectorAll("td").forEach(td => {
+      td.addEventListener("dragover", e => { if (dragged) { e.preventDefault(); td.classList.add("over"); } });
+      td.addEventListener("dragleave", () => td.classList.remove("over"));
+      td.addEventListener("drop", e => { e.preventDefault(); td.classList.remove("over"); drop(dragged, e.target); });
+    });
+  }
+
   function render(data) {
     sheet.innerHTML = data.html;
+    namePin = !!data.name_pin;
+    sheet.classList.toggle("namepin", namePin);
+    setupEditing(data);
     menu.style.display = "none";
     opener = null;
     if (pinned && !sheet.querySelector("[data-who='" + CSS.escape(pinned) + "']")) pinned = null;
@@ -94,6 +233,11 @@
       el.addEventListener("click", () => emit({ kind: "hour", t: t }));
       pressable(el);
     });
+    // 표 제목 줄 FM·유도리 보기 버튼 (주말 주간, 2026-10-16 사용자 요청 — 야간과 같음)
+    sheet.querySelectorAll("button.vbtn[data-view]").forEach(el => el.addEventListener("click", e => {
+      e.stopPropagation();
+      if (!el.classList.contains("on")) emit({ kind: "view", mode: el.dataset.view });
+    }));
     sheet.querySelectorAll("td.pick").forEach(el => {
       pressable(el);
       el.addEventListener("click", e => {

@@ -10,7 +10,7 @@ from openpyxl.styles import Alignment, Font
 from .excel_exporter import _history_sheet, _sorted_people, _summary_sheet, _validation_sheet
 from .models import AssignmentKind
 from .presentation import PATROL_LABELS
-from .service import ServiceResult
+from .service import ServiceResult, rulebook_label
 
 
 TEMPLATE = Path(__file__).parent / "templates" / "field_night.xlsx"
@@ -69,11 +69,11 @@ def export_field_xlsx(result: ServiceResult) -> bytes:
     sheet["BL1"] = "팀 장"
     sheet["A3"] = (f"{day:%Y년 %m월 %d일} {weekdays[day.weekday()]}요일 야간근무"
                    f"  ·  {result.context.night_type.value} / {result.context.effective_mode.value}"
-                   f"  ·  v{result.rules_version}  ·  검증 통과 0건")
+                   f"  ·  {rulebook_label(result.rules_version)}  ·  검증 통과 0건")
     sheet["A5"] = "근무자명"
     sheet["F6"] = "A 출근" if any(p.employee_id == "A" for p in people) else "준호 대행"
     sheet["K6"] = f"{result.context.night_type.value} / {result.context.effective_mode.value}"
-    sheet["P6"] = f"룰북 v{result.rules_version}"
+    sheet["P6"] = f"룰북 {rulebook_label(result.rules_version)}"
     sheet["U6"] = "검증 0건"
     for person, column in zip(people, ROSTER_COLUMNS):
         role = " (관리대행)" if person.is_manager and person.employee_id != "A" else ""

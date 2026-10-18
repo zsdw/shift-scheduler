@@ -1,0 +1,12 @@
+# 2026-10-18: GitHub(zsdw/shift-scheduler, 비공개) 연결 — 올리지 않는 것
+.venv/
+__pycache__/
+*.pyc
+*.tmp
+logs/
+backup/
+.codex-remote-attachments/
+.claude/settings.local.json
+history/.trash/
+history/day/.trash/
+history/weekend_day/.trash/

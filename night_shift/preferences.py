@@ -2,7 +2,7 @@
 
 1) 공통 선호 보너스: 근무자들이 공통으로 좋아하는 것
    - 00~05시 안에 2시간 이상 연속 실휴게
-   - 07시(마지막 타임) 실휴게 (16장 마지막 휴게 하드룰은 그대로)
+   - 07시 휴게는 16장의 최근 수혜일 순서로 별도 결정(피로도 가중 제외)
    모두에게 기본 가중치를 주고, 최근 3싸이클(6근무) 실제 기록에서 밤당 피로도가 팀 평균보다 높았던
    (상대적으로 손해 본) 사람일수록 가중치를 더 준다. 하드룰·당일 밸런스·이력 밸런스를 다 맞춘 뒤 적용.
 2) 개인 회피 (강한 소프트): 당일 밸런스 목표 다음, 이력 밸런스·선호 보너스보다 먼저 피한다.
@@ -54,4 +54,7 @@ def avoid_cells(context) -> tuple[tuple[str, int, str], ...]:
         for employee_id, employee_name in names.items():
             if employee_name == name and employee_id in present:
                 out.append((employee_id, slot, label))
+    # 사용자 확정 2026-10-03: 실제 통제 A만, 관리자대행에게 전이하지 않는다.
+    if "A" in names and "A" in present:
+        out.append(("A", 10, "보안실 대기"))  # 04시, 모든 야간 유형·모드의 강한 소프트
     return tuple(out)

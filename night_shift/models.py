@@ -166,8 +166,14 @@ class ShiftContext:
     # 유도리 포스트별 운영 (사용자 지정, 2026-10-02 사용자 확정): ((post, from_slot, to_slot, "rest"|"seated"), ...)
     # None = 룰북 기본 유도리(10-1: I1 00~03시 휴게성). 값이 있으면 기본값을 대신한다. 유도리 슬롯에만 적용.
     post_operations: tuple[tuple[str, int, int, str], ...] | None = None
+    # 5-7 추가 남문 (2026-10-05 사용자 확정): 원래 남문을 안 여는 시간에 G2 1명을 더 여는 슬롯들.
+    # 주말 시작(N3/N4) 18·19·20시, 다음날 주말(N2/N4) 06·07시만. 생성 전 사용자 확인값.
+    extra_south_slots: tuple[int, ...] = ()
 
     def __post_init__(self):
+        bad = set(self.extra_south_slots) - set(extra_south_choices(self.night_type))
+        if bad or len(set(self.extra_south_slots)) != len(self.extra_south_slots):
+            raise ValueError(f"추가 남문은 원래 남문을 안 여는 시간만 고를 수 있습니다: {sorted(bad)}")
         if self.post_operations is not None:
             problems = post_operation_problems(self.post_operations)
             if problems:
@@ -239,8 +245,47 @@ SOUTH_POSTS = ("G2", "G3", "G2(1)")
 POST_OPERATION_CHOICES = {"I1": ("rest", "seated"), "G1": ("seated",), "L3": ("seated",),
                           **{post: ("rest",) for post in SOUTH_POSTS}}
 DEFAULT_POST_OPERATIONS = (("I1", 6, 9, "rest"),)          # 룰북 10-1: 00·01·02·03시 I1 휴게성
+GENERATION_POST_OPERATIONS = (("I1", 4, 9, "rest"),)       # 새 생성 기본: 22~03시, 과거 None 저장본은 종전 기준 유지
+
+
+def default_rest_start(post_operations) -> int | None:
+    """기본 유도리면 I1 휴게성 시작 칸(None 저장본 6=00시, 새 기본 4=22시), 사용자 지정이면 None.
+    기본값을 명시 저장한 새 표도 '사용자 지정'으로 보지 않게 한다 (2026-10-13)."""
+    if post_operations is None:
+        return 6
+    normalized = tuple(tuple(item) for item in post_operations)
+    return {DEFAULT_POST_OPERATIONS: 6, GENERATION_POST_OPERATIONS: 4}.get(normalized)
 # 차단봉 칸은 룰북대로 둔다: 20시 설치(I1·남문 G2), 04시 I1 철수(10-3·10-5).
 BARRIER_CELLS = frozenset({("I1", 2), ("G2", 2), ("I1", 10)})
+
+
+# 15-0 차단봉 고정 담당 (2026-10-05 사용자 확정, 이 날짜 야간부터): FM·유도리 공통
+# 20시 설치 = G2 운영 시 G2 + 보안실 대기 1명, G2 없으면 I1 + 보안실 대기 1명 / 04시 철수 = I1 근무자.
+# 피로도: 포스트 겸임은 원래 포스트 회계 그대로, 대기 설치자만 1점(실근무 0). 이전 날짜 기록은 옛 규칙 그대로.
+BARRIER_V2_FROM = date(2026, 10, 5)
+BARRIER_SINGLE_FROM = date(2026, 10, 9)
+
+def barrier_single(context) -> bool:
+    return context.shift_start_date >= BARRIER_SINGLE_FROM
+
+BARRIER_HISTORY_FROM = date(2026, 10, 4)
+
+
+def barrier_history_counts(context) -> bool:
+    """차단봉 담당 집계는 2026-10-04 야간부터 시작한다."""
+    return context.shift_start_date >= BARRIER_HISTORY_FROM
+
+
+def barrier_v2(context) -> bool:
+    return context.shift_start_date >= BARRIER_V2_FROM
+
+
+def extra_south_choices(night_type) -> tuple[int, ...]:
+    """5-7: 추가 남문(G2)을 고를 수 있는 슬롯 = 원래 남문을 안 여는 시간 (0=18시, 12=06시, 13=07시)."""
+    value = getattr(night_type, "value", night_type)
+    evening = (0, 1, 2) if value in ("N3", "N4") else ()
+    morning = (12, 13) if value in ("N2", "N4") else ()
+    return evening + morning
 
 
 def post_operation_problems(operations) -> list[str]:

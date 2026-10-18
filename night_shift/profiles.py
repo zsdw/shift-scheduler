@@ -1,6 +1,6 @@
 """Stages 3/4: explicit operating records for the initial N1/6/A scenario."""
 from dataclasses import replace
-from .models import mode_at, post_operation, Assignment, AssignmentKind as K, AssignmentRecord, Mode, Posture, SLOTS
+from .models import barrier_single, barrier_v2, mode_at, post_operation, Assignment, AssignmentKind as K, AssignmentRecord, Mode, Posture, SLOTS
 from .common import compile_common_policy, core_post_facts
 
 PATROL_FATIGUE = {"upper": 2, "middle": 2, "lower": 1}
@@ -72,7 +72,17 @@ def make_record(context, employee_id, slot, label, *, install=False, remove=Fals
         raise ValueError("Default barrier times are 20 and 04")
     if install and remove:
         raise ValueError("Cannot install and remove in one slot")
-    if install or remove:
+    if (install or remove) and barrier_v2(context):
+        # 15-0 (2026-10-05): 설치 = G2·I1 근무자 또는 대기 1명, 철수 = I1 근무자 (FM·유도리 공통)
+        if install and label not in (("G2", "I1") if barrier_single(context) else ("G2", "I1", "보안실 대기")) or remove and label != "I1":
+            raise ValueError("15-0: 설치는 G2·I1, 철수는 I1 근무자만(이전 날짜의 대기 설치는 허용)")
+        if label == "보안실 대기":
+            actual_kind, actual_label = K.BARRIER_ONLY, "barrier_install"
+            posture, fatigue, work, rest = None, 1, 0, 0      # 대기 설치자만 피로도 1 (실근무 0)
+            same = continuous = False
+            meal = True
+        patrol_rest = False
+    elif install or remove:
         if mode == Mode.FM and label != "보안실 대기":
             raise ValueError("FM barriers require security standby, never a post")
         if mode == Mode.FLEXIBLE and not (
@@ -81,7 +91,8 @@ def make_record(context, employee_id, slot, label, *, install=False, remove=Fals
             raise ValueError("Unsupported flexible barrier assignment for N1/6/A")
         if label == "보안실 대기":
             actual_kind, actual_label = K.BARRIER_ONLY, "barrier_install" if install else "barrier_remove"
-            posture, fatigue, work, rest = None, 1, 1, 0
+            # 2026-10-04 사용자 확정: 실근무는 포스트·순찰만. 차단봉만 한 칸은 피로도 1, 실근무 0, 실휴게 0.
+            posture, fatigue, work, rest = None, 1, 0, 0
             same = continuous = False
             meal = True  # §13 preserves meal opportunity; relevant only at 18–20.
         patrol_rest = False
@@ -105,6 +116,21 @@ def options_for(context, employee_id, slot, *, flexible_04_continuous=False, pat
     labels = list(dict.fromkeys(r.displayed_post for r in policy.requirements if r.slot_index == slot))
     labels += [p.area for p in policy.patrols if p.slot_index == slot]
     labels += ["휴게", "보안실 대기"]
+    if barrier_v2(context) and slot in (2, 10):
+        # 15-0: 20시 G2 운영이면 G2 + 대기자가 설치, 아니면 I1 + 대기 1명 / 04시 I1 근무자가 철수
+        g2_at_20 = "G2" in labels
+        records = []
+        for label in labels:
+            row = make_record(context, employee_id, slot, label,
+                              install=slot == 2 and label == ("G2" if g2_at_20 else "I1"),
+                              remove=slot == 10 and label == "I1",
+                              flexible_04_continuous=flexible_04_continuous, patrol_standing=patrol_standing)
+            records.append(row)
+            if slot == 2 and label == "보안실 대기" and not barrier_single(context):
+                records.append(make_record(context, employee_id, slot, label, install=True,
+                                           flexible_04_continuous=flexible_04_continuous,
+                                           patrol_standing=patrol_standing))
+        return tuple(records)
     records = []
     for label in labels:
         row = make_record(context, employee_id, slot, label,
