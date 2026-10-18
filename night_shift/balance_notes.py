@@ -342,7 +342,10 @@ def balance_reasons(record, stats: dict, prepared=None, plan_stats: dict | None 
         absences = 7 - sum(a.present for a in context.attendance)
         if context.manager_handover:
             k, proxy = context.manager_handover
-            out.append(f"통제가 {hour(k)}에 빠져 그 뒤로는 {names.get(proxy, '준호')}가 관리자 대행을 이어받았습니다(0-4-3).")
+            if context.manager_handover_reverse:
+                out.append(f"통제 전반부 반차: {hour(k)} 출근 전까지 {names.get(proxy, '준호')}가 관리자 대행, 이후 통제가 관리자 근무를 이어받았습니다.")
+            else:
+                out.append(f"통제가 {hour(k)}에 빠져 그 뒤로는 {names.get(proxy, '준호')}가 관리자 대행을 이어받았습니다(0-4-3).")
         elif context.partial_vacancy_profile or context.flexible_from_slot is not None or absences >= 2:
             out.append("결원 2명 회차라 관리자 최소 실근무 우대는 적용하지 않고, 일반근무자 밸런스 다음으로 조장과 평균 피로도 차이 4점 이내를 권장합니다(8-7·17-5).")
             if general:

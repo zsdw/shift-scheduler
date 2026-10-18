@@ -26,7 +26,7 @@ def _expected_operation(context, label, t, mode):
     return chosen
 
 
-def validate_first_trial(record, history, *, refinement=False, rules_v22=False, vacancy_policy=False, rules_v26=False, rules_v27=False, rules_v29=False, rules_v210=False, rules_v212=False, rules_v215=False, rules_v216=False, rules_v218=False, rules_v219=False, rules_v220=False, reoptimization=False, forbid_patrol_exclusion_ids=(), post_cap=None, work_spread=True, half_day_ids=None, locked_cells=(), manager_a_end_slot=14, patrol_actuals=(), patrol_events=(), last_rest_records=()):
+def validate_first_trial(record, history, *, refinement=False, rules_v22=False, vacancy_policy=False, rules_v26=False, rules_v27=False, rules_v29=False, rules_v210=False, rules_v212=False, rules_v215=False, rules_v216=False, rules_v218=False, rules_v219=False, rules_v220=False, reoptimization=False, forbid_patrol_exclusion_ids=(), post_cap=None, work_spread=True, half_day_ids=None, locked_cells=(), manager_a_end_slot=14, manager_a_start_slot=0, patrol_actuals=(), patrol_events=(), last_rest_records=()):
     # H-17 (2026-10-05): None = v2.20 검사에 포함. 2명 완전결원 일시 해제·LOCK 과거 초과 시 서비스가 False를 넘긴다.
     post_cap = rules_v220 if post_cap is None else post_cap
     if rules_v220:
@@ -177,13 +177,13 @@ def validate_first_trial(record, history, *, refinement=False, rules_v22=False, 
     if rules_v220:
         a_att=next((a for a in c.attendance if a.employee_id=='A' and a.present),None)
         if a_att is not None:
-            available=[t for t in range(min(14,manager_a_end_slot)) if a_att.is_available(t)]
+            available=[t for t in range(manager_a_start_slot,min(14,manager_a_end_slot)) if a_att.is_available(t)]
             completed=available and all(('A',t) in set(locked_cells) for t in available)
             check(not available or completed or any(r.employee_id=='A' and r.slot.index in available
                   and r.displayed_assignment.label=='I1' for r in record.assignments),
                   '8-14','A: 통제A 출근 야간 I1 최소1회 필요')
     if rules_v220:
-        a_standby=[r for r in record.assignments if r.employee_id=='A' and r.slot.index<manager_a_end_slot
+        a_standby=[r for r in record.assignments if r.employee_id=='A' and manager_a_start_slot<=r.slot.index<manager_a_end_slot
                    and r.displayed_assignment.label=='보안실 대기']
         completed=sum(('A',r.slot.index) in set(locked_cells) for r in a_standby)
         check(len(a_standby)<=max(2,completed),'8-15','A: 통제A 야간 대기 최대2회 초과')

@@ -127,7 +127,7 @@ STAGE_TIME_CAPS = {
 }
 
 
-def solve_first_trial(context, history: HistoryInput, seconds=30, *, compensation_averages=None, manager_a_end_slot=14, dual_flexible=False, dual_balance=False, post_cap=False, half_day_ids=None, preference_weights=None, avoid_cells=(), refinement=False, baseline_assignments=None, exclude_assignments=None, locked_assignments=None, historical_totals=None, historical_nights=None, prioritize_history_within_daily_targets=False, forbid_install_ids=(), forbid_last_rest_ids=(), forbid_patrol_exclusion_ids=(), patrol_rotation_priority_ids=(), soft_debt=None, previous_install_ids=(), previous_remove_ids=(), minimize_a=False, rules_v22=False, vacancy_policy=False, rules_v26=False, rules_v27=False, rules_v29=False, rules_v210=False, rules_v212=False, rules_v213=False, rules_v215=False, rules_v216=False, rules_v217=False, rules_v218=False, rules_v219=False, rules_v220=False, diagnostic_relaxation_level=0, diagnostic_relaxed_families=None, forced_rest_cells=(), duty_rates=None, patrol_actuals=(), patrol_events=(), last_rest_records=()):
+def solve_first_trial(context, history: HistoryInput, seconds=30, *, compensation_averages=None, manager_a_end_slot=14, manager_a_start_slot=0, dual_flexible=False, dual_balance=False, post_cap=False, half_day_ids=None, preference_weights=None, avoid_cells=(), refinement=False, baseline_assignments=None, exclude_assignments=None, locked_assignments=None, historical_totals=None, historical_nights=None, prioritize_history_within_daily_targets=False, forbid_install_ids=(), forbid_last_rest_ids=(), forbid_patrol_exclusion_ids=(), patrol_rotation_priority_ids=(), soft_debt=None, previous_install_ids=(), previous_remove_ids=(), minimize_a=False, rules_v22=False, vacancy_policy=False, rules_v26=False, rules_v27=False, rules_v29=False, rules_v210=False, rules_v212=False, rules_v213=False, rules_v215=False, rules_v216=False, rules_v217=False, rules_v218=False, rules_v219=False, rules_v220=False, diagnostic_relaxation_level=0, diagnostic_relaxed_families=None, forced_rest_cells=(), duty_rates=None, patrol_actuals=(), patrol_events=(), last_rest_records=()):
     if rules_v220:
         rules_v219 = True
     if rules_v219:
@@ -414,7 +414,7 @@ def solve_first_trial(context, history: HistoryInput, seconds=30, *, compensatio
 
         # 8-14: 실제 통제A 출근 시 I1 최소1회, 04시 금지는 그대로.
         if rules_v220 and 'A' in people:
-            a_slots=[t for t in range(min(14,manager_a_end_slot))
+            a_slots=[t for t in range(manager_a_start_slot,min(14,manager_a_end_slot))
                      if next(a for a in context.attendance if a.employee_id=='A').is_available(t)]
             locked_a={(r.employee_id,r.slot.index) for r in locked_assignments or ()}
             if a_slots and not all(('A',t) in locked_a for t in a_slots):
@@ -423,10 +423,10 @@ def solve_first_trial(context, history: HistoryInput, seconds=30, *, compensatio
         # 8-15: 실제 통제A 대기 표기는 야간 전체 최대2회.
         if rules_v220 and 'A' in people:
             a_end=min(14,manager_a_end_slot)
-            completed_standby=sum(r.employee_id=='A' and r.slot.index<a_end
+            completed_standby=sum(r.employee_id=='A' and manager_a_start_slot<=r.slot.index<a_end
                 and r.displayed_assignment.label=='보안실 대기' for r in locked_assignments or ())
             model.add(sum(expression('A',t,lambda r:r.displayed_assignment.label=='보안실 대기')
-                          for t in range(a_end))<=max(2,completed_standby))
+                          for t in range(manager_a_start_slot,a_end))<=max(2,completed_standby))
 
         # H-19: 05~07시 실휴게 3연속 금지. 통제A·준호 관리자 대행은 예외.
         if rules_v220:

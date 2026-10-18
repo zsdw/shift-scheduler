@@ -169,6 +169,8 @@ class ShiftContext:
     # 5-7 추가 남문 (2026-10-05 사용자 확정): 원래 남문을 안 여는 시간에 G2 1명을 더 여는 슬롯들.
     # 주말 시작(N3/N4) 18·19·20시, 다음날 주말(N2/N4) 06·07시만. 생성 전 사용자 확인값.
     extra_south_slots: tuple[int, ...] = ()
+    # 전반부 반차는 k 전 준호 대행, k부터 통제A 출근(기존 인계와 반대).
+    manager_handover_reverse: bool = False
 
     def __post_init__(self):
         bad = set(self.extra_south_slots) - set(extra_south_choices(self.night_type))

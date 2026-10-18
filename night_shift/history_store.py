@@ -51,6 +51,7 @@ def record_to_json(record: ShiftRecord) -> dict:
             "manager_handover": list(c.manager_handover) if c.manager_handover else None,
             "post_operations": [list(op) for op in c.post_operations] if c.post_operations is not None else None,
             "extra_south_slots": list(c.extra_south_slots),
+            "manager_handover_reverse": c.manager_handover_reverse,
         },
         "assignments": [{
             "employee_id": r.employee_id, "slot": r.slot.index,
@@ -79,6 +80,7 @@ def record_from_json(data: dict) -> ShiftRecord:
         tuple(c["manager_handover"]) if c.get("manager_handover") else None,
         tuple(tuple(op) for op in c["post_operations"]) if c.get("post_operations") is not None else None,
         tuple(c.get("extra_south_slots", ())),
+        c.get("manager_handover_reverse", False),
     )
     # 2026-10-04 사용자 확정: 실근무는 포스트·순찰만. 예전 저장본의 '차단봉만 한 칸' 실근무 1을 읽을 때 0으로
     # 다시 계산한다 (파일은 그대로). 피로도 1·실휴게 0은 그대로.

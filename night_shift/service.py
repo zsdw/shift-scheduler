@@ -20,7 +20,7 @@ from .solver import SolveResult, solve_first_trial
 from .validator import validate_first_trial
 
 
-SERVICE_API_VERSION = "2.21.69"         # 2026-10-18: 12-5 결원 1명 시간 대기 최소1명은 가능하면 지킬 규칙
+SERVICE_API_VERSION = "2.21.71"         # 2026-10-18: 관리자 전반부 반차·역방향 인계 저장
 
 
 def rulebook_label(rules_version: str) -> str:
@@ -108,6 +108,7 @@ class SolveOptions:
     relax_post_cap: bool = False
     # H-09-1 미리 정한 반차자 (None = 계획 생성이면 반차자 전원, 긴급 재편성은 원래 표의 반차자만)
     half_day_ids: tuple[str, ...] | None = None
+    manager_a_start_slot: int = 0
 
 
 @dataclass(frozen=True)
@@ -535,8 +536,11 @@ def revalidate(result: "ServiceResult", record: ShiftRecord) -> "ServiceResult":
     """Validate a manually edited record exactly like a generated one."""
     errors = validate_first_trial(
         seat_form_record(record), result.prepared_inputs.engine_history,
-        manager_a_end_slot=(record.context.manager_handover[0] if record.context.manager_handover else 14),
-        locked_cells=tuple((r.employee_id, r.slot.index) for r in record.assignments
+        manager_a_end_slot=(record.context.manager_handover[0] if record.context.manager_handover
+                            and not record.context.manager_handover_reverse else 14),
+        manager_a_start_slot=(record.context.manager_handover[0] if record.context.manager_handover
+                              and record.context.manager_handover_reverse else 0),
+        locked_cells=tuple((r.employee_id, r.slot.index) for r in seat_form_record(record).assignments
                            if result.rebalance_info is not None and r.slot.index <= result.rebalance_info.locked_through_index),
         forbid_patrol_exclusion_ids=result.prepared_inputs.forbid_patrol_exclusion_ids,
         patrol_actuals=result.prepared_inputs.patrol_actuals,
@@ -638,7 +642,7 @@ def _run_schedule_modes(context: ShiftContext, history: HistorySelection | None,
         flexible = flexible_view(dual.record)
         flexible_errors = validate_first_trial(        # 유도리 판정은 독립 Validator로 (Solver 제약만 믿지 않음)
             flexible, dual.prepared_inputs.engine_history,
-            manager_a_end_slot=config.manager_a_end_slot,
+            manager_a_end_slot=config.manager_a_end_slot, manager_a_start_slot=config.manager_a_start_slot,
             locked_cells=tuple((r.employee_id, r.slot.index) for r in config.locked_assignments or ()),
             forbid_patrol_exclusion_ids=dual.prepared_inputs.forbid_patrol_exclusion_ids,
         patrol_actuals=dual.prepared_inputs.patrol_actuals,
@@ -692,7 +696,7 @@ def _run_schedule_once(context: ShiftContext, history: HistorySelection | None, 
                        else solver_flags)
     solved = solve_first_trial(
         context, prepared.engine_history, seconds=config.seconds,
-        manager_a_end_slot=config.manager_a_end_slot,
+        manager_a_end_slot=config.manager_a_end_slot, manager_a_start_slot=config.manager_a_start_slot,
         compensation_averages=prepared.history_fatigue_averages,
         historical_totals=prepared.historical_totals, historical_nights=prepared.historical_nights,
         prioritize_history_within_daily_targets=config.prioritize_history_within_daily_targets,
@@ -721,7 +725,7 @@ def _run_schedule_once(context: ShiftContext, history: HistorySelection | None, 
     if solved.record is None:
         return ServiceResult(context, solved, (), {}, prepared, config.rules_version)
     errors = validate_first_trial(solved.record, prepared.engine_history,
-                                  manager_a_end_slot=config.manager_a_end_slot,
+                                  manager_a_end_slot=config.manager_a_end_slot, manager_a_start_slot=config.manager_a_start_slot,
                                   locked_cells=tuple((r.employee_id, r.slot.index) for r in config.locked_assignments or ()),
                                   forbid_patrol_exclusion_ids=prepared.forbid_patrol_exclusion_ids,
         patrol_actuals=prepared.patrol_actuals,
@@ -938,22 +942,23 @@ def _reoptimize_core(base: ServiceResult, reoptimization_start_index: int,
 HANDOVER_PROXY_ID = "6"
 
 
-def _swap_rows_from(rows, first: str, second: str, start: int):
+def _swap_rows_from(rows, first: str, second: str, start: int, stop: int = 14):
     other = {first: second, second: first}
     return tuple(replace(r, employee_id=other[r.employee_id])
-                 if r.slot.index >= start and r.employee_id in other else r for r in rows)
+                 if start <= r.slot.index < stop and r.employee_id in other else r for r in rows)
 
 
-def _handover_context(context: ShiftContext, manager: str, proxy: str, k: int, seat: bool) -> ShiftContext:
+def _handover_context(context: ShiftContext, manager: str, proxy: str, k: int, seat: bool,
+                      reverse: bool = False) -> ShiftContext:
     attendance = []
     for a in context.attendance:
         if a.employee_id == manager:
-            a = replace(a, available_slot_indices=None if seat else tuple(range(k)))
+            a = replace(a, available_slot_indices=None if seat else tuple(range(k, 14) if reverse else range(k)))
         elif a.employee_id == proxy:
-            a = replace(a, available_slot_indices=tuple(range(k)) if seat else None)
+            a = replace(a, available_slot_indices=tuple(range(k, 14) if reverse else range(k)) if seat else None)
         attendance.append(a)
     return replace(context, attendance=tuple(attendance),
-                   manager_handover=None if seat else (k, proxy))
+                   manager_handover=None if seat else (k, proxy), manager_handover_reverse=reverse if not seat else False)
 
 
 def _manager_id(context: ShiftContext) -> str:
@@ -967,14 +972,15 @@ def seat_form_record(record: ShiftRecord) -> ShiftRecord:
         return record
     k, proxy = handover
     manager = _manager_id(record.context)
-    return replace(record, context=_handover_context(record.context, manager, proxy, k, True),
-                   assignments=_swap_rows_from(record.assignments, manager, proxy, k))
+    reverse = record.context.manager_handover_reverse
+    return replace(record, context=_handover_context(record.context, manager, proxy, k, True, reverse),
+                   assignments=_swap_rows_from(record.assignments, manager, proxy, 0 if reverse else k, k if reverse else 14))
 
 
-def display_form_record(record: ShiftRecord, k: int, proxy: str) -> ShiftRecord:
+def display_form_record(record: ShiftRecord, k: int, proxy: str, reverse: bool = False) -> ShiftRecord:
     manager = _manager_id(record.context)
-    return replace(record, context=_handover_context(record.context, manager, proxy, k, False),
-                   assignments=_swap_rows_from(record.assignments, manager, proxy, k))
+    return replace(record, context=_handover_context(record.context, manager, proxy, k, False, reverse),
+                   assignments=_swap_rows_from(record.assignments, manager, proxy, 0 if reverse else k, k if reverse else 14))
 
 
 def _seat_result(result: ServiceResult) -> ServiceResult:
@@ -1021,8 +1027,10 @@ def run_reoptimization(base: ServiceResult, reoptimization_start_index: int,
     handover = base.record.context.manager_handover if base.record else None
     target = next((a for a in base.context.attendance if a.employee_id == unavailable_employee_id), None)
     if handover or (target and target.acts_as_manager and target.display_number is None):
-        end = handover[0] if handover else unavailable_from_index
-        options = replace(options or SolveOptions(rules_version=base.rules_version), manager_a_end_slot=end)
+        reverse = bool(handover and base.context.manager_handover_reverse)
+        end = handover[0] if handover and not reverse else (14 if reverse else unavailable_from_index)
+        options = replace(options or SolveOptions(rules_version=base.rules_version), manager_a_end_slot=end,
+                          manager_a_start_slot=handover[0] if reverse else 0)
     if base.record is not None and base.record.context.manager_handover:
         k, proxy = base.record.context.manager_handover
         manager = _manager_id(base.context)
@@ -1030,7 +1038,7 @@ def run_reoptimization(base: ServiceResult, reoptimization_start_index: int,
             raise ValueError("이미 관리자 교대가 있는 근무표에서는 통제·관리자 대행자의 추가 이탈을 재편성할 수 없습니다.")
         outcome = _reoptimize_core(_seat_result(base), reoptimization_start_index, unavailable_employee_id,
                                    unavailable_from_index, history, options, reason, exclude)
-        return _to_display(outcome, k, proxy)
+        return _to_display(outcome, k, proxy, base.context.manager_handover_reverse)
 
     attendance = {a.employee_id: a for a in base.context.attendance}
     target = attendance.get(unavailable_employee_id)
@@ -1085,14 +1093,15 @@ def run_reoptimization(base: ServiceResult, reoptimization_start_index: int,
 MANAGER_HALF_SLOT = 7          # 통제A 반차 경계 = 01시 (일반근무자 전반부·후반부 반차와 같음)
 
 
-def _seat_exclusions(exclude, manager: str, proxy: str, k: int):
+def _seat_exclusions(exclude, manager: str, proxy: str, k: int, reverse: bool = False):
     """화면(표시 형태) 근무표 제외 목록을 자리 형태로: k 이후 A·준호 줄 교체."""
     if not exclude:
         return exclude
     other = {manager: proxy, proxy: manager}
 
     def swap(row):
-        if isinstance(row, dict) and row.get("slot", {}).get("index", -1) >= k and row.get("employee_id") in other:
+        t = row.get("slot", {}).get("index", -1) if isinstance(row, dict) else -1
+        if isinstance(row, dict) and (0 <= t < k if reverse else t >= k) and row.get("employee_id") in other:
             return {**row, "employee_id": other[row["employee_id"]]}
         return row
     if exclude and isinstance(exclude[0], dict):
@@ -1123,8 +1132,8 @@ def run_schedule_manager_half(request: ShiftRequest, history: HistorySelection |
     # H-09-1 반차자 규칙은 진짜 반차자만 (자리 형태의 준호 '01시 퇴근'은 대행이라 제외)
     half_ids = tuple(a.employee_id for a in seat.attendance if a.present and a.is_general_worker
                      and a.employee_id != proxy and not all(a.is_available(t) for t in range(14)))
-    config = replace(config, manager_a_end_slot=k, half_day_ids=half_ids,
-                     exclude_assignments=_seat_exclusions(config.exclude_assignments, "A", proxy, k))
+    # exclusion_payload는 이미 자리 형태로 직렬화하므로 여기서 다시 뒤집지 않는다.
+    config = replace(config, manager_a_end_slot=k, half_day_ids=half_ids)
     last = None
     # 교대 경계: 그대로 → 01시 자리 휴게 → 01·02시 자리 휴게 (긴급 중도 인계와 같은 사다리)
     for forced in ((), (k,), (k, k + 1)):
@@ -1140,10 +1149,45 @@ def run_schedule_manager_half(request: ShiftRequest, history: HistorySelection |
     return last
 
 
-def _to_display(outcome: ServiceResult, k: int, proxy: str) -> ServiceResult:
+def run_schedule_manager_early_half(request: ShiftRequest, history: HistorySelection | None = None,
+                                    options: SolveOptions | None = None) -> ServiceResult:
+    """전반부 반차: 18~00시 준호 대행, 01시부터 통제A·일반근무 준호."""
+    k, proxy = MANAGER_HALF_SLOT, HANDOVER_PROXY_ID
+    context = build_context(request)
+    attendance = {a.employee_id: a for a in context.attendance}
+    manager, successor = attendance.get('A'), attendance.get(proxy)
+    if manager is None or not manager.present or not manager.acts_as_manager:
+        raise ValueError('통제A 반차는 통제A가 반나절 출근하는 날만 고를 수 있습니다.')
+    if (successor is None or not successor.present or not successor.is_general_worker
+            or not all(successor.is_available(t) for t in range(14))):
+        raise ValueError('준호가 하루 전체 출근이 아니라 전반부 관리자 대행을 맡을 수 없습니다.')
+    seat = replace(context, attendance=tuple(
+        replace(a, available_slot_indices=tuple(range(k, 14))) if a.employee_id == proxy else a
+        for a in context.attendance))
+    config = options if options is not None else SolveOptions(rules_version='2.20')
+    half_ids = tuple(a.employee_id for a in seat.attendance if a.present and a.is_general_worker
+                     and a.employee_id != proxy and not all(a.is_available(t) for t in range(14)))
+    config = replace(config, manager_a_start_slot=k, manager_a_end_slot=14, half_day_ids=half_ids)
+    last = None
+    # 준호의 관리자→일반 전환 경계에서도 기존 연속근무·순찰 회복을 확인한다.
+    for forced in ((), (k,), (k, k + 1)):
+        cells = tuple(dict.fromkeys(config.forced_rest_cells + tuple((proxy, t) for t in forced)))
+        result = run_schedule(seat, history, replace(config, forced_rest_cells=cells))
+        shown = _to_display(result, k, proxy, True)
+        if result.record is None or result.validation_errors:
+            return shown if last is None else last
+        issues = handover_boundary_issues(shown.record, proxy, k)
+        if not issues:
+            return shown
+        last = replace(shown, validation_errors=tuple(
+            {'rule': 'handover', 'detail': f'{proxy}/{k}: 교대 시점 {issue}'} for issue in issues))
+    return last
+
+
+def _to_display(outcome: ServiceResult, k: int, proxy: str, reverse: bool = False) -> ServiceResult:
     if outcome.record is None:
         return outcome
-    record = display_form_record(outcome.record, k, proxy)
+    record = display_form_record(outcome.record, k, proxy, reverse)
     stats = calculate_all_stats(record) if not outcome.validation_errors else outcome.employee_stats
     return replace(outcome, context=record.context,
                    solve_result=replace(outcome.solve_result, record=record), employee_stats=stats)
