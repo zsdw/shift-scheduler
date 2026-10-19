@@ -3,6 +3,9 @@ import json
 from pathlib import Path
 from datetime import date
 
+# 공휴일 주간 순찰 층(주말 룰북 §4): 09·14시 상층, 10·15시 중층, 11·16시 하층 (칸 0 = 08시)
+WEEKEND_ZONES = {1: 'upper', 2: 'middle', 3: 'lower', 6: 'upper', 7: 'middle', 8: 'lower'}
+
 def key(name):
     return str(name).strip()[-2:]
 
@@ -21,8 +24,10 @@ def load_events(store, before, shift='night'):
             if not a.present or not a.is_general_worker:continue
             patrol=any(r.employee_id==a.employee_id and r.actual_post_or_work_type.kind.value=='patrol'
                        for r in record.assignments)
+            zones=tuple(sorted({r.actual_post_or_work_type.label for r in record.assignments
+                                if r.employee_id==a.employee_id and r.actual_post_or_work_type.kind.value=='patrol'}))
             events.append({'date':path.stem,'shift':1,'name':key(names[a.employee_id]),
-                           'excluded':full and not patrol,'patrol':patrol})
+                           'excluded':full and not patrol,'patrol':patrol,'zones':zones})
     for path in sorted((store/'weekend_day').glob('????-??-??.json')):
         if (path.stem,0)>=target or not is_off_day(date.fromisoformat(path.stem)):continue
         data=json.loads(path.read_text(encoding='utf-8'))
@@ -31,6 +36,7 @@ def load_events(store, before, shift='night'):
         for pid,row in grid.items():
             if pid=='A' or not any(v not in (None,'×') for v in row):continue
             patrol='순찰' in row
+            zones=tuple(sorted({WEEKEND_ZONES[i] for i,v in enumerate(row) if v=='순찰' and i in WEEKEND_ZONES}))
             events.append({'date':path.stem,'shift':0,'name':key(names[pid]),
-                           'excluded':full and not patrol,'patrol':patrol})
+                           'excluded':full and not patrol,'patrol':patrol,'zones':zones})
     return tuple(sorted(events,key=lambda e:(e['date'],e['shift'],e['name'])))

@@ -14,6 +14,7 @@ the causes actually apply:
 from __future__ import annotations
 
 from collections import defaultdict
+from datetime import date
 
 
 GAP_FATIGUE = 2   # a full-time general worker this far from the others' mean is explained
@@ -148,7 +149,7 @@ def history_influence_lines(record, stats, prepared=None, manual: bool = False) 
                        + " 다음 편성도 평균 차이가 1점 이상이면 다시 보상하고, 미만이면 전원 균형을 우선합니다.")
     for pid in getattr(prepared, "forbid_install_ids", ()) or ():
         if pid in present:
-            out.append(f"{names.get(pid, pid)}: 직전 근무에서 차단봉을 (대기로) 설치해 오늘 대기 설치에서 뺐습니다(15-3).")
+            out.append(f"{names.get(pid, pid)}: 직전 근무에서 차단봉을 설치해 오늘 차단봉 설치에서 뺐습니다(15-3).")
     # 직전 07시 휴게자 연속 금지(16장)는 last_rest_lines가 '마지막 휴게' 줄에서 함께 설명한다
     absences = 7 - len(present)
     for pid in getattr(prepared, "forbid_patrol_exclusion_ids", ()) or ():
@@ -160,24 +161,44 @@ def history_influence_lines(record, stats, prepared=None, manual: bool = False) 
     for pid in getattr(prepared, "previous_remove_ids", ()) or ():
         if pid in present and not any(r.barrier_install_flag for r in rows.get(pid, {}).values()):
             out.append(f"{names.get(pid, pid)}: 직전 근무 차단봉 철수자라 오늘 설치는 피했습니다(15-5).")
-    for pid in getattr(prepared, "patrol_rotation_priority_ids", ()) or ():
-        zones = [ZONE_NAMES.get(r.actual_post_or_work_type.label, r.actual_post_or_work_type.label)
-                 for r in rows.get(pid, {}).values() if r.actual_post_or_work_type.kind.value == "patrol"]
-        if pid in general and zones:
-            out.append(f"{names.get(pid, pid)}: 순찰 구역 돌아가며 맡기(18-9) 차례라 오늘 {'·'.join(zones)} 순찰입니다.")
+    # 14-7 하층 순찰 순번(2026-10-19): 마지막 하층 뒤 다른 층 3회 이상 출근자 중 마지막 하층이 오래된 사람
+    from .soft_history import lower_patrol_wait
+    events = getattr(prepared, "patrol_events", ()) or ()
+    turns = []
+    for pid in sorted(general):
+        lower_today = any(r.actual_post_or_work_type.kind.value == "patrol" and r.actual_post_or_work_type.label == "lower"
+                          for r in rows.get(pid, {}).values())
+        person = next((e for e in getattr(record.context, "employees", ()) if e.employee_id == pid), None)
+        wait = lower_patrol_wait(events, person.name[-2:]) if person is not None and events else None
+        if lower_today and wait is not None:
+            turns.append(f"{names.get(pid, pid)}(" + (f"마지막 하층 {wait[5:7]}/{wait[8:]}" if wait else "하층 기록 없음") + ")")
+    if turns:
+        out.append("하층 순찰: 마지막 하층 뒤 다른 층 순찰 3회 이상이고 마지막 하층이 오래된 " + ", ".join(turns)
+                   + "에게 오늘 하층을 맡겼습니다(14-7, 막타임·차단봉 다음 우선).")
+    # 15-8 차단봉: 설치·철수 중 아무거나 마지막으로 한 날이 오래된 사람 우선(2026-10-19, 횟수 기준 폐지)
+    barrier_records = [r for r in getattr(prepared, "last_rest_records", ()) or ()
+                       if r.context.shift_start_date < record.context.shift_start_date
+                       and r.context.shift_start_date >= date(2026, 10, 4)]
+    barrier_today = [pid for pid in general if any(r.barrier_install_flag or r.barrier_remove_flag
+                                                   for r in rows.get(pid, {}).values())]
+    if barrier_records and barrier_today:
+        def last_barrier(pid):
+            days = [r.context.shift_start_date for r in barrier_records
+                    if any(x.employee_id == pid and (x.barrier_install_flag or x.barrier_remove_flag) for x in r.assignments)]
+            return max(days) if days else None
+        parts = [f"{names.get(pid, pid)}(" + (f"마지막 {last_barrier(pid):%m/%d}" if last_barrier(pid) else "참여 기록 없음") + ")"
+                 for pid in barrier_today]
+        out.append("차단봉: 마지막으로 설치·철수한 날이 오래된 " + ", ".join(parts)
+                   + "에게 오늘 맡겼습니다(15-8, 막타임 다음 우선).")
     rates = getattr(prepared, "duty_rates", None) or {}
-    for metric, label in (("barrier", "차단봉"), ("upper", "상층 순찰"), ("middle", "중층 순찰"), ("lower", "하층 순찰")):
+    for metric, label in (("upper", "상층 순찰"), ("middle", "중층 순찰")):
         table = rates.get(metric) or {}
         if not table:
             continue
         team = sum(table.values()) / len(table) / 100
-        if metric == "barrier":
-            today = [pid for pid in general if any(r.barrier_install_flag or r.barrier_remove_flag
-                                                   for r in rows.get(pid, {}).values())]
-        else:
-            today = [pid for pid in general if any(r.actual_post_or_work_type.label == metric
-                                                   and r.actual_post_or_work_type.kind.value == "patrol"
-                                                   for r in rows.get(pid, {}).values())]
+        today = [pid for pid in general if any(r.actual_post_or_work_type.label == metric
+                                               and r.actual_post_or_work_type.kind.value == "patrol"
+                                               for r in rows.get(pid, {}).values())]
         below = [pid for pid in today if table.get(pid, 0) / 100 < team]
         if below:
             out.append(f"{label}: 최근 3싸이클 밤당 횟수가 팀 평균({team:.2f})보다 적은 "
@@ -460,6 +481,12 @@ def monthly_direction(rows: list[dict]) -> list[str]:
                    + " → 앞으로 부담을 조금 더 나누어 맡기는 쪽으로 갑니다.")
     if not high and not low:
         out.append("모두 평균과 0.5 이내라 지금처럼 균형 편성을 유지합니다.")
+    # 같은 날 동료 대비(2026-10-19): 월 평균이 높아도 같은 날 기준으로는 고른 경우를 구분해 설명
+    mixed = [r for r in high + low if r.get("동료 대비(±)") not in (None, "–") and abs(float(r["동료 대비(±)"])) < 0.5]
+    if mixed:
+        out.append("다만 " + ", ".join(f"{r['직원']}(같은 날 동료 대비 {r['동료 대비(±)']})" for r in mixed)
+                   + "은(는) 같은 날 함께 근무한 동료와 비교하면 차이가 0.5점 미만입니다. 월 평균 차이는 출근한 날의 구성"
+                   "(모두 피로도가 높거나 낮은 날에 빠지거나 들어간 것) 때문입니다.")
     # 2026-10-05: 근무표 생성 후 현장에서 생긴 변동은 특이사항이 아니라 여기서 날짜·사람·시간·사유로 설명
     for r in general:
         items = [c for c in r.get("현장 변동") or () if c.get("피로도 변화") not in ("+0", "0")]

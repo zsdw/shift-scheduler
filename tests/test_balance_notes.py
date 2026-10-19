@@ -56,6 +56,17 @@ class BalanceNotesTests(unittest.TestCase):
         self.assertNotIn("통제(", text)
         self.assertIn("기록이 아직 적어", monthly_direction([])[0])
 
+    def test_monthly_direction_explains_day_mix_with_peer_gap(self):
+        # 2026-10-19: 월 평균은 높지만 같은 날 동료 대비 차이가 작으면 날짜 구성 때문이라고 설명
+        rows = [{"직원": "준호", "평균 피로도": 14.0, "동료 대비(±)": "+0.1"},
+                {"직원": "광희", "평균 피로도": 12.7, "동료 대비(±)": "-0.2"},
+                {"직원": "만년", "평균 피로도": 13.1, "동료 대비(±)": "+0.0"}]
+        text = " ".join(monthly_direction(rows))
+        self.assertIn("준호(같은 날 동료 대비 +0.1)", text)
+        self.assertIn("출근한 날의 구성", text)
+        rows[0]["동료 대비(±)"] = "+1.2"
+        self.assertNotIn("준호(같은 날 동료 대비", " ".join(monthly_direction(rows)))
+
 
 if __name__ == "__main__":
     unittest.main()

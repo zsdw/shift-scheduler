@@ -603,6 +603,12 @@ def field_changes(day: date, plan, actual, edits: list, names: dict) -> list[dic
     return out
 
 
+def _signed(value: float) -> str:
+    """+0.4 / -0.2 / 0.0 (반올림해 0이면 부호 없이)."""
+    value = round(value, 1)
+    return "0.0" if value == 0 else f"{value:+.1f}"
+
+
 def render_monthly(shift_date: date) -> list[dict]:
     """Monthly average fatigue per worker and leave records, from saved actual nights."""
     dates = history_store.list_dates(store_dir())
@@ -632,6 +638,11 @@ def render_monthly(shift_date: date) -> list[dict]:
         changes.extend(day_changes)
         others = leave_schedule.other_labels(store_dir(), day, "night", list(names.values()))   # 기타(근무 제외)
         stats = calculate_all_stats(record)
+        # 같은 날 동료 대비(2026-10-19 사용자 요청): 그날 온전 출근한 다른 일반근무자 평균과의 차이.
+        # 온전 출근일 구성이 달라 월 평균만으로는 생기는 착시(가벼운 날 빠짐 등)를 구분한다.
+        full_general = {a.employee_id: stats[a.employee_id].fatigue_value for a in record.context.attendance
+                        if a.present and a.is_general_worker and not a.acts_as_manager and a.employee_id in stats
+                        and _leave_label(a, record.context.manager_handover) is None}
         for a in record.context.attendance:
             label = _leave_label(a, record.context.manager_handover)
             name = "통제" if a.acts_as_manager and a.display_number is None else names[a.employee_id]
@@ -639,7 +650,7 @@ def render_monthly(shift_date: date) -> list[dict]:
                 note = others[names[a.employee_id]]
                 label = "기타" + (f"({note})" if note else "")
             item = totals.setdefault(a.employee_id, {"직원": name, "온전 출근일": 0, "fatigue": 0,
-                                                     "work": 0, "연차": 0, "반차": 0, "기타": 0})
+                                                     "work": 0, "연차": 0, "반차": 0, "기타": 0, "peer": 0.0, "peer_n": 0})
             if label:
                 leaves.append({"날짜": day.strftime("%m/%d"), "직원": name, "구분": label})
                 if label in ("연차", "결근"):
@@ -654,18 +665,25 @@ def render_monthly(shift_date: date) -> list[dict]:
                 item["온전 출근일"] += 1
                 item["fatigue"] += person.fatigue_value
                 item["work"] += person.actual_work_time_value
+                others_today = [v for pid, v in full_general.items() if pid != a.employee_id]
+                if a.employee_id in full_general and others_today:
+                    item["peer"] += person.fatigue_value - sum(others_today) / len(others_today)
+                    item["peer_n"] += 1
     rows = []
     for employee_id in sorted(totals, key=lambda p: (p != "A", p)):
         item = totals[employee_id]
         nights = item["온전 출근일"]
         rows.append({**item, "id": employee_id, "is_manager": employee_id == "A", "평균 피로도": round(item["fatigue"] / nights, 2) if nights else None,
                      "평균 실근무": round(item["work"] / nights, 2) if nights else None,
+                     "동료 대비(±)": _signed(item["peer"] / item["peer_n"]) if item["peer_n"] else "–",
                      "집계 기준일": shift_date.isoformat(),
                      "현장 변동": [c for c in changes if c["직원"] == item["직원"]]})
     st.markdown(f"##### {year}년 {month}월 근무자별 피로도 · {shift_date:%m/%d}까지 저장된 {len(days)}일, 실제 근무 기준")
-    st.dataframe(pd.DataFrame(rows)[["직원", "온전 출근일", "평균 피로도", "평균 실근무", "연차", "반차", "기타"]],
+    st.dataframe(pd.DataFrame(rows)[["직원", "온전 출근일", "평균 피로도", "동료 대비(±)", "평균 실근무", "연차", "반차", "기타"]],
                  hide_index=True, width="stretch")
-    st.caption(f"선택한 {shift_date:%Y-%m-%d} 당일까지의 저장된 실제 근무만 집계합니다. 이후 날짜는 제외하며, 평균은 연차·반차·긴급 이탈 없이 온전히 출근한 날만 계산합니다.")
+    st.caption(f"선택한 {shift_date:%Y-%m-%d} 당일까지의 저장된 실제 근무만 집계합니다. 이후 날짜는 제외하며, 평균은 연차·반차·긴급 이탈 없이 온전히 출근한 날만 계산합니다. "
+               "'동료 대비(±)'는 같은 날 온전 출근한 다른 일반근무자 평균과의 차이를 밤당 평균한 값입니다(+면 같은 날 동료보다 많이 맡음). "
+               "평균 피로도는 출근한 날 구성(인원이 적어 모두 높은 날 등)에 따라 달라지므로, 공평한지는 이 값으로 봅니다.")
     chart = monthly_dot_chart(rows)
     if chart is not None:
         st.markdown("##### 월간 평균 피로도 (점이 팀 평균선보다 오른쪽이면 부담이 큰 사람)")

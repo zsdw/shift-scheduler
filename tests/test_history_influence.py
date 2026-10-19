@@ -33,11 +33,11 @@ class HistoryInfluenceTests(unittest.TestCase):
             historical_totals={"fatigue_value": {"1": 34, "2": 28, "3": 28}}, historical_nights={"1": 2, "2": 2, "3": 2})
         text = "\n".join(history_influence_lines(self.record, self.stats, prepared))
         self.assertIn("과거 싸이클 영향", text)
-        self.assertIn("2 사람2: 직전 근무에서 차단봉을 (대기로) 설치", text)
+        self.assertIn("2 사람2: 직전 근무에서 차단봉을 설치", text)
         # 2026-10-15 순찰 보호(14-1-2)로 같은 조건의 비고 문장이 바뀜
         self.assertIn("2 사람2: 순찰 제외 후 야간·공휴일 주간 출근 2회 보호 대상이라 오늘 순찰을 맡겼습니다(14-1-2)", text)
-        self.assertIn("중층 순찰입니다", text)
-        self.assertIn("차단봉: 최근 3싸이클", text)                         # 3번이 적게 해서 오늘 맡음
+        self.assertNotIn("18-9", text)                                     # 18-9 회전 문구 폐지(10/19) — 14-7 하층 순번
+        self.assertNotIn("차단봉: 최근 3싸이클", text)                      # 15-8 횟수 기준 폐지(10/19) — 마지막 참여일 순
         self.assertIn("1 사람1: 최근 2싸이클 밤당 피로도가 평균보다 +2.0 높아", text)
 
     def test_nothing_for_manual_or_without_history(self):

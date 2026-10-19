@@ -56,6 +56,17 @@ def validate_first_trial(record, history, *, refinement=False, rules_v22=False, 
             errors.append({"rule": rule, "detail": detail})
 
     c = record.context
+    # 통제A 반차·준호 승계·긴급 반차/이탈 판정은 leave_context 한곳에서 (2026-10-18, Solver·서비스와 같은 판정).
+    # 규칙 검사 자체는 아래에서 Solver와 따로 한다.
+    from .leave_context import build_leave_context
+    _present_ids = [a for a in c.attendance if a.present]
+    _general_ids = [a.employee_id for a in _present_ids if a.is_general_worker]
+    leave = build_leave_context(
+        manager_id=next((a.employee_id for a in _present_ids if a.acts_as_manager), None), general_ids=_general_ids,
+        partial_general_ids=[a.employee_id for a in _present_ids if a.is_general_worker
+                             and not all(a.is_available(t) for t in range(14))],
+        half_day_ids=half_day_ids, emergency=reoptimization, emergency_leaver_cells=emergency_leaver_cells,
+        manager_a_start_slot=manager_a_start_slot, manager_a_end_slot=manager_a_end_slot, rules_v220=rules_v220)
     # Solver와 공유하지 않고 과거 실제 출근 2회를 독립 검사한다.
     for person in c.attendance:
         if not person.present or not person.is_general_worker:
@@ -123,6 +134,16 @@ def validate_first_trial(record, history, *, refinement=False, rules_v22=False, 
                 if current.employee_id==person.employee_id and current.slot.index==13:
                     check(current.actual_rest_time_value!=1 or (person.employee_id,13) in set(locked_cells),
                           '16-next',f'{person.employee_id}/13: 직전 출근 야간 막타임 휴게 연속 금지')
+    # 15-3 연속 회차 설치 금지(2026-10-19): 직전 야간 회차 설치자는 G2·I1 설치든 이번 회차 설치 불가. 차단봉 이력은 10/04 야간부터.
+    earlier = [old for old in last_rest_records if old.context.shift_start_date < c.shift_start_date]
+    if earlier:
+        last_night = max(earlier, key=lambda old: old.context.shift_start_date)
+        if last_night.context.shift_start_date >= date(2026, 10, 4):
+            last_installers = {x.employee_id for x in last_night.assignments if x.barrier_install_flag}
+            for current in record.assignments:
+                if current.barrier_install_flag and current.employee_id in last_installers:
+                    check((current.employee_id, current.slot.index) in set(locked_cells), '15-3',
+                          f'{current.employee_id}: 직전 회차({last_night.context.shift_start_date:%m/%d}) 설치자는 이번 회차 차단봉 설치 불가')
     if rules_v220:
         for person in c.attendance:
             if not person.present:continue
@@ -169,15 +190,8 @@ def validate_first_trial(record, history, *, refinement=False, rules_v22=False, 
                             for r in record.assignments)
             check(has_standby or fully_locked,'12-required',f'{slot}: 18~05시 결원2명 외 대기자 최소1명 필요')
     if rules_v220:
-        # 12-6: 긴급 반차·이탈자는 제외 (2026-10-18 사용자 확정). 재편성표의 부분 출근 일반근무자 중
-        # 미리 정한 반차자(half_day_ids)·관리자 대행 준호가 아니면 긴급 이탈자다.
-        out_126 = set()
-        if reoptimization:
-            partial_126 = {a.employee_id for a in c.attendance if a.present and a.is_general_worker
-                           and not all(a.is_available(t) for t in range(14))}
-            out_126 = ({p for p, _ in emergency_leaver_cells if p != 'A'}
-                       | (partial_126 - set(half_day_ids or ())
-                          - ({"6"} if manager_a_start_slot > 0 or manager_a_end_slot < 14 else set())))
+        # 12-6: 긴급 반차·이탈자는 제외 (2026-10-18 사용자 확정, 판정은 leave_context)
+        out_126 = leave.emergency_out_ids
         standby_counts={a.employee_id:sum(r.employee_id==a.employee_id
             and r.displayed_assignment.label=='보안실 대기' for r in record.assignments)
             for a in c.attendance if a.present and a.employee_id!='A' and a.employee_id not in out_126}
@@ -333,15 +347,13 @@ def validate_first_trial(record, history, *, refinement=False, rules_v22=False, 
         installer_post = "I1"
     attendance_by_id = {a.employee_id: a for a in present}
     partial_general = {p for p in general if sum(attendance_by_id[p].is_available(t) for t in range(14)) < 14}
-    # 미리 정한 통제A 반차의 준호 대행(긴급 재편성 제외, 2026-10-18): 준호 하루 = 자기 줄 + 대행한 관리자 자리
-    proxy_handover = (rules_v220 and manager == "A" and "6" in partial_general
-                      and (manager_a_start_slot > 0 or manager_a_end_slot < 14))   # 반차·긴급 이탈 승계 모두
-    planned_half_proxy = proxy_handover and not reoptimization
-    late_half_proxy = planned_half_proxy and manager_a_start_slot == 0
-    leaver_slots = {t for p, t in emergency_leaver_cells if p == manager}
-    # H-09-1 미리 정한 반차자 (계획: 반차자 전원 / 재편성: 서비스가 넘긴 원래 반차자만)
-    half_day = ((partial_general if half_day_ids is None and not reoptimization
-                 else set(half_day_ids or ()) & partial_general) if rules_v220 else set())
+    # 준호 하루 = 자기 줄 + 대행한 관리자 자리 (미리 정한 반차·긴급 이탈 승계, 판정은 leave_context)
+    proxy_handover = leave.proxy_handover
+    planned_half_proxy = leave.planned
+    late_half_proxy = leave.late_half
+    leaver_slots = set(leave.manager_leaver_slots)
+    # H-09-1 반차자 = 미리 정한 반차자 + 남은 칸 있는 긴급 반차·이탈자
+    half_day = set(leave.half_day_ids)
     keys = [(r.employee_id, r.slot.index) for r in record.assignments]
     if Counter(keys) != Counter((p, t) for p in people for t in range(14)):
         return errors + [{"rule": "§3/§4", "detail": "Missing, duplicate or unknown employee/slot record"}]
@@ -675,8 +687,7 @@ def validate_first_trial(record, history, *, refinement=False, rules_v22=False, 
         full_fatigue = [sum(facts[p, t]["fatigue"] for t in range(14)) for p in general if p not in partial_general]
         if planned_half_proxy:
             # [하드, 2026-10-18 사용자 확정] 관리자 승계: 준호 순찰은 관리자 자리의 21시 상층 1회뿐, 자기 줄 순찰 금지
-            k = manager_a_start_slot or manager_a_end_slot
-            for t in (range(k, 14) if manager_a_start_slot else range(k)):
+            for t in leave.proxy_own_slots:
                 check(facts["6", t]["kind"] != K.PATROL, "H-12/§14-1", f"Half-day proxy patrols only as manager: 6/{t}")
         # [하드, 2026-10-18 사용자 확정] 통제A 긴급 반차·이탈: 빠지기 전 남은 칸은 I1 없이 근무.
         # 이미 실휴게 2시간 이상이면 연속근무 규칙 제외(최대한 근무는 Solver 목표), 아니면 4연속 근무 안의 입식 3연속 금지.

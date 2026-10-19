@@ -43,19 +43,15 @@ class V213Tests(unittest.TestCase):
         with self.assertRaises(ValueError):
             update_soft_debt(plan, debt, rotation_due=("1",))
 
-    def test_solver_prefers_due_lower_patrol_when_feasible(self):
+    def test_old_two_shift_lower_rotation_is_replaced(self):
+        # 2026-10-19: 14-7 '다른 층 2회 연속이면 하층 우선'·soft debt 목표는 하층 순찰 순번(lower_oldest_*)으로
+        # 대체됐다(tests/test_lower_patrol_order). 옛 회전 대상자를 넘겨도 옛 목표 단계는 더 이상 없다.
         c, history = context(NightType.N3), HistoryInput((), ())
         result = solve_first_trial(c, history, seconds=15, rules_v213=True,
                                    patrol_rotation_priority_ids=("1",), soft_debt={"14-7": {"1": 2}})
         self.assertIsNotNone(result.record, result.attempts)
         self.assertEqual(validate_first_trial(result.record, history, rules_v212=True), [])
-        rotation_stage = next(a for a in result.attempts if a.get("stage") == "patrol_lower_rotation")
-        self.assertEqual((rotation_stage["status"], rotation_stage["value"]), ("OPTIMAL", 0))
-        # 룰북 14-7: 회전 대상자에게 '순찰을 배정할 때' 하층부를 우선한다. 그날 순찰이 아예 없는 해도
-        # 같은 최선해라 (6명 중 5명 순찰) 둘 다 허용한다. 순찰을 받았다면 반드시 하층부가 있어야 한다.
-        patrols = [r.actual_post_or_work_type.label for r in result.record.assignments
-                   if r.employee_id == "1" and r.actual_post_or_work_type.kind == AssignmentKind.PATROL]
-        self.assertTrue(not patrols or "lower" in patrols, patrols)
+        self.assertNotIn("patrol_lower_rotation", [a.get("stage") for a in result.attempts])
 
 
 if __name__ == "__main__":

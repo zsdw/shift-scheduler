@@ -68,3 +68,15 @@ def update_soft_debt(actual_record, current_debt, rotation_due=()):
                 raise ValueError("Soft debt cannot be negative")
             result.setdefault(rule, {})[person] = prior + 1 if missed else 0
     return result
+
+
+def lower_patrol_wait(events, name):
+    """하층 순찰 순번(14-7, 2026-10-19 사용자 확정): 야간·공휴일 주간 순찰 이력에서
+    마지막 하층 뒤 상층·중층 순찰을 실제로 한 출근이 3회 이상이면 후보.
+    후보면 마지막 하층 날짜('' = 하층 기록 없음, 가장 오래 기다림), 아니면 None."""
+    mine = [e for e in events if e.get('name') == name]
+    last = max((i for i, e in enumerate(mine) if 'lower' in e.get('zones', ())), default=-1)
+    other = sum(1 for e in mine[last + 1:] if e.get('patrol') and set(e.get('zones', ())) & {'upper', 'middle'})
+    if other < 3:
+        return None
+    return mine[last]['date'] if last >= 0 else ''

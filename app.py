@@ -22,10 +22,17 @@ import importlib
 import night_shift.models as _models_module
 import night_shift.service as _service_module
 
+# 엔진 파일 내용 지문 (2026-10-19): 엔진을 고치면 손으로 버전을 올리지 않아도 다음 실행에서 자동으로 다시 불러온다.
+# (종전에는 SERVICE_API_VERSION 비교값을 매번 손으로 올려야 했고, 빼먹으면 옛 엔진이 조용히 돌았다.)
+# service가 처음 불러올 때 지문을 기록하므로 막 불러온 엔진은 다시 불러오지 않는다.
+from night_shift.engine_fingerprint import engine_fingerprint as _engine_fingerprint
+_ENGINE_FINGERPRINT = _engine_fingerprint()
 if (not hasattr(_models_module.AssignmentKind, "UNAVAILABLE")
         or not hasattr(_models_module, "DEFAULT_POST_OPERATIONS")      # 유도리 포스트별 운영 (2026-10-02)
-        or getattr(_service_module, "SERVICE_API_VERSION", None) != "2.21.85"):
+        or getattr(_service_module, "ENGINE_FINGERPRINT", None) != _ENGINE_FINGERPRINT):
     import night_shift.common as _common_module
+    import night_shift.leave_context as _leave_context_module
+    import night_shift.engine_fingerprint as _engine_fp_module
     import night_shift.profiles as _profiles_module
     import night_shift.preferences as _preferences_module
     import night_shift.soft_history as _soft_history_module
@@ -36,8 +43,8 @@ if (not hasattr(_models_module.AssignmentKind, "UNAVAILABLE")
     import night_shift.excel_exporter as _excel_module
     import night_shift.field_exporter as _field_module
 
-    for _module in (_models_module, _common_module, _profiles_module, _preferences_module, _soft_history_module,
-                    _solver_module, _validator_module, _service_module,
+    for _module in (_engine_fp_module, _models_module, _common_module, _profiles_module, _preferences_module, _soft_history_module,
+                    _leave_context_module, _solver_module, _validator_module, _service_module,
                     _presentation_module, _analysis_module, _excel_module, _field_module):
         importlib.reload(_module)
 
@@ -183,6 +190,21 @@ def solver_failure_message(status: str, operation: str = "근무표 생성") -> 
     if status == "MODEL_INVALID":
         return f"{operation} 불가: 계산 모델에 내부 문제가 있습니다. 프로그램 점검이 필요합니다."
     return f"{operation}을 완료하지 못했습니다. 현재 상태: {status}"
+
+
+def conflict_explanation(attempt, options: SolveOptions) -> str:
+    """해가 없을 때 어떤 필수 규칙 묶음이 막는지 (2026-10-18). 규칙을 실제로 풀지는 않고, 결정은 사용자가 한다."""
+    from night_shift.service import find_conflicting_rules
+    with st.spinner("어떤 필수 규칙끼리 부딪히는지 찾는 중입니다…"):
+        found = find_conflicting_rules(attempt, options)
+    if found["single"]:
+        return ("막는 규칙(이 중 하나만 예외로 하면 표가 나옴): " + ", ".join(found["single"])
+                + ". 어느 규칙을 양보할지 정해 주세요.")
+    if found["pairs"]:
+        return ("막는 규칙 조합(둘을 함께 예외로 해야 표가 나옴): "
+                + " / ".join(f"{a} + {b}" for a, b in found["pairs"][:6]) + ". 어느 쪽을 양보할지 정해 주세요.")
+    return ("점검한 규칙 묶음을 하나나 둘 빼서는 풀리지 않습니다. 인원·LOCK 조건 자체가 부족하거나 "
+            "목록 밖의 기본 규칙(포스트 인원·순찰 구역 등)과 부딪힙니다.")
 
 
 def random_display_numbers(a_present: bool, presence: dict[str, bool]) -> dict[str, int]:
@@ -892,11 +914,14 @@ def _run_saved_rebalance(shift_date: date, plan, record, start: int, employee_id
         st.session_state.pop(error_key, None)
         return
     diagnosis = outcome.failure_diagnosis
+    conflict = ([conflict_explanation(lambda opts: run_reoptimization(_saved_rebalance_base(record, history), start, employee_id,
+                                                                    unavailable_from, history, opts, event), options)]
+                if outcome.record is None and outcome.solve_result.status == "INFEASIBLE" else [])   # 10/18
     if outcome.record is None and diagnosis:
         st.session_state[error_key] = [diagnosis.title, diagnosis.summary] + (
-            [diagnosis.next_action] if diagnosis.next_action else [])
+            [diagnosis.next_action] if diagnosis.next_action else []) + conflict
     elif outcome.record is None:
-        st.session_state[error_key] = [solver_failure_message(outcome.solve_result.status, "긴급 재편성")]
+        st.session_state[error_key] = [solver_failure_message(outcome.solve_result.status, "긴급 재편성")] + conflict
     else:
         st.session_state[error_key] = ["재편성 결과가 하드룰 검증을 통과하지 못했습니다. 저장된 근무표는 그대로입니다."] + [
             f"- {r}" for r in explain_errors(outcome.validation_errors, outcome.context)]
@@ -1525,8 +1550,9 @@ def render_balance_notes(reasons: list[str], monthly_rows: list[dict], duties=No
         st.markdown("**근무자별 최근 3싸이클 차단봉·순찰**")
         st.caption("차단봉 집계는 2026년 10월 4일 야간부터 계산합니다.")
         st.markdown(duty_grid_html(duties), unsafe_allow_html=True)
-        st.caption("합계 열은 이번 근무를 뺀 최근 6근무 기준입니다. 근무표 생성은 이 6근무에서 "
-                   "밤당 덜 맡은 사람에게 차단봉·각 순찰 구역을 먼저 주는 방향으로 편성합니다.")
+        st.caption("합계 열은 이번 근무를 뺀 최근 6근무 기준입니다. 근무표 생성은 상층·중층 순찰은 이 6근무에서 "
+                   "밤당 덜 맡은 사람에게, 차단봉은 마지막으로 설치·철수한 날이 오래된 사람에게, 하층 순찰은 "
+                   "마지막 하층 뒤 다른 층 순찰 3회 이상(공휴일 주간 포함)인 사람 중 마지막 하층이 오래된 사람에게 먼저 줍니다.")
     if shift_date is not None:                     # 막타임(07시) 휴게 표 — 비고 문장 대신 순찰표처럼 (2026-10-13 사용자 요청)
         from history_ui import last_rest_table_html
         html = last_rest_table_html(shift_date, record)
@@ -1841,6 +1867,9 @@ def _night_page(mobile: bool, side, title_slot, badge_slot) -> None:
                     )
                 else:
                     st.session_state["run_error"] = solver_failure_message(outcome.solve_result.status)
+                    if outcome.solve_result.status == "INFEASIBLE":        # 막는 규칙 자동 진단 (2026-10-18)
+                        st.session_state["run_error"] += "  \n" + conflict_explanation(
+                            lambda opts: runner(request, history, opts), options)
             else:
                 st.session_state["last_result"] = outcome
                 st.session_state["run_state"] = "검증 실패"
@@ -2002,6 +2031,9 @@ def _night_page(mobile: bool, side, title_slot, badge_slot) -> None:
                                 st.info(diagnosis.next_action)
                         else:
                             st.error(solver_failure_message(outcome.solve_result.status, "긴급 재편성"))
+                        if outcome.solve_result.status == "INFEASIBLE":       # 막는 규칙 자동 진단 (2026-10-18)
+                            st.warning(conflict_explanation(lambda opts: run_reoptimization(
+                                selected_result, rebalance_start, employee_id, unavailable_from, history, opts, event), options))
                     else:
                         st.error("재편성 결과가 하드룰 검증을 통과하지 못했습니다. 기존 근무표는 유지됩니다.\n\n"
                                  + "\n".join(f"- {r}" for r in explain_errors(outcome.validation_errors, outcome.context)))

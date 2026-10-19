@@ -18,9 +18,12 @@ from .profiles import _installer_post, make_record
 from .soft_history import patrol_rotation_due
 from .solver import SolveResult, solve_first_trial
 from .validator import validate_first_trial
+from .leave_context import reoptimization_half_day_ids
 
 
-SERVICE_API_VERSION = "2.21.85"         # 2026-10-18: 긴급 반차자 휴게 최소화 맨 앞·12-6 제외
+SERVICE_API_VERSION = "2.21.86"         # 사람이 읽는 표시용. 앱 재로딩은 app.py 엔진 파일 지문으로 자동 (2026-10-18)
+from .engine_fingerprint import engine_fingerprint as _engine_fingerprint
+ENGINE_FINGERPRINT = _engine_fingerprint()   # 이 엔진을 불러온 시점의 파일 지문 (app.py 재로딩 판단, 2026-10-19)
 
 
 def rulebook_label(rules_version: str) -> str:
@@ -111,6 +114,9 @@ class SolveOptions:
     manager_a_start_slot: int = 0
     # 긴급 반차·이탈자의 빠지기 전 남은 칸 (자리 형태, 2026-10-18): 배려 없이 실근무·입식 많게(최후순위)
     emergency_leaver_cells: tuple[tuple[str, int], ...] = ()
+    # 충돌 진단 전용 (2026-10-18): 끌 하드 규칙 묶음, 목표 없이 해 유무만 보기. 실제 생성에서는 기본값 그대로.
+    disabled_rule_groups: tuple[str, ...] = ()
+    feasibility_only: bool = False
 
 
 @dataclass(frozen=True)
@@ -472,9 +478,8 @@ def prepare_engine_inputs(context: ShiftContext, selection: HistorySelection) ->
     last_rows = last.assignments if last else ()
     barrier_last_rows = last_rows if last and barrier_history_counts(last.context) else ()
     derived_install = tuple(dict.fromkeys(r.employee_id for r in barrier_last_rows if r.barrier_install_flag))
-    # 15-3: 연속 회차 설치 금지 대상. v2 기록(2026-10-05~)은 대기 설치자만 (포스트로 설치한 G2·I1은 제외)
-    derived_forbid = tuple(dict.fromkeys(r.employee_id for r in barrier_last_rows if r.barrier_install_flag and (
-        not barrier_v2(last.context) or r.displayed_assignment.label == "보안실 대기")))
+    # 15-3: 연속 회차 설치 금지 대상 = 직전 회차 설치자 전원(G2·I1 포함, 2026-10-19 사용자 확정)
+    derived_forbid = derived_install
     derived_remove = tuple(dict.fromkeys(r.employee_id for r in barrier_last_rows if r.barrier_remove_flag))
     rest_records = tuple(selection.last_rest_records or selection.duty_records or actuals)
     derived_last_rest = []
@@ -561,12 +566,12 @@ def revalidate(result: "ServiceResult", record: ShiftRecord) -> "ServiceResult":
         half_day_ids=(None if result.rebalance_info is None and not record.context.manager_handover else tuple(
             # H-09-1: 관리자 교대표(미리 정한 통제A 반차·긴급 이탈 승계)는 대행자 제외.
             # 긴급 반차·이탈자 본인은 반차자로 본다(10/18 사용자 확정: 휴게 2시간만 하드).
-            a.employee_id for a in record.context.attendance if a.present and a.is_general_worker
-            and a.employee_id != (record.context.manager_handover[1] if record.context.manager_handover else None)
-            and not (result.rebalance_info is not None                       # 바로 빠져 남은 칸 없는 긴급 이탈자
-                     and a.employee_id == result.rebalance_info.unavailable_employee_id
-                     and result.rebalance_info.unavailable_from_index <= result.rebalance_info.reoptimization_start_index)
-            and not all(a.is_available(t) for t in range(14)))),
+            a for a in reoptimization_half_day_ids(record.context.attendance, exclude=(
+                ({record.context.manager_handover[1]} if record.context.manager_handover else set())
+                | ({result.rebalance_info.unavailable_employee_id}            # 바로 빠져 남은 칸 없는 긴급 이탈자
+                   if result.rebalance_info is not None
+                   and result.rebalance_info.unavailable_from_index <= result.rebalance_info.reoptimization_start_index
+                   else set()))))),
         emergency_leaver_cells=_manager_leaver_cells(result),
         **validator_flags_for(result.rules_version, result.rebalance_info is not None))
     if record.context.manager_handover and not errors:
@@ -736,6 +741,7 @@ def _run_schedule_once(context: ShiftContext, history: HistorySelection | None, 
         preference_weights=prepared.preference_weights, avoid_cells=prepared.avoid_cells,
         post_cap=_post_cap(config)[0], half_day_ids=config.half_day_ids,
         emergency_leaver_cells=config.emergency_leaver_cells,
+        disabled_rule_groups=frozenset(config.disabled_rule_groups), feasibility_only=config.feasibility_only,
         **solver_flags,
     )
     if solved.record is None:
@@ -919,13 +925,11 @@ def _reoptimize_core(base: ServiceResult, reoptimization_start_index: int,
                 forced_rest_cells=tuple(forced_rest),
                 # H-09-1: 원래 표의 미리 정한 반차자 + 긴급 반차·이탈자 본인(10/18 사용자 확정: 휴게 2시간만 하드).
                 # leaver_cells가 따로 오면(통제A 이탈 → 자리 형태의 준호 줄이 빠짐) 준호는 반차자가 아니다.
-                half_day_ids=tuple(a.employee_id for a in base.context.attendance
-                                   if a.present and a.is_general_worker
-                                   and (not all(a.is_available(t) for t in range(14))
-                                        or a.employee_id == unavailable_employee_id)
-                                   and not (a.employee_id == unavailable_employee_id
-                                            and (leaver_cells is not None      # 통제A 이탈: 자리 형태 준호 줄
-                                                 or unavailable_from_index <= reoptimization_start_index))),  # 남은 칸 없음
+                half_day_ids=reoptimization_half_day_ids(
+                    revised_context.attendance,
+                    exclude=({unavailable_employee_id}         # 통제A 이탈: 자리 형태 준호 줄 / 남은 칸 없이 바로 빠짐
+                             if leaver_cells is not None or unavailable_from_index <= reoptimization_start_index
+                             else ())),
                 emergency_leaver_cells=tuple(leaver_cells if leaver_cells is not None else
                                              ((unavailable_employee_id, t)
                                               for t in range(reoptimization_start_index, unavailable_from_index)))),
@@ -943,7 +947,7 @@ def _reoptimize_core(base: ServiceResult, reoptimization_start_index: int,
         # 차단봉 유지 고정(extra_locked)으로 해가 없으면 호출한 쪽이 고정 없이 다시 찾으므로 진단하지 않는다
         # (진단은 고정 칸을 모르는 문맥이라 오류가 났음, 2026-10-18).
         if (config.rules_version in ("2.16", "2.17", "2.18", "2.19", "2.20") and outcome.solve_result.status == "INFEASIBLE"
-                and not extra_locked):
+                and not extra_locked and not config.feasibility_only and not config.disabled_rule_groups):
             diagnosis = _diagnose_reoptimization(revised_context, locked,
                                                  history or HistorySelection(), config)
         elif outcome.solve_result.status == "UNKNOWN":
@@ -1148,6 +1152,49 @@ def run_lock_regeneration(base: ServiceResult, reoptimization_start_index: int,
     if outcome.record is None:
         return outcome
     return revalidate(outcome, outcome.record)
+
+
+# 충돌 진단에 쓰는 하드 규칙 묶음 (solver.rule_off()의 이름과 같아야 한다, 2026-10-18)
+RULE_GROUPS = (
+    "준호 피로도(반차·승계)", "준호 자기 줄 순찰 금지", "통제A 긴급 반차(I1 금지·입식 3연속)",
+    "순찰 배분(14-1·14-2)", "H-11 순찰 뒤 휴게", "H-08 연속근무", "반차자 휴게 2시간(H-09-1)",
+    "관리자 실근무·피로도 격차(H-15·8-4-2)", "8-10 통제A 04시", "8-14 통제A I1 최소 1회", "8-15 통제A 대기 최대 2회",
+    "12-3 순찰 뒤 3번째 칸 대기 표기", "12-4 연속 휴게 표기", "12-5 매시간 대기자", "12-6 대기 횟수 차이",
+    "H-19 05~07시 휴게 3연속 금지", "5-3-1 남문 2시간 연속 금지", "15-3 연속 회차 설치 금지",
+)
+
+
+def find_conflicting_rules(attempt, options: SolveOptions, seconds: int = 8, pairs: bool = True) -> dict:
+    """해가 없을 때 어떤 하드 규칙 묶음이 막는지 찾는다 (2026-10-18, 사용자 결정용 — 규칙을 실제로 풀지는 않는다).
+
+    attempt(options) -> ServiceResult 는 원래 생성·재편성 호출을 그대로 감싼 함수.
+    묶음을 하나씩 끄고 목표 없이 해가 있는지만 본다. 하나로 안 풀리면 두 개씩 끈 조합도 본다(pairs).
+    반환: {"single": [묶음], "pairs": [(묶음, 묶음)], "checked": 시도 수, "seconds": 걸린 시간}"""
+    from time import perf_counter
+    started = perf_counter()
+    probe = replace(options, feasibility_only=True, seconds=seconds)
+
+    def solvable(groups):
+        try:
+            out = attempt(replace(probe, disabled_rule_groups=tuple(groups)))
+        except ValueError:
+            return False
+        return out.solve_result.status in ("FEASIBLE", "OPTIMAL")
+
+    checked = 0
+    single = []
+    for group in RULE_GROUPS:
+        checked += 1
+        if solvable((group,)):
+            single.append(group)
+    found_pairs = []
+    if pairs and not single:
+        for i, first in enumerate(RULE_GROUPS):
+            for second in RULE_GROUPS[i + 1:]:
+                checked += 1
+                if solvable((first, second)):
+                    found_pairs.append((first, second))
+    return {"single": single, "pairs": found_pairs, "checked": checked, "seconds": perf_counter() - started}
 
 
 def patrol_recovery_misses(record: ShiftRecord, from_slot: int = 0) -> list[str]:
