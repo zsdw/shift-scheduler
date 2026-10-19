@@ -11,7 +11,8 @@ def render(store, day, kind='night', current=None, key='main'):
         before, entries = ledger.read(store, day, kind)
         actual, _ = ledger.read(store, day + timedelta(days=1), kind)
         values = (ledger.night_values(current) if kind == 'night' else ledger.weekend_values(current)) if current is not None else {}
-        delta = ledger.day_delta(values) if day >= ledger.START else {}
+        extras = ledger.night_extras(current) if kind == 'night' and current is not None else {}
+        delta = ledger.day_delta(values, extras) if day >= ledger.START else {}
     except (OSError, ValueError) as exc:
         st.error(str(exc))
         return

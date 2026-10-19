@@ -396,10 +396,36 @@ def restore_generated_schedule(index, on_change=None) -> None:
     st.session_state.pop("drag_rejection", None)
 
 
+def candidate_reasons(selected_result, selected_index) -> list[str]:
+    """생성 후보의 특이사항·비고 문장(화면 표시와 확정 저장 스냅샷이 같은 문장을 쓴다, 2026-10-20)."""
+    shift_date = selected_result.context.shift_start_date
+    original = st.session_state.get("generated_originals", {}).get(selected_index)
+    reasons = balance_reasons(
+        selected_result.record, selected_result.employee_stats, selected_result.prepared_inputs,
+        plan_stats=calculate_all_stats(original) if original is not None else None,
+        emergency=_emergency_info(selected_result), attempts=selected_result.solve_result.attempts,
+        others=night_other_labels(shift_date))
+    if getattr(selected_result, "post_cap_relaxed", False):   # H-17 예외 (PC·폰 공통 특이사항)
+        reasons.insert(0, "⚠️ 2명 완전결원이라 '같은 포스트 최대 3번'(H-17)을 지키는 표가 없어 "
+                          "이 회차만 해제했습니다. 같은 포스트를 4번 이상 서는 사람이 있을 수 있습니다.")
+    if selected_result.dual_mode is not None:          # 룰북 0-2-1
+        spreads = selected_result.dual_spreads or {}
+        detail = " / ".join(f"{mode} 피로도 차이 {v.get('피로도')}점·실휴게 차이 {v.get('실휴게')}시간"
+                            for mode, v in spreads.items())
+        note = ("FM·유도리 모두 만족하는 표입니다: 두 기준 모두 하드룰 위반 0건, " + detail + " (0-2-1)."
+                if selected_result.dual_mode and selected_result.dual_balanced else
+                "FM·유도리 하드룰은 모두 만족하지만 두 기준 밸런스 목표를 함께 맞추는 표는 없었습니다: "
+                + detail + " (0-2-1)."
+                if selected_result.dual_mode else
+                "FM·유도리 모두 만족하는 표가 없어 FM만 만족하는 표로 만들었습니다(0-2-1).")
+        reasons = [r for r in reasons if r != "특이사항 없음."] + [note]
+    return reasons
+
+
 def confirm_and_regenerate(result, index, params, history, options) -> None:
     with mobile_ui.action_columns(f"night_{index}", spec=3) as (confirm_col, reset_col, regenerate_col):
         with confirm_col:
-            confirm_button(result, f"confirm_{index}")
+            confirm_button(result, f"confirm_{index}", notes=lambda: candidate_reasons(result, index))
         with reset_col:
             if st.button("↩ 초기 생성표로", key=f"restore_initial_{index}", width="stretch",
                          disabled=index not in st.session_state.get("generated_originals", {}),
@@ -998,7 +1024,7 @@ def render_saved_rebalance(shift_date: date, shown: dict, history: HistorySelect
         st.markdown("- " + line.replace("~", "\\~"))
     with mobile_ui.action_columns(f"saved_rebalance_{shift_date}") as (confirm_col, drop_col):
         with confirm_col:
-            confirm_button(saved, f"saved_rebalance_confirm_{shift_date}")
+            confirm_button(saved, f"saved_rebalance_confirm_{shift_date}", notes=reasons)
         with drop_col:
             if st.button("재편성표 버리기", key=f"saved_rebalance_drop_{shift_date}", width="stretch"):
                 st.session_state.pop(state_key, None)
@@ -1540,7 +1566,7 @@ def flexible_note_numbers(reasons: list[str], record) -> tuple[list[str], object
 
 
 def render_balance_notes(reasons: list[str], monthly_rows: list[dict], duties=None, shift_date=None, record=None,
-                         view_key: str | None = None) -> None:
+                         view_key: str | None = None, caption: str | None = None, extras=()) -> None:
     """Page bottom: why someone gained or lost balance, and the monthly direction."""
     st.divider()
     st.markdown("#### 📝 특이사항 · 비고")
@@ -1553,8 +1579,14 @@ def render_balance_notes(reasons: list[str], monthly_rows: list[dict], duties=No
     if record is not None and view_key and view_mode(view_key, record) == "유도리":   # 표 제목 줄 '유도리' 보기
         reasons, record = flexible_note_numbers(reasons, record)
         st.caption("🟣 유도리 기준 숫자입니다(오늘 피로도 많이/적게·밸런스 판정). 배정 이유 설명은 FM·유도리 같습니다.")
+    if caption:                                   # 2026-10-20: 저장 당시 문장인지 현재 규칙 계산인지 표시
+        st.caption(caption)
     for line in note_lines_html(reasons, record):
         st.markdown(line, unsafe_allow_html=True)
+    for title, lines in extras:                   # 현재 규칙 기준 다시 계산·참고 검사 (접힌 칸, PC·폰 공통)
+        with st.expander(title, expanded=False):
+            for line in lines or ["차이 없음."]:
+                st.markdown("- " + str(line).replace("~", "\\~"))
     if duties is not None and not duties.empty:
         st.markdown("**근무자별 최근 3싸이클 차단봉·순찰**")
         st.caption("차단봉 집계는 2026년 10월 4일 야간부터 계산합니다.")
@@ -1946,14 +1978,42 @@ def _night_page(mobile: bool, side, title_slot, badge_slot) -> None:
             except Exception:
                 prepared = None
             plan = shown["plan"]
-            note_lines = [line for line in (shown.get("note") or "").splitlines() if line.strip()]
+            all_note = [line for line in (shown.get("note") or "").splitlines() if line.strip()]
+            # 2026-10-20 사용자 확정: 업로드 당시 규칙으로 검사한 경고줄('[규칙] …')은 기본 화면에서 뺀다
+            # (손대지 않은 업로드 저장본은 생성 규칙 검사 대상 아님). 필요하면 접힌 칸에서 현재 규칙으로 다시 검사.
+            note_lines = [line for line in all_note if not line.startswith("[")]
             # 2026-10-05 사용자 확정: 특이사항은 생성(저장) 당시 표 기준. 현장에서 생긴 교환·피로도 주석 변동은
             # 넣지 않고 월간 분석에서 날짜·사람·시간·사유로 따로 설명한다.
-            render_balance_notes(note_lines + balance_reasons(
+            current = balance_reasons(
                 plan, calculate_all_stats(plan), prepared, manual=bool(shown.get("source")),
                 emergency=({**(shown["rebalance"] or {}), "locked_through": shown["lock"]}
-                           if shown["lock"] >= 0 else None), others=night_other_labels(shift_date)), monthly_rows,
-                duty_frame(shift_date, record), shift_date, record, view_key=f"saved_fmview_{shift_date}")
+                           if shown["lock"] >= 0 else None), others=night_other_labels(shift_date))
+            snapshot = (shown.get("snapshot") or {}).get("lines")
+            extras = []
+            if snapshot:      # 2026-10-20: 확정 당시 문장을 그대로, 지금 규칙으로 다시 계산한 문장이 다르면 접힌 칸
+                body, caption = list(snapshot), f"확정 저장 당시 특이사항입니다({(shown['snapshot'].get('saved_at') or '')[:10]})."
+                if [x for x in current if x not in snapshot]:
+                    extras.append(("🔄 현재 규칙으로 다시 계산한 특이사항", current))
+            else:
+                body = current
+                caption = ("업로드한 현장 실제 근무표입니다. 아래 설명은 현재 프로그램 기준으로 계산합니다."
+                           if shown.get("source") else
+                           "이 저장본에는 확정 당시 문장이 없어 현재 규칙 기준으로 계산한 설명입니다.")
+            if shown.get("source"):
+                from night_shift.models import HistoryInput as _HistoryInput
+                from night_shift.schedule_edit import explain_errors as _explain
+                from night_shift.validator import validate_first_trial as _validate
+                try:
+                    checked = _explain(_validate(plan, _HistoryInput((), ()), rules_v220=True), plan.context)
+                except Exception as exc:          # 참고 검사 실패가 화면을 막지 않게
+                    checked = [f"참고 검사를 하지 못했습니다: {exc}"]
+                hidden = len(all_note) - len(note_lines)
+                extras.append(("🔎 현재 규칙으로 참고 검사(업로드 원본은 생성 규칙 검사 대상 아님)",
+                               (checked or ["현재 규칙 기준 위반 없음."])
+                               + ([f"(업로드 당시 규칙으로 적힌 경고 {hidden}줄은 숨겼습니다.)"] if hidden else [])))
+            render_balance_notes(note_lines + body, monthly_rows,
+                duty_frame(shift_date, record), shift_date, record, view_key=f"saved_fmview_{shift_date}",
+                caption=caption, extras=extras)
         return
     if not schedule_results:
         with badge_slot:
@@ -2115,26 +2175,7 @@ def _night_page(mobile: bool, side, title_slot, badge_slot) -> None:
     with tabs[3]:
         monthly_rows = render_monthly(shift_date)
     if selected_result is not None and selected_result.valid:
-        original = st.session_state.get("generated_originals", {}).get(selected_index)
-        reasons = balance_reasons(
-            selected_result.record, selected_result.employee_stats, selected_result.prepared_inputs,
-            plan_stats=calculate_all_stats(original) if original is not None else None,
-            emergency=_emergency_info(selected_result), attempts=selected_result.solve_result.attempts,
-            others=night_other_labels(shift_date))
-        if getattr(selected_result, "post_cap_relaxed", False):   # H-17 예외 (PC·폰 공통 특이사항)
-            reasons.insert(0, "⚠️ 2명 완전결원이라 '같은 포스트 최대 3번'(H-17)을 지키는 표가 없어 "
-                              "이 회차만 해제했습니다. 같은 포스트를 4번 이상 서는 사람이 있을 수 있습니다.")
-        if selected_result.dual_mode is not None:          # 룰북 0-2-1
-            spreads = selected_result.dual_spreads or {}
-            detail = " / ".join(f"{mode} 피로도 차이 {v.get('피로도')}점·실휴게 차이 {v.get('실휴게')}시간"
-                                for mode, v in spreads.items())
-            note = ("FM·유도리 모두 만족하는 표입니다: 두 기준 모두 하드룰 위반 0건, " + detail + " (0-2-1)."
-                    if selected_result.dual_mode and selected_result.dual_balanced else
-                    "FM·유도리 하드룰은 모두 만족하지만 두 기준 밸런스 목표를 함께 맞추는 표는 없었습니다: "
-                    + detail + " (0-2-1)."
-                    if selected_result.dual_mode else
-                    "FM·유도리 모두 만족하는 표가 없어 FM만 만족하는 표로 만들었습니다(0-2-1).")
-            reasons = [r for r in reasons if r != "특이사항 없음."] + [note]
+        reasons = candidate_reasons(selected_result, selected_index)
         render_balance_notes(reasons, monthly_rows, duty_frame(shift_date, selected_result.record), shift_date,
                              selected_result.record, view_key=f"night_fmview_{selected_index}")
 

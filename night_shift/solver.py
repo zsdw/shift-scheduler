@@ -286,6 +286,22 @@ def solve_first_trial(context, history: HistoryInput, seconds=30, *, compensatio
                         if 0 <= j < 14:
                             model.add(triple + work(j) <= 1)     # 4연속 근무 안의 입식 3연속 금지
             manager_leaver_rests = sum(1 - work(t) for t in manager_leaver_slots)
+        def day_fatigue(pid):
+            return sum(int(r.fatigue_value) * v for t in range(14) for r, v in zip(opts[pid, t], variables[pid, t]))
+        if (rules_v220 and manager_is_proxy and not proxy_handover and full_general_ids
+                and not rule_off("준호 피로도(반차·승계)")):
+            # [하드, 2026-10-20 사용자 확정] 미리 정한 A 결근(하루 종일 준호 대행)도 긴급 승계와 같이
+            # 준호 하루 피로도 = 온전 출근 일반근무자 중 최저(동점 허용). 결원 0·1·2명 공통.
+            proxy_low = model.new_int_var(0, 60, "full_proxy_low_general_fatigue")
+            model.add_min_equality(proxy_low, [day_fatigue(p) for p in full_general_ids])
+            model.add(day_fatigue(policy.manager_id) <= proxy_low)
+        if (rules_v220 and policy.manager_id == "A" and not manager_is_proxy and manager_vacancy_policy
+                and full_general_ids and not rule_off("관리자 하대 금지(결원 2명)")):
+            # [하드, 2026-10-20 사용자 확정] 결원 2명 날 관리자 우대는 없어도 하대는 없다:
+            # 통제A 하루 피로도 ≤ 온전 출근 일반근무자 최고.
+            manager_top = model.new_int_var(0, 60, "vacancy_manager_top_general_fatigue")
+            model.add_max_equality(manager_top, [day_fatigue(p) for p in full_general_ids])
+            model.add(day_fatigue("A") <= manager_top)
         if proxy_handover and full_general_ids and not rule_off("준호 피로도(반차·승계)"):
             # [하드, 2026-10-18 사용자 확정] 통제A 반차(전반부·후반부·긴급 이탈 승계 모두)면 준호 하루 피로도는
             # 온전 출근 일반근무자 최고 피로도보다 낮게 (동점 최고도 금지).
@@ -328,12 +344,20 @@ def solve_first_trial(context, history: HistoryInput, seconds=30, *, compensatio
             exclusion_cost.append(sum(e['excluded'] for e in events)*excluded)
 
         # 하층 순찰 3회 연속 금지. 출근했으나 하층을 안 한 날은 연속 종료.
+        # 2026-10-20 사용자 확정: 야간 + 공휴일 주간 순찰을 같은 그룹으로 센다(순찰 이벤트에 층이 있으면).
+        zoned_events = bool(patrol_events) and all('zones' in e for e in patrol_events)
         for p in people:
-            recent = [r for r in sorted(patrol_actuals, key=lambda r:r.context.shift_start_date)
-                      if r.context.shift_start_date < context.shift_start_date
-                      and any(a.employee_id == p and a.present for a in r.context.attendance)][-2:]
-            if len(recent) == 2 and all(any(x.employee_id == p and x.actual_post_or_work_type.kind == K.PATROL
-                    and x.actual_post_or_work_type.label == 'lower' for x in r.assignments) for r in recent):
+            name = next(e.name for e in context.employees if e.employee_id == p)[-2:]
+            mine = [e for e in patrol_events if e['name'] == name] if zoned_events else []
+            if mine:
+                lower_streak = len(mine) >= 2 and all('lower' in e['zones'] for e in mine[-2:])
+            else:
+                recent = [r for r in sorted(patrol_actuals, key=lambda r:r.context.shift_start_date)
+                          if r.context.shift_start_date < context.shift_start_date
+                          and any(a.employee_id == p and a.present for a in r.context.attendance)][-2:]
+                lower_streak = len(recent) == 2 and all(any(x.employee_id == p and x.actual_post_or_work_type.kind == K.PATROL
+                        and x.actual_post_or_work_type.label == 'lower' for x in r.assignments) for r in recent)
+            if lower_streak:
                 locked_lower = {(x.employee_id, x.slot.index) for x in locked_assignments or ()
                                 if x.actual_post_or_work_type.kind == K.PATROL and x.actual_post_or_work_type.label == 'lower'}
                 for t in range(14):
@@ -1306,7 +1330,8 @@ def solve_first_trial(context, history: HistoryInput, seconds=30, *, compensatio
                     model.add(early + late == 2).only_enforce_if(both)
                     model.add(early + late <= 1).only_enforce_if(both.Not())
                     repeat_at03.append(both)
-                if rules_v210:
+                if rules_v210 and not (rules_v220 and manager_is_proxy):
+                    # 2026-10-20 사용자 확정: 준호 대행 날 2회 순찰자는 누구든 상관없음(관리자 우선 선호 없음)
                     manager_patrols = sum(expression(policy.manager_id, t, lambda r:r.actual_post_or_work_type.kind == K.PATROL) for t in (3,4,5,7,8,9))
                     objectives.append(("prefer_manager_double_patrol", 2-manager_patrols))
                 objectives.append(("repeat_patrol_at03", 1-sum(repeat_at03)))
@@ -1530,12 +1555,20 @@ def solve_first_trial(context, history: HistoryInput, seconds=30, *, compensatio
             if leaver_rest_misses:
                 objectives.append(("emergency_leaver_patrol_rest", sum(leaver_rest_misses)))
             if rules_v220 and long_term_balances is not None:
-                # 사용자 확정 10/20: 당일 균형 → 장기 미상환 → 기타 선호.
-                balance_goals = [o for o in objectives if o[0] == 'general_balance']
+                # 사용자 확정 10/20 (가): 가능하면 지킬 규칙 → 막타임 → 차단봉 → 하층 순번 → 당일 균형 → 장기 미상환 → 기타.
+                front_names = ("emergency_patrol_recovery", "emergency_leaver_rest", "manager_leaver_rest",
+                               "vacancy1_required_standby")
+                turn_prefixes = ("last_rest_oldest_", "barrier_oldest_", "lower_oldest_")
+                front_goals = [o for o in objectives if o[0] in front_names]
+                turn_goals = [o for o in objectives if o[0].startswith(turn_prefixes)]
+                # 결원 2명 조장-일반 평균 4점 이내(17-5)는 당일 균형 묶음의 맨 앞(2026-10-20 사용자 확정:
+                # 일반근무자끼리 완벽 균형을 위해 조장과 크게 벌어지지 않게).
+                balance_goals = ([o for o in objectives if o[0] == 'vacancy_manager_fatigue_gap']
+                                 + [o for o in objectives if o[0] == 'general_balance'])
                 ledger_goals = [o for o in objectives if o[0].startswith('long_term_fatigue_')]
-                other_goals = [o for o in objectives if o[0] != 'general_balance'
-                               and not o[0].startswith('long_term_fatigue_')]
-                objectives = balance_goals + ledger_goals + other_goals
+                placed = {id(o) for o in front_goals + turn_goals + balance_goals + ledger_goals}
+                other_goals = [o for o in objectives if id(o) not in placed]
+                objectives = front_goals + turn_goals + balance_goals + ledger_goals + other_goals
             for objective_name, objective in objectives:
                 model.minimize(objective)
                 cap = STAGE_TIME_CAPS.get(objective_name, float(seconds))

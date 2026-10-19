@@ -201,7 +201,7 @@ def history_influence_lines(record, stats, prepared=None, manual: bool = False) 
                                                for r in rows.get(pid, {}).values())]
         below = [pid for pid in today if table.get(pid, 0) / 100 < team]
         if below:
-            out.append(f"{label}: 최근 3싸이클 밤당 횟수가 팀 평균({team:.2f})보다 적은 "
+            out.append(f"{label}: 최근 6근무(야간·공휴일 주간) 근무당 횟수가 팀 평균({team:.2f})보다 적은 "
                        + ", ".join(f"{names.get(pid, pid)}({table.get(pid, 0) / 100:.2f})" for pid in below)
                        + "에게 오늘 맡겼습니다(15-8).")
     totals = (getattr(prepared, "historical_totals", None) or {}).get("fatigue_value", {})

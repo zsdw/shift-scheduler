@@ -247,6 +247,25 @@ def duty_rates_from(records, general_ids) -> dict | None:
     return rates
 
 
+def mixed_zone_rates(rates, events, names, general_ids, window: int = 6):
+    """14-8 (2026-10-20 사용자 확정): 상·중·하층 순찰 횟수는 야간 + 공휴일 주간을 같은 그룹으로,
+    최근 6근무(날짜·주야 순)에서 각자 출근한 근무당 비율(×100). 층 정보가 없는 이벤트면 기존 야간 값 유지."""
+    if not events or not all('zones' in e for e in events):
+        return rates
+    slots = sorted({(e['date'], e['shift']) for e in events})[-window:]
+    recent = [e for e in events if (e['date'], e['shift']) in set(slots)]
+    out = {k: dict(v) for k, v in (rates or {}).items()}
+    for zone in ("upper", "middle", "lower"):
+        per = {}
+        for p in general_ids:
+            mine = [e for e in recent if e['name'] == str(names.get(p, p))[-2:]]
+            if mine:
+                per[p] = sum(zone in e['zones'] for e in mine) / len(mine)
+        team = sum(per.values()) / len(per) if per else 0
+        out[zone] = {p: round(100 * per.get(p, team)) for p in general_ids}
+    return out
+
+
 @dataclass(frozen=True)
 class ServiceResult:
     context: ShiftContext
@@ -520,7 +539,8 @@ def prepare_engine_inputs(context: ShiftContext, selection: HistorySelection) ->
         patrol_rotation_priority_ids=tuple(sorted(patrol_rotation_due(actuals, selection.soft_debt))),
         previous_install_ids=tuple(previous_install), previous_remove_ids=tuple(previous_remove),
         soft_debt=selection.soft_debt,
-        duty_rates=duty_rates_from(selection.duty_records, general_ids),
+        duty_rates=mixed_zone_rates(duty_rates_from(selection.duty_records, general_ids), selection.patrol_events,
+                                    {e.employee_id: e.name for e in context.employees}, general_ids),
         history_fatigue_averages=averages or None,
         preference_weights=preference_weights(selection.duty_records, general_ids),
         avoid_cells=avoid_cells(context),
@@ -1170,6 +1190,7 @@ RULE_GROUPS = (
     "관리자 실근무·피로도 격차(H-15·8-4-2)", "8-10 통제A 04시", "8-14 통제A I1 최소 1회", "8-15 통제A 대기 최대 2회",
     "12-3 순찰 뒤 3번째 칸 대기 표기", "12-4 연속 휴게 표기", "12-5 매시간 대기자", "12-6 대기 횟수 차이",
     "H-19 05~07시 휴게 3연속 금지", "5-3-1 남문 2시간 연속 금지", "15-3 연속 회차 설치 금지",
+    "관리자 하대 금지(결원 2명)",
 )
 
 

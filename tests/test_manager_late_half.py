@@ -196,7 +196,7 @@ class ManagerLateHalfTests(unittest.TestCase):
             if s["6"].fatigue_value >= max(s[p].fatigue_value for p in general):
                 break
             i6 = next(i for i, a in enumerate(rows) if a.employee_id == "6" and a.slot.index == t)
-            if rows[i6].fatigue_value:
+            if rows[i6].fatigue_value >= 2:      # 휴게(0)·좌식(1) 칸을 입식(2)과 맞바꿔 준호 피로도를 올린다
                 continue
             j = next((i for i, a in enumerate(rows) if a.slot.index == t and a.employee_id in general
                       and a.fatigue_value == 2), None)

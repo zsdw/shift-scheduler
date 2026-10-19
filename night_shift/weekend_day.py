@@ -20,6 +20,17 @@ A_G1_WINDOW = range(3, 8)                   # 통제A G1 최소 1번은 11~15시
 PATROL = {1: ('상층', 2), 2: ('중층', 2), 3: ('하층', 1),
           6: ('상층', 2), 7: ('중층', 2), 8: ('하층', 1)}
 FIRST_PATROL = min(PATROL)                  # 첫 순찰 칸(09시) — 통제A 고정 (2026-10-12)
+LOWER_PATROL = tuple(t for t, (zone, _) in PATROL.items() if zone == '하층')   # 11·16시
+ZONE_SLOTS = {'upper': tuple(t for t, (z, _) in PATROL.items() if z == '상층'),
+              'middle': tuple(t for t, (z, _) in PATROL.items() if z == '중층')}
+
+
+def _lower_streak_events(events, name):
+    """14-9 (2026-10-20 사용자 확정): 야간+공휴일 주간 순찰 이벤트(층 포함)에서 최근 출근 2회가 모두 하층인가."""
+    if not events or not all('zones' in e for e in events):
+        return False
+    mine = sorted((e for e in events if e['name'] == name[-2:]), key=lambda e: (e['date'], e['shift']))
+    return len(mine) >= 2 and all('lower' in e['zones'] for e in mine[-2:])
 EARLY_LOCK = 2                              # 긴급 재편성 LOCK이 10시(2번째 칸)까지면 격차 1, 그 뒤는 2 허용
 
 
@@ -171,6 +182,13 @@ def validate(schedule, base=None):
         prior=sorted((e for e in schedule.patrol_events if e['name']==name[-2:]),key=lambda e:(e['date'],e['shift']))
         if any(e['excluded'] for e in prior[-2:]) and '순찰' not in schedule.grid[pid]:
             errors.append(f'{name}: 순찰 제외 후 다음 출근 2회 순찰 필수')
+        # 14-9 (2026-10-20 사용자 확정): 야간·공휴일 주간을 합쳐 최근 출근 2회 모두 하층이면 오늘 하층 금지(LOCK 보존)
+        zoned = bool(schedule.patrol_events) and all('zones' in e for e in schedule.patrol_events)
+        if zoned and len(prior) >= 2 and all('lower' in e['zones'] for e in prior[-2:]):
+            for t in LOWER_PATROL:
+                locked = schedule.locked_through is not None and t <= schedule.locked_through
+                if schedule.grid[pid][t] == '순찰' and not locked:
+                    errors.append(f'{name}: 하층 순찰 3회 연속 금지({8+t}시)')
     return errors
 
 
@@ -440,6 +458,41 @@ def generate(day, names, mode='FM', *, seconds=30, seed=0, exclude=None,
         exclusion_terms.append(previous*(1-patrol_count))
     rotation_cost=sum(exclusion_terms)
     rotation_scale=exclusion_bound+1
+    # 순찰 층 이력 (2026-10-20 사용자 확정): 주말 주간은 야간과 같은 순찰 그룹 — 야간+공휴일 주간 이벤트로 센다.
+    from .soft_history import lower_patrol_wait
+    lower_groups = {}
+    for p in generals:
+        if p in leavers or all(t in offs[p] for t in LOWER_PATROL):
+            continue
+        if _lower_streak_events(patrol_events, names[p]):          # 14-9 HARD: 하층 3회 연속 금지
+            for t in LOWER_PATROL:
+                if not (base is not None and locked_through is not None and t <= locked_through):
+                    m.Add(x[p,t,'순찰'] == 0)
+            continue
+        wait = lower_patrol_wait(patrol_events, names[p][-2:]) if patrol_events else None
+        if wait is not None:                                         # 14-7 후보: 마지막 하층 오래된 그룹부터
+            lower_groups.setdefault(wait, []).append(p)
+    lower_rank = 0
+    if lower_groups:
+        base_w = max(len(g) for g in lower_groups.values()) + 1
+        ordered = sorted(lower_groups)
+        for i, day_key in enumerate(ordered):
+            weight = base_w ** (len(ordered) - 1 - i)
+            lower_rank += weight * sum(1 - sum(x[p,t,'순찰'] for t in LOWER_PATROL) for p in lower_groups[day_key])
+    # 14-8 상·중층 횟수: 최근 6근무(야간+공휴일 주간) 근무당 적게 한 사람에게 먼저 — 맨 마지막 순위
+    zone_cost = 0
+    zone_bound = 0
+    if patrol_events and all('zones' in e for e in patrol_events):
+        from .service import mixed_zone_rates
+        rates = mixed_zone_rates({}, patrol_events, names, generals)
+        for zone, slots in ZONE_SLOTS.items():
+            for p in generals:
+                rate = round(rates.get(zone, {}).get(p, 0) / 10)
+                if rate:
+                    zone_cost += rate * sum(x[p,t,'순찰'] for t in slots)
+                    zone_bound += rate * len(slots)
+    rotation_cost = rotation_cost * (zone_bound + 1) + zone_cost
+    rotation_scale *= zone_bound + 1
     m.Add(x[last_two, 9, '휴게'] == 1)               # 통제A(오후반차면 대행 준호) 마지막 시간 휴게 (하드)
     # 2026-10-16 사용자 확정: 통제A 16시는 휴게가 강한 권장(하드 아님), 휴게가 안 되면 G2 우선.
     # (종전 10/13 '16시 G2만' 하드 폐지) 결원 2명(G2 미운영) 시간은 G1 금지 하드 유지. 오후반차면 대행 준호가 계승.
@@ -668,7 +721,9 @@ def generate(day, names, mode='FM', *, seconds=30, seed=0, exclude=None,
         probe_solver, probe_status = solve(g2_probe, min(seconds, 10))
         if probe_status in (cp_model.FEASIBLE, cp_model.OPTIMAL):
             m.Add(g2_17 <= int(probe_solver.ObjectiveValue()))
-    if (not ledger_active and not (leavers and balance) and
+    # 2026-10-20 사용자 확정 (가): 가능하면 지킬 규칙 → 막타임 → 하층 순번 → 당일 균형 → 장기 장부 → 기타.
+    # 장부를 쓰는 날도 막타임·하층 순번을 장부보다 먼저 고정한다(종전엔 장부 날 고정 안 함).
+    if (not (leavers and balance) and
             (not isinstance(last_rank, int) or not isinstance(g2_rank, int))):
         rank = 100 * last_rank + g2_rank                # ③ 먼저, 같으면 ④
         rank_probe = m.Clone()
@@ -676,6 +731,12 @@ def generate(day, names, mode='FM', *, seconds=30, seed=0, exclude=None,
         probe_solver, probe_status = solve(rank_probe, min(seconds, 10))
         if probe_status in (cp_model.FEASIBLE, cp_model.OPTIMAL):
             m.Add(rank <= int(probe_solver.ObjectiveValue()))
+    if not (leavers and balance) and not isinstance(lower_rank, int):
+        lower_probe = m.Clone()
+        lower_probe.Minimize(lower_rank)
+        probe_solver, probe_status = solve(lower_probe, min(seconds, 10))
+        if probe_status in (cp_model.FEASIBLE, cp_model.OPTIMAL):
+            m.Add(lower_rank <= int(probe_solver.ObjectiveValue()))
     # 그다음: 통제A 1~2점 덜 (n빵 판정보다 먼저). 반차·긴급일은 기존 확정 순위(반차자 휴게 1시간) 다음 — 아래 목적식
     if a_gap and not partial and not ledger_active:
         gap_probe = m.Clone()

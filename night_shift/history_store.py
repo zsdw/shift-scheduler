@@ -119,7 +119,7 @@ def exists(store: Path, shift_date: date) -> bool:
 
 
 def save_confirmed(store: Path, plan: ShiftRecord, rules_version: str,
-                   now: datetime | None = None, rebalance=None) -> Path:
+                   now: datetime | None = None, rebalance=None, notes_snapshot=None) -> Path:
     """Confirm a generated plan for its date. The actual starts equal to the plan."""
     store = Path(store)
     store.mkdir(parents=True, exist_ok=True)
@@ -128,6 +128,9 @@ def save_confirmed(store: Path, plan: ShiftRecord, rules_version: str,
     payload = {"version": STORE_VERSION, "rules_version": rules_version,
                "confirmed_at": now.isoformat(timespec="seconds"),
                "plan": record_to_json(plan), "edits": [], "note": ""}
+    if notes_snapshot:   # 2026-10-20: 확정 당시 화면의 특이사항 문장(생성 당시 기준으로 고정 보관)
+        payload["notes_snapshot"] = {"lines": [str(x) for x in notes_snapshot],
+                                     "saved_at": now.isoformat(timespec="seconds")}
     if rebalance is not None:  # emergency re-optimization: remember the LOCKed hours
         payload["rebalance"] = {
             "locked_through": rebalance.locked_through_index,

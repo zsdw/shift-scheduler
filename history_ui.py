@@ -55,8 +55,14 @@ def history_caption(shift_date: date) -> str:
     return "실제 근무 이력 반영: " + ", ".join(parts) + " (최근 4근무 똑같은 비중)"
 
 
-def confirm_button(result, key: str) -> None:
-    """'이 근무표로 확정' for a valid generated schedule."""
+def confirm_button(result, key: str, notes=None) -> None:
+    """'이 근무표로 확정' for a valid generated schedule.
+    notes: 화면에 보인 특이사항 문장 목록을 돌려주는 함수(2026-10-20, 확정 당시 문장 스냅샷)."""
+    def snapshot():
+        try:
+            return notes() if callable(notes) else notes
+        except Exception:
+            return None
     if result is None or not result.valid:
         return
     shift_date = result.context.shift_start_date
@@ -68,7 +74,7 @@ def confirm_button(result, key: str) -> None:
             if history_store.exists(store_dir(), shift_date):
                 history_store.delete_to_trash(store_dir(), shift_date)
             history_store.save_confirmed(store_dir(), result.record, result.rules_version,
-                                         rebalance=result.rebalance_info)
+                                         rebalance=result.rebalance_info, notes_snapshot=snapshot())
             st.session_state[f"{key}_ask_overwrite"] = False
             st.session_state["flash"] = f"{shift_date} 근무표를 확정 저장했습니다."
             st.rerun()
@@ -81,7 +87,7 @@ def confirm_button(result, key: str) -> None:
             st.session_state[f"{key}_ask_overwrite"] = True
             st.rerun()
         history_store.save_confirmed(store_dir(), result.record, result.rules_version,
-                                     rebalance=result.rebalance_info)
+                                     rebalance=result.rebalance_info, notes_snapshot=snapshot())
         st.session_state["flash"] = f"{shift_date} 근무표를 확정 저장했습니다. 이후 근무표는 이 날의 실제근무를 이력으로 참고합니다."
         st.rerun()
     elif already:
@@ -274,7 +280,8 @@ def load_saved(selected: date) -> dict | None:
     plan = data["plan_record"]
     return {"plan": plan, "actual": apply_edits(plan, data["edits"]), "notes": cell_notes(data["edits"]),
             "rebalance": data.get("rebalance"), "lock": history_store.locked_through(data),
-            "note": data.get("note", ""), "source": data.get("source"), "data": data}
+            "note": data.get("note", ""), "source": data.get("source"), "data": data,
+            "snapshot": data.get("notes_snapshot")}
 
 
 def render_history_editor(prefix: str, drag_grid, selected: date,
@@ -369,7 +376,7 @@ def render_history_editor(prefix: str, drag_grid, selected: date,
             st.session_state[f"{prefix}_return_final_{selected}"] = True
             st.rerun()
         _summary_tabs(f"{prefix}_plan", plan, summary_table, summary_detail, view_key=f"{prefix}_fmview_{selected}")
-        return {"plan": plan, "actual": actual, "notes": cell_notes(edits), "rebalance": data.get("rebalance"), "lock": lock, "note": data.get("note", ""), "source": data.get("source")}
+        return {"plan": plan, "actual": actual, "notes": cell_notes(edits), "rebalance": data.get("rebalance"), "lock": lock, "note": data.get("note", ""), "source": data.get("source"), "snapshot": data.get("notes_snapshot")}
 
     notes = cell_notes(edits)
     cell_key = f"{prefix}_cell_{selected}"
@@ -559,7 +566,7 @@ def render_history_editor(prefix: str, drag_grid, selected: date,
         st.caption("저장하지 않은 수정이 있습니다. '💾 실제 근무 저장'을 누르면 지금 화면이 최종본이 됩니다.")
 
     _summary_tabs(prefix, actual, summary_table, summary_detail, baseline_record=plan, view_key=f"{prefix}_fmview_{selected}")
-    return {"plan": plan, "actual": actual, "notes": notes, "rebalance": data.get("rebalance"), "lock": lock, "note": data.get("note", ""), "source": data.get("source")}
+    return {"plan": plan, "actual": actual, "notes": notes, "rebalance": data.get("rebalance"), "lock": lock, "note": data.get("note", ""), "source": data.get("source"), "snapshot": data.get("notes_snapshot")}
 
 
 # ---------------------------------------------------------------- monthly report

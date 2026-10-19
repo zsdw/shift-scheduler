@@ -102,7 +102,16 @@ def validate_first_trial(record, history, *, refinement=False, rules_v22=False, 
             continue
         pid = attendance.employee_id
         streak = 0
-        for old in sorted(patrol_actuals, key=lambda item:item.context.shift_start_date, reverse=True):
+        # 2026-10-20: 야간 + 공휴일 주간 순찰 이벤트(층 포함)가 있으면 그것으로 센다(같은 순찰 그룹).
+        short = next(e.name for e in c.employees if e.employee_id == pid)[-2:]
+        mixed = [e for e in patrol_events if e.get('name') == short] if patrol_events and all('zones' in e for e in patrol_events) else []
+        for event in reversed(mixed):
+            if 'lower' not in event['zones']:
+                break
+            streak += 1
+            if streak == 2:
+                break
+        for old in ([] if mixed else sorted(patrol_actuals, key=lambda item:item.context.shift_start_date, reverse=True)):
             if old.context.shift_start_date >= c.shift_start_date:
                 continue
             if not any(a.employee_id == pid and a.present for a in old.context.attendance):
@@ -701,6 +710,15 @@ def validate_first_trial(record, history, *, refinement=False, rules_v22=False, 
                     if {t, t + 1, t + 2} & leaver_slots and all(st[t:t + 3]):
                         check(not ((t > 0 and wk[t - 1]) or (t + 3 < 14 and wk[t + 3])), "긴급반차-통제A근무",
                               f"Leaving manager standing triple inside a four-hour run: {t}")
+        manager_day_fatigue = sum(facts[manager, t]["fatigue"] for t in range(14))
+        if rules_v220 and manager_is_proxy and not proxy_handover and full_fatigue:
+            # [하드, 2026-10-20 사용자 확정] 하루 종일 준호 대행(A 결근)도 준호 피로도 = 일반근무자 중 최저(동점 허용)
+            check(manager_day_fatigue <= min(full_fatigue), "대행준호-최저피로도",
+                  f"Full-day proxy fatigue must be the lowest: {manager_day_fatigue}/{min(full_fatigue)}")
+        if rules_v220 and manager == "A" and not manager_is_proxy and manager_vacancy_policy and full_fatigue:
+            # [하드, 2026-10-20 사용자 확정] 결원 2명 날 관리자 하대 금지: 통제A ≤ 일반근무자 최고
+            check(manager_day_fatigue <= max(full_fatigue), "관리자-하대금지",
+                  f"Vacancy-day manager fatigue above every general: {manager_day_fatigue}/{max(full_fatigue)}")
         if proxy_handover and full_fatigue and reoptimization:
             # [하드, 2026-10-18 사용자 확정] 긴급 이탈 승계면 준호 하루 피로도 = 일반근무자 중 최저 (동점 최저 허용)
             check(proxy_total("fatigue") <= min(full_fatigue), "준호-최저피로도",

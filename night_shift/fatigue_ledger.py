@@ -8,13 +8,17 @@ START = date(2026, 10, 4)
 SCALE = 60  # 일반근무자 2~6명 평균의 분모를 보존
 
 
-def day_delta(values):
-    """{고정 이름: 실제 피로도}. 관리자/부분출근은 호출자가 제외한다."""
+def day_delta(values, extras=None):
+    """{고정 이름: 실제 피로도}. 관리자/부분출근은 호출자가 제외한다.
+    extras: 평균에는 넣지 않고 그날 일반근무자 평균과만 비교해 적립할 사람(하루 종일 대행 준호, 2026-10-20)."""
     if len(values) < 2:
         return {}
     exact = {p: Fraction(str(v)) for p, v in values.items()}
     average = sum(exact.values()) / len(exact)
-    return {p: v - average for p, v in exact.items()}
+    out = {p: v - average for p, v in exact.items()}
+    for p, v in (extras or {}).items():
+        out[p] = Fraction(str(v)) - average
+    return out
 
 
 def night_values(record):
@@ -31,6 +35,20 @@ def night_values(record):
             and stats[a.employee_id].available_time == 14}
 
 
+def night_extras(record):
+    """2026-10-20 사용자 확정: 하루 종일 준호 대행(A 결근) 날의 대행 준호도 장부에 적립한다.
+    그날 온전 출근 일반근무자 평균과 비교만 하고, 일반근무자 평균에는 넣지 않는다. 교대일(반차 승계)은 제외."""
+    from .service import calculate_all_stats
+    if record.context.manager_handover:
+        return {}
+    stats = calculate_all_stats(record)
+    names = {p.employee_id: p.name for p in record.context.employees}
+    return {names[a.employee_id]: stats[a.employee_id].fatigue_value
+            for a in record.context.attendance
+            if a.present and a.acts_as_manager and a.display_number is not None
+            and a.employee_id in stats and stats[a.employee_id].available_time == 14}
+
+
 def weekend_values(schedule):
     from .weekend_day import stats, partial_people
     partial = partial_people(schedule)
@@ -45,23 +63,25 @@ def from_days(days, before):
     """날짜 순서·중복 날짜를 검증해 잔액과 일자별 원장을 만든다."""
     before = date.fromisoformat(str(before)[:10])
     balances, entries, seen = {}, [], set()
-    for day, values in sorted(days, key=lambda item: item[0]):
+    for item in sorted(days, key=lambda item: item[0]):
+        day, values = item[0], item[1]
+        extras = item[2] if len(item) > 2 else {}
         day = date.fromisoformat(str(day)[:10])
         if not START <= day < before:
             continue
         if day in seen:
             raise ValueError(f'{day}: 장부 원본 날짜 중복')
         seen.add(day)
-        delta = day_delta(values)
+        delta = day_delta(values, extras)
         for name, change in delta.items():
             balances[name] = balances.get(name, Fraction()) + change
-            entries.append({'day': day, 'name': name, 'fatigue': values[name],
+            entries.append({'day': day, 'name': name, 'fatigue': values.get(name, extras.get(name)),
                             'delta': change, 'balance': balances[name]})
     return balances, entries
 
 
 def night_from_records(records, before):
-    return from_days([(r.context.shift_start_date, night_values(r)) for r in records], before)
+    return from_days([(r.context.shift_start_date, night_values(r), night_extras(r)) for r in records], before)
 
 
 def read(store, before, kind='night'):
@@ -78,15 +98,17 @@ def read(store, before, kind='night'):
         if not START <= day < before:
             continue
         try:
+            extras = {}
             if kind == 'night':
-                values = night_values(history_store.actual_record(Path(store), day))
+                record = history_store.actual_record(Path(store), day)
+                values, extras = night_values(record), night_extras(record)
             elif kind == 'weekend':
                 values = weekend_values(load(store, str(day)))
             else:
                 raise ValueError(f'장부 종류 오류: {kind}')
         except Exception as exc:
             raise ValueError(f'{path.name}: 피로도 장부를 계산하지 못했습니다: {exc}') from exc
-        days.append((day, values))
+        days.append((day, values, extras))
     return from_days(days, before)
 
 
