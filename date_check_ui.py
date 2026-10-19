@@ -66,7 +66,7 @@ def banner(day: date) -> None:
     if basis:
         st.caption('문서 작성 기준: '+('연차일정표' if basis=='leave' else '근무표'))
         if st.button('작성 기준 다시 선택',key=f'dc_basis_reset_{day}'):
-            document_basis.save(store,day,'','leave');st.rerun()
+            document_basis.save(store,day,'',None);st.rerun()
         return
     st.warning(f"{day:%m/%d} 근무표와 연차일정이 다릅니다. 어느 자료를 기준으로 문서를 작성할까요?")
     for issue in issues:

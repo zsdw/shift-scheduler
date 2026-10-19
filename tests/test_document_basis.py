@@ -13,7 +13,7 @@ def sources():
                      'cp':{'1':'혁준','2':'덕영','3':'철룡'},'controls':['A'],'cells':{'18':{'G1':'2','I1':'1','CP':'CP2'}}}}
 
 class DocumentBasisTests(unittest.TestCase):
-    def test_choices_shared_and_invalidated_without_changing_original(self):
+    def test_choices_persist_until_explicit_reset_without_changing_original(self):
         with tempfile.TemporaryDirectory() as folder:
             store=Path(folder);save_text(store,'10월 10일(토)\nA조 김광희 사원 - 연차\n')
             original=(store/'leave_schedule.txt').read_bytes()
@@ -36,6 +36,11 @@ class DocumentBasisTests(unittest.TestCase):
                 self.assertEqual(row(leave)['사고'],row(schedule)['사고']+1)
                 self.assertEqual((store/'leave_schedule.txt').read_bytes(),original)
                 src['night']['cells']['18']['G1']='3'
+                self.assertEqual(basis.state(store,DAY)[3],'schedule')
+                self.assertEqual(basis.report_for(store,DAY)['document_basis'],'schedule')
+                # 새 세션에서도 디스크 선택을 복원하며 다른 날짜 선택과는 독립적.
+                self.assertIsNone(basis.state(store,date(2026,10,11))[3])
+                basis.save(store,DAY,'',None)
                 self.assertIsNone(basis.state(store,DAY)[3])
                 self.assertIsNone(basis.report_for(store,DAY))
 
@@ -55,5 +60,16 @@ class DocumentBasisTests(unittest.TestCase):
                     next(b for b in at.button if b.label=='선택한 기준으로 작성').click().run()
                     self.assertFalse(at.exception,[e.value for e in at.exception])
                     self.assertTrue(at.get('download_button'))
+                    # 자료가 바뀌어도 선택창은 돌아오지 않는다.
+                    save_text(Path(folder),'10월 10일(토)\nA조 김광희 사원 - 연차\nA조 김만년 사원 - 연차\n')
+                    at.run()
+                    self.assertFalse(any(r.label=='작성 기준' for r in at.radio))
+                    # 브라우저 새 세션에 해당하는 새 AppTest에서도 유지.
+                    fresh=AppTest.from_string(f'import {module}\n{module}.page()',default_timeout=30)
+                    fresh.session_state[key]=DAY;fresh.run()
+                    self.assertFalse(fresh.exception,[e.value for e in fresh.exception])
+                    self.assertFalse(any(r.label=='작성 기준' for r in fresh.radio))
+                    next(b for b in fresh.button if b.label=='작성 기준 다시 선택').click().run()
+                    self.assertTrue(any(r.label=='작성 기준' for r in fresh.radio))
 
 if __name__=='__main__':unittest.main()

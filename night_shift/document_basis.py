@@ -17,15 +17,20 @@ def state(store, day, sources=None):
     try:data=json.loads((Path(store)/'document_basis.json').read_text(encoding='utf-8'))
     except (OSError,ValueError):data={}
     choice=data.get(day.isoformat(),{})
-    basis=choice.get('basis') if choice.get('stamp')==stamp else None
+    # 날짜별로 확정한 기준은 자료 변경·앱 재시작 뒤에도 유지한다.
+    # stamp는 선택 당시 자료의 기록일 뿐, 재확인을 강요하는 조건이 아니다.
+    basis=choice.get('basis') if choice.get('basis') in ('leave','schedule') else None
     return sources,issues,stamp,basis
 
 def save(store,day,stamp,basis):
-    if basis not in ('leave','schedule'):raise ValueError(basis)
+    if basis not in ('leave','schedule',None):raise ValueError(basis)
     path=Path(store)/'document_basis.json'
     try:data=json.loads(path.read_text(encoding='utf-8'))
     except (OSError,ValueError):data={}
-    data[day.isoformat()]={'stamp':stamp,'basis':basis}
+    if basis is None:
+        data.pop(day.isoformat(),None)
+    else:
+        data[day.isoformat()]={'stamp':stamp,'basis':basis}
     path.parent.mkdir(parents=True,exist_ok=True)
     tmp=path.with_suffix('.tmp');tmp.write_text(json.dumps(data,ensure_ascii=False,indent=1),encoding='utf-8');tmp.replace(path)
 
