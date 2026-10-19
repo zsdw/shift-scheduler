@@ -15,7 +15,11 @@ class LowerStreakTests(unittest.TestCase):
     def setUp(self):
         store=Path(__file__).resolve().parent.parent/'history'
         self.record=replace(record_from_json(json.loads((Path(__file__).parent/'fixtures/patrol_rules_record.json').read_text(encoding='utf-8'))['plan']),kind=RecordKind.ACTUAL,confirmed_at=datetime(2026,10,15))
-        self.past=history_selection(store,date(2026,10,21)).duty_records
+        # 2026-10-20: 실제 저장소(업로드로 바뀜)에 기대지 않고, 같은 표를 직전 2회 실제 근무로 만들어 1번이 하층 2연속.
+        from datetime import timedelta
+        day=self.record.context.shift_start_date
+        self.past=tuple(replace(self.record,context=replace(self.record.context,shift_start_date=day-timedelta(days=k)))
+                        for k in (1,2))
     def errors(self,past,locked=()):
         return [e for e in validate_first_trial(self.record,HistoryInput((),()),rules_v220=True,
                 patrol_actuals=past,locked_cells=locked) if e['rule']=='14-9']

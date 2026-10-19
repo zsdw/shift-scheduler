@@ -12,7 +12,7 @@ st.session_state.setdefault('schedule_results',[changed])
 st.session_state.setdefault('generated_initial_results',{0:initial})
 st.session_state.setdefault('generated_originals',{0:'initial'})
 st.session_state.setdefault('selected_schedule_index',0)
-with patch.object(app,'confirm_button',lambda result,key: st.button('✅ 이 근무표로 확정',key=key)):
+with patch.object(app,'confirm_button',lambda result,key,**kw: st.button('✅ 이 근무표로 확정',key=key)):
     app.confirm_and_regenerate(st.session_state['schedule_results'][0],0,None,None,None)
 app.hint_bar(('길게 눌러 근무 교환','이름 선택','규칙 위반이면 취소','빗금=LOCK'))
 st.write(st.session_state['schedule_results'][0].record)

@@ -31,7 +31,9 @@ class RequiredStandbyTests(unittest.TestCase):
         changed=replace(r,context=replace(r.context,attendance=tuple(
             replace(a,present=False,available_slot_indices=None) if a.employee_id=='6' else a
             for a in r.context.attendance)),assignments=tuple(a for a in r.assignments if a.employee_id!='6'))
-        self.assertEqual(len(self.errors(changed)),12)
+        # 2026-10-18 사용자 확정: 결원 1명 시간의 대기자 최소 1명은 '가능하면 지킬 규칙'(Solver 소프트 맨 앞)이라
+        # Validator 하드 검사 대상이 아니다(종전 기대값 12는 하드 시절).
+        self.assertEqual(len(self.errors(changed)),0)
     def test_whole_locked_column_preserved(self):
         r=self.record()
         errors=self.errors(r,locked_cells=tuple((a.employee_id,7) for a in r.context.attendance))

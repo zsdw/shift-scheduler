@@ -821,6 +821,8 @@ def _night_leaver_hours(index: int, result: ServiceResult) -> dict[str, int]:
     """긴급 반차·이탈자 → 빠지는 시간 칸 (연쇄 재편성 포함, 표 이름 칸 표시용 2026-10-18)."""
     out, params, seen = {}, st.session_state.get("rebalance_params", {}), set()
     results = st.session_state.get("schedule_results", [])
+    if not isinstance(index, int):     # 저장본 재편성표는 생성 후보 번호가 아니라 화면 키를 넘긴다 (2026-10-20 수정)
+        index = None
     while index is not None and index not in seen and 0 <= index < len(results):
         seen.add(index)
         info = results[index].rebalance_info
