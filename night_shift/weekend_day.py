@@ -144,32 +144,15 @@ def stats(schedule, mode):
     return out
 
 
-HISTORY_COUNT = 4
-
-
-def history_debt(store, day, count=HISTORY_COUNT):
-    """최근 주말 주간 저장본 count회에서 사람(이름)별 '손해' 피로도 (2026-10-12 사용자 확정).
+def history_debt(store, day, count=None):
+    """10/04 이후 전체 주말 주간 실제 기록의 이름별 누적 손해.
 
     각 기록에서 하루 전체 근무한 일반근무자의 피로도 - 그날 일반근무자 평균을 더한다(그날 모드 기준).
-    양수 = 남보다 많이 함(손해) → 완벽 n빵이 안 되는 날 피로도를 덜 받는다. 평일·야간 기록은 섞지 않는다.
+    양수 = 남보다 많이 함. 과거 count 인자는 호환용이며 기간을 자르지 않는다.
     반환 ({이름: 손해 점수}, [참조한 날짜])."""
-    folder = Path(store)
-    target = str(day)
-    days = sorted((p.stem for p in folder.glob('????-??-??.json') if p.stem < target), reverse=True)[:count]
-    debt = {}
-    for iso in days:
-        try:
-            s = rule_schedule(load(folder, iso))
-        except (OSError, ValueError, TypeError, KeyError):
-            continue
-        full = [p for p in s.grid if p != 'A' and p not in partial_people(s)]
-        if len(full) < 2:
-            continue
-        values = {row['직원'].split(' · ')[0]: row['피로도'] for row in stats(s, 'FM' if s.mode == 'FM' else '유도리')}
-        avg = sum(values[p] for p in full) / len(full)
-        for p in full:
-            debt[s.names[p]] = debt.get(s.names[p], 0) + values[p] - avg
-    return debt, days
+    from .fatigue_ledger import read
+    debt, entries = read(store, day, 'weekend')
+    return debt, sorted({str(e['day']) for e in entries}, reverse=True)
 
 
 def rule_schedule(schedule):
@@ -652,6 +635,11 @@ def generate(day, names, mode='FM', *, seconds=30, seed=0, exclude=None,
     scale = sum(abs(w) for w in weights.values()) * 40 * 2 + 1     # 이력 항이 2연속 1개보다 작게
 
     scale *= rotation_scale
+    if history is not None:
+        # 장기 잔액은 아래 별도 단계로 최적화한다. 누적 기간이 길어져도
+        # 종전 가중합 계수가 잔액 크기에 비례해 커지지 않게 한다.
+        advantage = 0
+        scale = rotation_scale
 
     def solve(model, limit=seconds):
         solver = cp_model.CpSolver()
@@ -664,7 +652,8 @@ def generate(day, names, mode='FM', *, seconds=30, seed=0, exclude=None,
     # 완벽 n빵보다 우선. 긴급(또는 해 없는 반차일)은 다른 '가능하면 지킬 규칙'과 같은 순위로 최소화.
     # 통제A 16시 휴게(강한 권장, 2026-10-16): 평소엔 다른 목표보다 먼저 가장 좋은 값(휴게 > G2 > 그 밖)을 고정.
     # 긴급(또는 해 없는 반차일)은 '가능하면 지킬 규칙' 바로 다음 순위로 최소화.
-    if not isinstance(a16, int) and not emergency:
+    ledger_active = history is not None and balance and len(full) >= 2
+    if not isinstance(a16, int) and not emergency and not ledger_active:
         best16 = m.Clone()
         best16.Minimize(a16)
         probe_solver, probe_status = solve(best16, min(seconds, 10))
@@ -673,13 +662,13 @@ def generate(day, names, mode='FM', *, seconds=30, seed=0, exclude=None,
     # 막타임 분배 순위 (2026-10-18 사용자 확정): ① 실제 휴게·대기는 직전 수혜자 금지(하드)
     # ② 17시 G2도 직전 수혜자 피하기(아주 강한 권장) ③ 실제 휴게·대기는 오래된 사람부터 ④ 17시 G2도 오래된 사람부터
     # (③보다 뒤). 지키기 어려우면 그 단계만 가능한 만큼 — 다른 규칙이 우선.
-    if not isinstance(g2_17, int) and not emergency:
+    if not isinstance(g2_17, int) and not emergency and not ledger_active:
         g2_probe = m.Clone()
         g2_probe.Minimize(g2_17)
         probe_solver, probe_status = solve(g2_probe, min(seconds, 10))
         if probe_status in (cp_model.FEASIBLE, cp_model.OPTIMAL):
             m.Add(g2_17 <= int(probe_solver.ObjectiveValue()))
-    if (not (leavers and balance) and
+    if (not ledger_active and not (leavers and balance) and
             (not isinstance(last_rank, int) or not isinstance(g2_rank, int))):
         rank = 100 * last_rank + g2_rank                # ③ 먼저, 같으면 ④
         rank_probe = m.Clone()
@@ -688,13 +677,13 @@ def generate(day, names, mode='FM', *, seconds=30, seed=0, exclude=None,
         if probe_status in (cp_model.FEASIBLE, cp_model.OPTIMAL):
             m.Add(rank <= int(probe_solver.ObjectiveValue()))
     # 그다음: 통제A 1~2점 덜 (n빵 판정보다 먼저). 반차·긴급일은 기존 확정 순위(반차자 휴게 1시간) 다음 — 아래 목적식
-    if a_gap and not partial:
+    if a_gap and not partial and not ledger_active:
         gap_probe = m.Clone()
         gap_probe.Minimize(a_off)
         probe_solver, probe_status = solve(gap_probe, min(seconds, 10))
         if probe_status in (cp_model.FEASIBLE, cp_model.OPTIMAL):
             m.Add(a_off <= int(probe_solver.ObjectiveValue()))
-    if not emergency:                                # 그다음: 마지막 시간 3연속 근무 vs 2연속 휴게 (강한 권장)
+    if not emergency and not ledger_active:            # 장부 적용 시 앞에서 선호 최적값을 고정하지 않음
         clash_probe = m.Clone()
         clash_probe.Minimize(end_clash)
         probe_solver, probe_status = solve(clash_probe, min(seconds, 10))
@@ -702,7 +691,7 @@ def generate(day, names, mode='FM', *, seconds=30, seed=0, exclude=None,
             m.Add(end_clash <= int(probe_solver.ObjectiveValue()))
     if long_runs and emergency:
         violations.extend(long_runs)
-    elif long_runs:
+    elif long_runs and not ledger_active:
         fewest = m.Clone()
         fewest.Minimize(sum(long_runs))
         probe_solver, probe_status = solve(fewest, min(seconds, 10))
@@ -711,6 +700,9 @@ def generate(day, names, mode='FM', *, seconds=30, seed=0, exclude=None,
     # 1단계: 완벽한 n빵(일반근무자 실근무·피로도 차이 0) / 2단계: 불가능하면 차이 1 이내에서 최소
     # 평소 뒷순위 (10/18): 통제A 대기 비권장 → 같은 포스트 2연속 → 통제A 11~15시 밖 G1 → 2점 업무는 L1 우선
     tail = 100*a_standby + 10*repeat + 3*a_g1_out + a_extra
+    if ledger_active:
+        tail += (100000*a16 + 90000*g2_17 + 80000*(100*last_rank + g2_rank)
+                 + 50000*end_clash + 10000*sum(long_runs) + 1000*a_off)
     no_perfect = False
     fatigue_limit = None
     if partial or emergency:
@@ -724,7 +716,14 @@ def generate(day, names, mode='FM', *, seconds=30, seed=0, exclude=None,
                    + advantage*rotation_scale + rotation_cost)
         # 긴급 피로도: 1 이내 먼저, INFEASIBLE일 때만 2. UNKNOWN은 그대로 반환.
         if leavers and spreads:
-            solver, status, fatigue_limit = _solve_emergency_fatigue(m, spreads[1::2], solve, seconds)
+            if ledger_active:
+                from .fatigue_ledger import objectives, optimize
+                balances = {p: (history or {}).get(names[p], 0) for p in full}
+                goals = [sum(spreads)] + [v for _, v in objectives(m, {p: fatigue_of[p] for p in full}, balances)]
+                staged = lambda probe, budget: optimize(probe, goals, solve, budget)
+                solver, status, fatigue_limit = _solve_emergency_fatigue(m, spreads[1::2], staged, seconds)
+            else:
+                solver, status, fatigue_limit = _solve_emergency_fatigue(m, spreads[1::2], solve, seconds)
         else:
             solver, status = solve(m, seconds if emergency else min(seconds, 15))
     elif spreads:
@@ -743,6 +742,17 @@ def generate(day, names, mode='FM', *, seconds=30, seed=0, exclude=None,
     else:
         m.Minimize(tail*rotation_scale + rotation_cost)
         solver, status = solve(m)
+    if ledger_active and not leavers and status in (cp_model.FEASIBLE, cp_model.OPTIMAL):
+        from .fatigue_ledger import objectives, optimize
+        # 일별 균형을 보존한 후보 집합 안에서 장기 손해를 먼저 상환한다.
+        m.Add(sum(spreads) <= sum(int(solver.Value(spread)) for spread in spreads))
+        balances = {p: (history or {}).get(names[p], 0) for p in full}
+        goals = [sum(spreads)] + [v for _, v in objectives(m, {p: fatigue_of[p] for p in full}, balances)]
+        improved, improved_status = optimize(m, goals, solve, min(seconds, 15))
+        if improved_status in (cp_model.FEASIBLE, cp_model.OPTIMAL):
+            solver, status = improved, improved_status
+        else:
+            status = cp_model.FEASIBLE
     label = solver.StatusName(status)
     if status not in (cp_model.FEASIBLE, cp_model.OPTIMAL): return None, label
     if no_perfect and label == 'FEASIBLE':

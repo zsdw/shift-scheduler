@@ -120,6 +120,8 @@ def planned_vacancy(context):
 # (13~45 s each) while every other stage finishes in < 2 s. They keep their best
 # value as an upper bound when capped, so later stages still run.
 STAGE_TIME_CAPS = {
+    "long_term_fatigue_worst": 6.0,
+    "long_term_fatigue_spread": 6.0,
     "vacancy_manager_fatigue_gap": 6.0,
     "history_patrol_fatigue_spread": 6.0,
     "duty_3cycle_balance": 6.0,
@@ -134,7 +136,7 @@ from .leave_context import HANDOVER_PROXY, build_leave_context   # 관리자 대
 EARLY_PROXY_FATIGUE_PRIVILEGE = 2   # 통제A 전반부 반차 때 준호 하루 피로도 우대 (2026-10-18 사용자 확정)
 
 
-def solve_first_trial(context, history: HistoryInput, seconds=30, *, compensation_averages=None, manager_a_end_slot=14, manager_a_start_slot=0, dual_flexible=False, dual_balance=False, post_cap=False, half_day_ids=None, preference_weights=None, avoid_cells=(), refinement=False, baseline_assignments=None, exclude_assignments=None, locked_assignments=None, historical_totals=None, historical_nights=None, prioritize_history_within_daily_targets=False, forbid_install_ids=(), forbid_last_rest_ids=(), forbid_patrol_exclusion_ids=(), patrol_rotation_priority_ids=(), soft_debt=None, previous_install_ids=(), previous_remove_ids=(), minimize_a=False, rules_v22=False, vacancy_policy=False, rules_v26=False, rules_v27=False, rules_v29=False, rules_v210=False, rules_v212=False, rules_v213=False, rules_v215=False, rules_v216=False, rules_v217=False, rules_v218=False, rules_v219=False, rules_v220=False, diagnostic_relaxation_level=0, diagnostic_relaxed_families=None, forced_rest_cells=(), duty_rates=None, patrol_actuals=(), patrol_events=(), last_rest_records=(), emergency_leaver_cells=(), disabled_rule_groups=frozenset(), feasibility_only=False):
+def solve_first_trial(context, history: HistoryInput, seconds=30, *, compensation_averages=None, long_term_balances=None, manager_a_end_slot=14, manager_a_start_slot=0, dual_flexible=False, dual_balance=False, post_cap=False, half_day_ids=None, preference_weights=None, avoid_cells=(), refinement=False, baseline_assignments=None, exclude_assignments=None, locked_assignments=None, historical_totals=None, historical_nights=None, prioritize_history_within_daily_targets=False, forbid_install_ids=(), forbid_last_rest_ids=(), forbid_patrol_exclusion_ids=(), patrol_rotation_priority_ids=(), soft_debt=None, previous_install_ids=(), previous_remove_ids=(), minimize_a=False, rules_v22=False, vacancy_policy=False, rules_v26=False, rules_v27=False, rules_v29=False, rules_v210=False, rules_v212=False, rules_v213=False, rules_v215=False, rules_v216=False, rules_v217=False, rules_v218=False, rules_v219=False, rules_v220=False, diagnostic_relaxation_level=0, diagnostic_relaxed_families=None, forced_rest_cells=(), duty_rates=None, patrol_actuals=(), patrol_events=(), last_rest_records=(), emergency_leaver_cells=(), disabled_rule_groups=frozenset(), feasibility_only=False):
     if rules_v220:
         rules_v219 = True
     if rules_v219:
@@ -1090,7 +1092,7 @@ def solve_first_trial(context, history: HistoryInput, seconds=30, *, compensatio
             # 먼저 1점 초과 격차를 최소화하고, 그 범위 안에서 보상한다. HARD 완화 없음.
             averages = {p: compensation_averages[p] for p in full_general_ids
                         if compensation_averages and p in compensation_averages}
-            if rules_v220 and len(averages) >= 2:
+            if rules_v220 and long_term_balances is None and len(averages) >= 2:
                 high = max(averages, key=lambda p: (averages[p], p))
                 low = min(averages, key=lambda p: (averages[p], p))
                 if averages[high] - averages[low] >= 1 - 1e-9:
@@ -1126,6 +1128,12 @@ def solve_first_trial(context, history: HistoryInput, seconds=30, *, compensatio
                     model.add(spread <= 1)
             else:
                 objectives.append(("general_balance",sum(spreads)))
+            if rules_v220 and long_term_balances is not None:
+                from .fatigue_ledger import objectives as ledger_objectives
+                eligible = list(full_general_ids)
+                fatigue = {p: sum(int(r.fatigue_value)*v for t in range(14)
+                                  for r,v in zip(opts[p,t],variables[p,t])) for p in eligible}
+                objectives.extend(ledger_objectives(model, fatigue, long_term_balances))
             if post_counts:                     # 17-2: 피로도·실휴게 n빵 다음, 포스트별 횟수 차이를 줄인다
                 post_spreads = []
                 for post in coverage_posts:
@@ -1521,6 +1529,13 @@ def solve_first_trial(context, history: HistoryInput, seconds=30, *, compensatio
                     objectives.append(("emergency_leaver_load", -leaver_load))
             if leaver_rest_misses:
                 objectives.append(("emergency_leaver_patrol_rest", sum(leaver_rest_misses)))
+            if rules_v220 and long_term_balances is not None:
+                # 사용자 확정 10/20: 당일 균형 → 장기 미상환 → 기타 선호.
+                balance_goals = [o for o in objectives if o[0] == 'general_balance']
+                ledger_goals = [o for o in objectives if o[0].startswith('long_term_fatigue_')]
+                other_goals = [o for o in objectives if o[0] != 'general_balance'
+                               and not o[0].startswith('long_term_fatigue_')]
+                objectives = balance_goals + ledger_goals + other_goals
             for objective_name, objective in objectives:
                 model.minimize(objective)
                 cap = STAGE_TIME_CAPS.get(objective_name, float(seconds))

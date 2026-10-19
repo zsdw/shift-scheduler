@@ -32,6 +32,7 @@ if (not hasattr(_models_module.AssignmentKind, "UNAVAILABLE")
         or getattr(_service_module, "ENGINE_FINGERPRINT", None) != _ENGINE_FINGERPRINT):
     import night_shift.common as _common_module
     import night_shift.leave_context as _leave_context_module
+    import night_shift.fatigue_ledger as _fatigue_ledger_module
     import night_shift.engine_fingerprint as _engine_fp_module
     import night_shift.profiles as _profiles_module
     import night_shift.preferences as _preferences_module
@@ -44,7 +45,7 @@ if (not hasattr(_models_module.AssignmentKind, "UNAVAILABLE")
     import night_shift.field_exporter as _field_module
 
     for _module in (_engine_fp_module, _models_module, _common_module, _profiles_module, _preferences_module, _soft_history_module,
-                    _leave_context_module, _solver_module, _validator_module, _service_module,
+                    _leave_context_module, _fatigue_ledger_module, _solver_module, _validator_module, _service_module,
                     _presentation_module, _analysis_module, _excel_module, _field_module):
         importlib.reload(_module)
 
@@ -78,6 +79,9 @@ for _helper in ("night_shift.source_attachment", "night_shift.leave_schedule", "
                 "night_shift.order_source", "night_shift.security_order", "security_order_ui", "night_shift.day_image", "night_shift.day_excel_image", "night_shift.day_form_draw", "night_shift.weekend_form", "night_shift.upload_review", "night_shift.kakao_sync", "night_shift.wedding"):
     if _helper in _sys.modules:
         importlib.reload(_sys.modules[_helper])
+
+if 'night_shift.fatigue_ledger_ui' in _sys.modules:
+    importlib.reload(_sys.modules['night_shift.fatigue_ledger_ui'])
 
 from night_shift.models import (AssignmentKind, DEFAULT_POST_OPERATIONS, GENERATION_POST_OPERATIONS, Mode, NightType,
                                 POST_OPERATION_CHOICES)
@@ -988,6 +992,8 @@ def render_saved_rebalance(shift_date: date, shown: dict, history: HistorySelect
                    "reason": info.reason, "locked_through": info.locked_through_index},
         others=night_other_labels(shift_date))
     st.markdown("##### 📝 재편성표 특이사항 · 비고")
+    from night_shift.fatigue_ledger_ui import render as render_ledger
+    render_ledger(store_dir(), shift_date, current=saved.record, key='saved_rebalance')
     for line in reasons:
         st.markdown("- " + line.replace("~", "\\~"))
     with mobile_ui.action_columns(f"saved_rebalance_{shift_date}") as (confirm_col, drop_col):
@@ -1538,6 +1544,9 @@ def render_balance_notes(reasons: list[str], monthly_rows: list[dict], duties=No
     """Page bottom: why someone gained or lost balance, and the monthly direction."""
     st.divider()
     st.markdown("#### 📝 특이사항 · 비고")
+    if shift_date is not None:
+        from night_shift.fatigue_ledger_ui import render as render_ledger
+        render_ledger(store_dir(), shift_date, current=record)
     if len(reasons) > 1 and "특이사항 없음." in reasons:
         reasons = [line for line in reasons if line != "특이사항 없음."]
     from history_ui import view_mode
@@ -1799,7 +1808,7 @@ def _night_page(mobile: bool, side, title_slot, badge_slot) -> None:
         # 과거 이력은 항상 저장된 실제 이력 (2026-10-08 사용자 확정: '이력 입력' 칸 없앰, 반영 날짜만 상세 설정 안에)
         has_history = bool(stored_before(shift_date))
         history = (_history_store.history_selection(_history_store_path(), shift_date) if has_history
-                   else HistorySelection())
+                   else HistorySelection(long_term_records=()))
         with st.expander("생성 상세 설정"):
             st.caption(history_caption(shift_date) if has_history
                        else "이 날짜 전 저장된 실제 근무 이력이 없어 이력 없이 생성합니다.")

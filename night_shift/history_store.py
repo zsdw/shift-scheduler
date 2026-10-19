@@ -261,8 +261,10 @@ def history_selection(store: Path, before: date):
     from .patrol_history import load_events
     events = load_events(store, before)
     actuals = recent_actuals(store, before)
+    from .fatigue_ledger import START
+    long_term = tuple(actual_record(store, d) for d in sorted(list_dates(store)) if START <= d < before)
     if not actuals:
-        return HistorySelection(patrol_events=events)
+        return HistorySelection(patrol_events=events, long_term_records=long_term)
     debt: dict = {}
     for record in sorted(actuals, key=lambda r: r.context.shift_start_date):
         debt = update_soft_debt(record, debt, patrol_rotation_due(
@@ -270,4 +272,5 @@ def history_selection(store: Path, before: date):
     return HistorySelection(last_rest_records=tuple(recent_actuals(store,before,limit=len(list_dates(store)))),
                             patrol_events=events, actual_records=tuple(actuals), actual_weights=cycle_weights(len(actuals)),
                             soft_debt=debt or None,
-                            duty_records=tuple(recent_actuals(store, before, limit=6)))
+                            duty_records=tuple(recent_actuals(store, before, limit=6)),
+                            long_term_records=long_term)

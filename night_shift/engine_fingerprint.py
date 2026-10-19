@@ -8,7 +8,7 @@ from __future__ import annotations
 import hashlib
 from pathlib import Path
 
-ENGINE_MODULES = ("models", "common", "profiles", "preferences", "soft_history", "leave_context", "solver",
+ENGINE_MODULES = ("models", "common", "profiles", "preferences", "soft_history", "leave_context", "fatigue_ledger", "solver",
                   "validator", "service", "presentation", "analysis", "excel_exporter", "field_exporter")
 
 

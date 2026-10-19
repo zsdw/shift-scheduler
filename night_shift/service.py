@@ -88,6 +88,7 @@ class HistorySelection:
     duty_records: tuple[ShiftRecord, ...] = ()
     patrol_events: tuple = ()
     last_rest_records: tuple = ()
+    long_term_records: tuple | None = None  # 10/04부터 전체 실제 기록. None=레거시 직접 호출
 
 
 @dataclass(frozen=True)
@@ -211,6 +212,7 @@ class PreparedEngineInputs:
     patrol_actuals: tuple = ()
     patrol_events: tuple = ()
     last_rest_records: tuple = ()
+    long_term_balances: Mapping | None = None
 
 
 DUTY_METRICS = ("barrier", "upper", "middle", "lower")
@@ -502,6 +504,11 @@ def prepare_engine_inputs(context: ShiftContext, selection: HistorySelection) ->
     previous_remove = selection.previous_remove_ids if selection.previous_remove_ids is not None else derived_remove
     forbid_install = (selection.forbid_install_ids if selection.forbid_install_ids is not None
                       else selection.previous_install_ids if selection.previous_install_ids is not None else derived_forbid)
+    from .fatigue_ledger import night_from_records
+    ledger = (night_from_records(selection.long_term_records, context.shift_start_date)[0]
+              if selection.long_term_records is not None else None)
+    ledger_by_id = ({e.employee_id: ledger.get(e.name, 0) for e in context.employees}
+                    if ledger is not None else None)
     return PreparedEngineInputs(
         engine_history=HistoryInput((), ()),
         actual_record_count=len(actuals), assumed_history_used=selection.assumed_totals is not None,
@@ -520,6 +527,7 @@ def prepare_engine_inputs(context: ShiftContext, selection: HistorySelection) ->
         patrol_actuals=tuple(selection.duty_records or actuals),
         patrol_events=selection.patrol_events,
         last_rest_records=rest_records,
+        long_term_balances=ledger_by_id,
     )
 
 
@@ -718,6 +726,7 @@ def _run_schedule_once(context: ShiftContext, history: HistorySelection | None, 
         context, prepared.engine_history, seconds=config.seconds,
         manager_a_end_slot=config.manager_a_end_slot, manager_a_start_slot=config.manager_a_start_slot,
         compensation_averages=prepared.history_fatigue_averages,
+        long_term_balances=prepared.long_term_balances,
         historical_totals=prepared.historical_totals, historical_nights=prepared.historical_nights,
         prioritize_history_within_daily_targets=config.prioritize_history_within_daily_targets,
         forbid_install_ids=prepared.forbid_install_ids,

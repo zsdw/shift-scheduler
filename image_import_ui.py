@@ -110,6 +110,9 @@ def render_image_review(file,data,digest,reanalyze=False):
                 messages=validate(schedule);target=store_dir()/'weekend_day'
     except (ValueError,KeyError) as exc:
         st.error(f'저장 전 확인: {exc}');return
+    if kind in ('night', 'weekend_day'):
+        from night_shift.fatigue_ledger_ui import render as render_ledger
+        render_ledger(target, day, 'night' if kind == 'night' else 'weekend', schedule, key=key)
     if messages:
         st.warning('현재 규칙과 다른 부분이 있습니다. 실제 수행한 원본 기록이라면 경고를 함께 남기고 저장할 수 있습니다.')
         with st.expander('규칙 검사 결과',expanded=False):

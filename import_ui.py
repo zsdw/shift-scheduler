@@ -317,6 +317,8 @@ def _render_import_body(file):
         # 업로드 근무표 원본은 기존 연차일정으로 배정을 바꾸지 않는다.
         try:
             record=importer.build_import_record(day,mode,grid,identities,importer.ROSTER,installs,removes)
+            from night_shift.fatigue_ledger_ui import render as render_ledger
+            render_ledger(store_dir(), day, current=record, key=prefix)
             stats=calculate_all_stats(record)
         except Exception as exc:st.error(f'저장 전 수정이 필요합니다: {exc}');return
         st.dataframe(pd.DataFrame([{'직원':v.name,'피로도':v.fatigue_value,'실근무':v.actual_work_time_value,

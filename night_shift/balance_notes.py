@@ -135,7 +135,7 @@ def history_influence_lines(record, stats, prepared=None, manual: bool = False) 
     averages = getattr(prepared, "history_fatigue_averages", None) or {}
     eligible = {p.employee_id: averages[p.employee_id] for p in stats.values()
                 if not p.is_manager and p.available_time == 14 and p.employee_id in averages}
-    if len(eligible) >= 2:
+    if getattr(prepared, 'long_term_balances', None) is None and len(eligible) >= 2:
         high = max(eligible, key=lambda p: (eligible[p], p))
         low = min(eligible, key=lambda p: (eligible[p], p))
         gap = eligible[high] - eligible[low]
@@ -495,6 +495,6 @@ def monthly_direction(rows: list[dict]) -> list[str]:
             out.append(f"{r['직원']}의 월간 피로도에는 현장 변동 {total:+g}점이 들어 있습니다: "
                        + "; ".join(f"{c['날짜']} {c['내용']}(피로도 {c['피로도 변화']})" for c in items)
                        + " — 주석 참조.")
-    out.append("참고: 생성기는 월 전체가 아니라 직전 2싸이클(최근 4근무) 실제 기록을 똑같은 비중(5:5)으로 반영합니다. "
-               "그래서 월간 차이는 다음 몇 번의 근무에서 조금씩 줄어드는 방식으로 맞춰집니다.")
+    out.append("참고: 장기 보상은 2026-10-04부터 같은 날 동료 평균보다 더 맡은 실제 피로도를 누적합니다. "
+               "월평균·최근 6회 평균과 별개이며, 필수규칙과 당일 균형을 유지한 뒤 미상환 잔액을 줄입니다.")
     return out

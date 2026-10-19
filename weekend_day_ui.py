@@ -5,7 +5,7 @@ from pathlib import Path
 import pandas as pd
 import streamlit as st
 from history_ui import day_store_dir, store_dir
-from datetime import datetime
+from datetime import datetime, date
 from day_ui import (_DAY_GRID, _ROSTER_PICKER, NIGHT_TEAM, WEEKDAYS, HATCH, _num_cell, _leave_defaults,
                     _steps_html)
 from night_shift.patrol_history import load_events
@@ -612,18 +612,18 @@ def long_run_text(s, views=None):
 
 
 def history_text(s, view=None):
-    """완벽 n빵이 안 된 날: 최근 주말 주간 이력의 손해 점수와 오늘 피로도 (2026-10-12). view: 보는 기준."""
+    """10/04부터 전체 주말 실제 장부의 잔액과 현재 배정 피로도를 구분해 표시."""
     debt, days = history_debt(STORE, s.day)
     full = [p for p in s.grid if p != 'A' and p not in partial_people(s)]
     if not days or not full:
-        return '  \n📜 최근 주말 주간 이력이 없어 이력 어드밴티지는 적용하지 않았습니다.'
+        return '  \n📜 10/04 이후 주말 주간 장부 기록이 없습니다. 첫 확정 기록부터 누적합니다.'
     view = view or ('FM' if s.mode == 'FM' else '유도리')
     today = {p: r['피로도'] for p, r in zip(s.grid, stats(s, view))}
     order = sorted(full, key=lambda p: -debt.get(s.names[p], 0))
     parts = [f"{person_label(s, p)} {debt.get(s.names[p], 0):+.1f}→{today[p]}점" for p in order]
     span = f"{days[-1][5:].replace('-', '/')}~{days[0][5:].replace('-', '/')} {len(days)}회"
-    return (f"  \n📜 최근 주말 주간 {span} 손해 피로도(+ 많이 함) → 오늘 피로도({view}): " + ' · '.join(parts)
-            + " — 남는 차이는 손해 본 사람이 덜 받게 (n빵·2연속 다음 순위)")
+    return (f"  \n📜 10/04부터 주말 주간 누적 {span} 손해 잔액 → 오늘 피로도({view}): " + ' · '.join(parts)
+            + " — 필수규칙·당일 균형 다음에 장기 손해를 먼저 줄입니다.")
 
 
 def _roster_input(day, mobile):
@@ -890,9 +890,9 @@ def _records(day):
             notes.append(f"{col} {source} · {'통제E 지원' if str(s.names.get('A', '')).startswith('통제E') else '통제A'}")
         debt, used = history_debt(STORE, str(day))
         frame = pd.DataFrame.from_dict(table, orient='index').fillna('')
-        frame.insert(0, '최근 4회 손해', [f"{debt[n]:+.1f}" if n in debt else '' for n in frame.index])
+        frame.insert(0, '10/04부터 누적 손해', [f"{float(debt[n]):+.2f}" if n in debt else '' for n in frame.index])
         st.dataframe(frame, use_container_width=True)
-        st.caption('칸 = 피로도·실근무(그날 모드 기준). 최근 4회 손해 = 일반근무자 평균보다 피로도를 많이 한 합 (+는 손해 → '
+        st.caption('칸 = 피로도·실근무(그날 모드 기준). 10/04부터 누적 손해 = 같은 날 일반근무자 평균 대비 부담의 합 (+는 미상환 부담 → '
                    f'n빵이 안 되는 날 덜 받음, 기준 {", ".join(d[5:].replace("-", "/") for d in used) or "없음"}) · '
                    + ' · '.join(notes))
 
@@ -1120,6 +1120,8 @@ def _show(s, key, status, results, view_key, mobile, index):
             + ' / '.join(f'{m} {half_rest_hours(s, p, m)}시간' for m in views_of(s)) + ' (목표 1시간)'
             for p, v in s.half_days.items()))
     st.markdown(nbbang_text(s, status))
+    from night_shift.fatigue_ledger_ui import render as render_ledger
+    render_ledger(STORE, date.fromisoformat(str(s.day)[:10]), 'weekend', s, key=key)
 
     cand = _current_candidate() if index is None else None
 
