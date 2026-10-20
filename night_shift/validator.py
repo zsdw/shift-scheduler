@@ -494,6 +494,10 @@ def validate_first_trial(record, history, *, refinement=False, rules_v22=False, 
                 continue
             check(sum(facts[cell]["rest"] for cell in cells) <= 2,
                   "H-19", f"Non-A worker must not rest all of 05/06/07: {pid}")
+            # H-20 (2026-10-20): 일반근무자 06·07시 연속 휴게(휴게·업무 없는 대기, FM 표기) 금지. Validator 독립 판정.
+            if not all((pid, t) in locked for t in (12, 13)):
+                rests = [facts[pid, t]["label"] in ("휴게", "보안실 대기") and facts[pid, t]["rest"] == 1 for t in (12, 13)]
+                check(not all(rests), "H-20", f"General worker must not rest both 06/07: {pid}")
     for t in range(14):
         labels = Counter(facts[p, t]["label"] for p in people if facts[p, t]["label"] in post_labels)
         expected = Counter({"G1": 1, "L3": 1, "I1": 1, **south.get(t, {})})

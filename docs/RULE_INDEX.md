@@ -186,6 +186,9 @@
 - 17-6: 최근 2싸이클 야간 1점 보상 — service.prepare_engine_inputs / solver.solve_first_trial / balance_notes.history_influence_lines / tests.test_night_compensation
 
 - H-19: 마지막 05·06·07시 3연속 실휴게 금지(통제A·준호 관리자대행 예외) — solver.solve_first_trial / validator.validate_first_trial / tests.test_last_three_rest
+- 관리자 교대 경계(준호 연속근무, 0-4-3·0-4-4): solver handover_boundary(하드, rule_off '교대 경계(준호 연속근무)') / 독립 검사 service.handover_boundary_issues / tests.test_manager_late_half·test_manager_early_half
+- 8-10-1: 관리자(통제A·준호 대행) 04시 비우기 → 05·06시 관리자 실근무 최소(아주 강한 권장, 가능하면 지킬 규칙 다음·막타임 앞) — solver 목표 manager_04_rest·manager_0506_work / tests.test_manager_0400_rest
+- H-20: 일반근무자 06·07시 연속 휴게 금지(통제A·준호 관리자대행 예외, 결원 무관, FM 표기) — solver.solve_first_trial / validator.validate_first_trial / service.RULE_GROUPS / tests.test_last_two_rest. 빨간날 주간 16·17시는 weekend_day.generate·_check
 
 
 - 14-1-2 야간·공휴일 주간 통합 순찰 보호/제외 회전: `patrol_history.load_events`, `history_store.history_selection`, `service.prepare_engine_inputs`, `solver.solve_first_trial`, `validator.validate_first_trial`, `weekend_day.generate/validate/reoptimize`.

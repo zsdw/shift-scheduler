@@ -271,6 +271,28 @@ class ManagerLateHalfTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             run_schedule_manager_half(request(junho_half=True), HistorySelection(), SolveOptions(rules_version="2.20", seconds=5))
 
+    def test_emergency_handover_after_locked_standing(self):
+        # 2026-10-20 사용자 확정: 원래 표에서 준호 19 G2·20 L3(이미 LOCK된 입식) 뒤 21시 통제A 긴급 이탈 →
+        # 관리자 자리 21시 상층 순찰을 이어받아 교대 시점 입식 3연속이 불가피. 이때만 허용(전에는 해 없음/교대 오류).
+        # 원래 표를 고정해 부하·시간에 따라 결과가 달라지지 않게 한다.
+        import json
+        from pathlib import Path
+        from night_shift.history_store import record_from_json
+        from night_shift.service import handover_boundary_issues, run_reoptimization, run_schedule
+        opts = SolveOptions(rules_version="2.20", seconds=20, prefer_dual_mode=False)
+        fixture = record_from_json(json.loads((Path(__file__).parent / "fixtures/handover_locked_standing_base.json")
+                                              .read_text(encoding="utf-8")))
+        base = revalidate(run_schedule(request(absent=("4",)), HistorySelection(), opts), fixture)
+        self.assertTrue(base.valid, base.validation_errors)
+        out = run_reoptimization(base, 3, "A", 3, HistorySelection(), opts, "긴급 이탈")
+        self.assertTrue(out.valid, (out.solve_result.status, out.validation_errors))
+        rows = {(a.employee_id, a.slot.index): a for a in out.record.assignments}
+        self.assertEqual([rows["6", t].displayed_assignment.label for t in (1, 2)], ["G2", "L3"])
+        # 예외는 LOCK된 경우만: LOCK 없이 같은 표를 검사하면 여전히 교대 시점 입식 3연속으로 잡는다
+        if all(rows["6", t].posture_or_mode == rows["6", 1].posture_or_mode for t in (2, 3)):
+            self.assertIn("입식 3시간 연속", handover_boundary_issues(out.record, "6", 3, 0))
+            self.assertNotIn("입식 3시간 연속", handover_boundary_issues(out.record, "6", 3, 3))
+
 
 if __name__ == "__main__":
     unittest.main()

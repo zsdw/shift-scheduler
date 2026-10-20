@@ -605,7 +605,8 @@ def revalidate(result: "ServiceResult", record: ShiftRecord) -> "ServiceResult":
     if record.context.manager_handover and not errors:
         k, proxy = record.context.manager_handover
         errors = [{"rule": "handover", "detail": f"{proxy}/{k}: 교대 시점 {issue}"}
-                  for issue in handover_boundary_issues(record, proxy, k)]
+                  for issue in handover_boundary_issues(
+                      record, proxy, k, (result.rebalance_info.locked_through_index + 1) if result.rebalance_info else 0)]
     stats = calculate_all_stats(record) if not errors else result.employee_stats
     return replace(result, context=record.context,
                    solve_result=replace(result.solve_result, record=record),
@@ -1051,8 +1052,12 @@ def _seat_result(result: ServiceResult) -> ServiceResult:
                    solve_result=replace(result.solve_result, record=record))
 
 
-def handover_boundary_issues(record: ShiftRecord, proxy: str, k: int) -> list[str]:
-    """준호's own continuity across the handover (display form)."""
+def handover_boundary_issues(record: ShiftRecord, proxy: str, k: int, locked_before: int = 0) -> list[str]:
+    """준호's own continuity across the handover (display form).
+
+    locked_before: 이 칸 앞은 LOCK된 과거(긴급 재편성). 교대 직전 두 칸이 이미 LOCK된 입식이면 교대 시점
+    입식 3연속은 허용한다(2026-10-20 사용자 확정 — 바꿀 수 없는 과거라 불가피).
+    """
     rows = {r.slot.index: r for r in record.assignments if r.employee_id == proxy}
     work = lambda t: t in rows and rows[t].actual_work_time_value == 1  # noqa: E731
     counted = lambda t: t in rows and (rows[t].counts_for_continuous_work_restriction  # noqa: E731
@@ -1069,6 +1074,8 @@ def handover_boundary_issues(record: ShiftRecord, proxy: str, k: int) -> list[st
             issues.append("4시간 연속근무 중 좌식 없음")
     for s in range(max(0, k - 2), min(k, 12) + 1):
         if s + 2 < 14 and s < k <= s + 2 and all(standing(t) for t in range(s, s + 3)):
+            if s == k - 2 and k - 1 < locked_before:
+                continue
             issues.append("입식 3시간 연속")
     for t in (k - 2, k - 1):
         if t >= 0 and patrol(t):
@@ -1151,7 +1158,7 @@ def run_reoptimization(base: ServiceResult, reoptimization_start_index: int,
                                                if shown.rebalance_info else None))
         if seat.record is None or seat.validation_errors:
             return shown if last is None else last
-        issues = handover_boundary_issues(shown.record, proxy, k)
+        issues = handover_boundary_issues(shown.record, proxy, k, reoptimization_start_index)
         if not issues:
             return shown
         last = replace(shown, validation_errors=tuple(
@@ -1189,8 +1196,9 @@ RULE_GROUPS = (
     "순찰 배분(14-1·14-2)", "H-11 순찰 뒤 휴게", "H-08 연속근무", "반차자 휴게 2시간(H-09-1)",
     "관리자 실근무·피로도 격차(H-15·8-4-2)", "8-10 통제A 04시", "8-14 통제A I1 최소 1회", "8-15 통제A 대기 최대 2회",
     "12-3 순찰 뒤 3번째 칸 대기 표기", "12-4 연속 휴게 표기", "12-5 매시간 대기자", "12-6 대기 횟수 차이",
-    "H-19 05~07시 휴게 3연속 금지", "5-3-1 남문 2시간 연속 금지", "15-3 연속 회차 설치 금지",
+    "H-19 05~07시 휴게 3연속 금지", "H-20 06·07시 휴게 2연속 금지", "5-3-1 남문 2시간 연속 금지", "15-3 연속 회차 설치 금지",
     "관리자 하대 금지(결원 2명)",
+    "교대 경계(준호 연속근무)",
 )
 
 

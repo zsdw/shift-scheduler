@@ -270,6 +270,11 @@ def _check(schedule, base):
     who = lambda p: '통제A' if p == 'A' else f'대행 {p}'
     if grid[last_two][9] != '휴게':                  # 2026-10-05 사용자 확정: 통제A 마지막 시간(17시) 휴게
         errors.append(f'{who(last_two)} 17시 휴게 아님')
+    # 2026-10-20 사용자 확정(하드, 결원 무관): 일반근무자 신분 16·17시 연속 휴게(휴게·대기, FM 표기) 금지. 통제A·대행 준호 예외, 두 칸 LOCK 보존
+    if not (schedule.locked_through is not None and schedule.locked_through >= 9):
+        for pid, row in grid.items():
+            if pid not in ('A', last_two) and row[8] in ('휴게', STANDBY) and row[9] in ('휴게', STANDBY):
+                errors.append(f'{person_label(schedule, pid)} 16·17시 연속 휴게 금지')
     if schedule.locked_through is None and grid[morning][0] not in ('휴게', 'G2'):   # 2026-10-16 사용자 확정(하드)
         errors.append(f'{who(morning)} 08시 휴게·G2 아님')
     # 2026-10-16 사용자 확정: 통제A 16시 휴게는 강한 권장(검증 대상 아님, 종전 'G2만' 하드 폐지).
@@ -462,12 +467,14 @@ def generate(day, names, mode='FM', *, seconds=30, seed=0, exclude=None,
     from .soft_history import lower_patrol_wait
     lower_groups = {}
     for p in generals:
-        if p in leavers or all(t in offs[p] for t in LOWER_PATROL):
+        if all(t in offs[p] for t in LOWER_PATROL):
             continue
-        if _lower_streak_events(patrol_events, names[p]):          # 14-9 HARD: 하층 3회 연속 금지
+        if _lower_streak_events(patrol_events, names[p]):          # 14-9 HARD: 하층 3회 연속 금지 (이탈·반차자도, 10/20 수정)
             for t in LOWER_PATROL:
                 if not (base is not None and locked_through is not None and t <= locked_through):
                     m.Add(x[p,t,'순찰'] == 0)
+            continue
+        if p in leavers:                                           # 하층 순번(14-7)은 이탈자 제외
             continue
         wait = lower_patrol_wait(patrol_events, names[p][-2:]) if patrol_events else None
         if wait is not None:                                         # 14-7 후보: 마지막 하층 오래된 그룹부터
@@ -593,7 +600,6 @@ def generate(day, names, mode='FM', *, seconds=30, seed=0, exclude=None,
         cap(-sum(x['A', t, 'G1'] for t in a_g1_slots), -1)
     fatigue_of = {}                                   # 이력 어드밴티지용 피로도 (FM이면 FM 기준)
     long_runs = []                                    # 결원 1명 시간 4연속 실근무 사용 여부
-    end3, end_rest2 = [], []
     views = ('FM', '유도리') if mode == 'FM' else ('유도리',)
     for view in views:
         totals = {}
@@ -625,10 +631,11 @@ def generate(day, names, mode='FM', *, seconds=30, seed=0, exclude=None,
             for t in range(7): m.Add(sum(rests[t:t+4]) <= 3)
             totals[p] = (sum(works), sum(fatigue))
             fatigue_of.setdefault(p, sum(fatigue))
-            if view == views[0]:                      # 마지막 시간 끝 3연속 근무·2연속 휴게 (아래 end_clash)
-                end3.append(sum(works[7:10]) - 2)
-                if p not in ('A', last_two):          # 통제A(오후반차면 대행 준호) 16·17시 휴게는 별도 규칙
-                    end_rest2.append(sum(rests[8:10]) - 1)
+            # 2026-10-20 사용자 확정(하드, 결원 무관): 일반근무자 신분은 막타임 2시간(16·17시) 연속 휴게 금지.
+            # FM 표기 기준(휴게·대기, 유도리 G2 휴게성 제외). 통제A(오후반차면 대행 준호)는 관리자 역할 예외. 두 칸 LOCK이면 보존.
+            # (종전 10/18 '15·16·17시 3연속 근무가 있으면' 강한 권장을 대체)
+            if view == views[0] and p not in ('A', last_two) and not (locked_through is not None and locked_through >= 9):
+                m.Add(pure[8] + pure[9] <= 1)
             if leavers.get(p, {}).get('kind') == 'half' or p in half_days:
                 # 2026-10-05 사용자 확정: 긴급·미리 정한 반차자는 나오는 5시간 중 휴게 1시간만 (다른 근무자 밸런스 다음)
                 gap = m.NewIntVar(0, 10, '')
@@ -658,12 +665,6 @@ def generate(day, names, mode='FM', *, seconds=30, seed=0, exclude=None,
         if manager_priority and not partial and not emergency and not a_half:   # 통제A 반차 날은 반나절이라 제외
             m.Add(fatigue_of[p] - fatigue_of['A'] >= (1 if base_absent >= 1 else 0))
     a_off = sum(a_gap)
-    # 2026-10-18 사용자 요청(강한 권장): 누군가 15·16·17시 3연속 근무로 끝나면, 일반근무자 16·17시 2연속 휴게(대기 포함)는
-    # 나오지 않게. 둘이 같이 나오면 1 (표의 운영 기준). 통제A 16·17시 휴게는 별도 확정 규칙이라 2연속 휴게 쪽에서 제외.
-    any3, any2, end_clash = m.NewBoolVar(''), m.NewBoolVar(''), m.NewBoolVar('')
-    for e in end3: m.Add(e <= any3)
-    for e in end_rest2: m.Add(e <= any2)
-    m.Add(end_clash >= any3 + any2 - 1)
     # exclude: 피할 표 하나(dict) 또는 여러 개(list) — 재생성 후보가 이전 후보들과 모두 다르게 (2026-10-18)
     for ex in (exclude if isinstance(exclude, (list, tuple)) else [exclude] if exclude else []):
         if set(ex) == set(ids):
@@ -744,12 +745,6 @@ def generate(day, names, mode='FM', *, seconds=30, seed=0, exclude=None,
         probe_solver, probe_status = solve(gap_probe, min(seconds, 10))
         if probe_status in (cp_model.FEASIBLE, cp_model.OPTIMAL):
             m.Add(a_off <= int(probe_solver.ObjectiveValue()))
-    if not emergency and not ledger_active:            # 장부 적용 시 앞에서 선호 최적값을 고정하지 않음
-        clash_probe = m.Clone()
-        clash_probe.Minimize(end_clash)
-        probe_solver, probe_status = solve(clash_probe, min(seconds, 10))
-        if probe_status in (cp_model.FEASIBLE, cp_model.OPTIMAL):
-            m.Add(end_clash <= int(probe_solver.ObjectiveValue()))
     if long_runs and emergency:
         violations.extend(long_runs)
     elif long_runs and not ledger_active:
@@ -763,7 +758,7 @@ def generate(day, names, mode='FM', *, seconds=30, seed=0, exclude=None,
     tail = 100*a_standby + 10*repeat + 3*a_g1_out + a_extra
     if ledger_active:
         tail += (100000*a16 + 90000*g2_17 + 80000*(100*last_rank + g2_rank)
-                 + 50000*end_clash + 10000*sum(long_runs) + 1000*a_off)
+                 + 10000*sum(long_runs) + 1000*a_off)
     no_perfect = False
     fatigue_limit = None
     if partial or emergency:
@@ -772,7 +767,7 @@ def generate(day, names, mode='FM', *, seconds=30, seed=0, exclude=None,
         # (10/18) ⑥ 통제A 대기 비권장 ⑦ 통제A 1점 덜 ⑧ 2연속 ⑨ 통제A 11~15시 밖 G1 · L1 우선
         m.Minimize(scale*(10*(1000000*sum(violations) + 100000*a16 + 90000*g2_17
                               + (80000*(100*last_rank + g2_rank) if leavers and balance else 0)
-                              + 50000*end_clash + 10000*a_patrol + 1000*sum(spreads)
+                              + 10000*a_patrol + 1000*sum(spreads)
                               + 50*sum(half_rest) + 20*a_standby + 2*a_off + repeat) + 3*a_g1_out + a_extra)
                    + advantage*rotation_scale + rotation_cost)
         # 긴급 피로도: 1 이내 먼저, INFEASIBLE일 때만 2. UNKNOWN은 그대로 반환.

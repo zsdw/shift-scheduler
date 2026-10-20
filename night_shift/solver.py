@@ -556,6 +556,75 @@ def solve_first_trial(context, history: HistoryInput, seconds=30, *, compensatio
                 model.add(sum(expression(person, t, lambda row: row.actual_rest_time_value == 1)
                               for person, t in cells) <= 2)
 
+        # 관리자 교대 경계(2026-10-20): 자리 형태에서는 준호 한 사람이 교대 전 자기 줄(6) + 교대 후 관리자 자리(A)
+        # (전반부 반차는 반대)로 나뉘어 Solver가 연속근무를 몰랐다 → 표를 만든 뒤 service.handover_boundary_issues로
+        # 걸러 최대 3번 다시 풀었고, 시간이 모자라면 가끔 모두 걸려 실패했다. 같은 검사를 이어 붙인 줄에 하드로 건다.
+        # 규칙 의미는 그대로(5시간 연속근무·4시간 연속 중 좌식 없음·교대 걸친 입식 3연속·교대 직전 순찰 뒤 휴게·입식→순찰→입식).
+        handover_k = manager_a_start_slot if manager_a_start_slot > 0 else (manager_a_end_slot if manager_a_end_slot < 14 else None)
+        handover_standing_misses = []                   # 교대 직전 두 칸이 LOCK된 입식일 때만: 입식 3연속은 가능하면 피함
+
+        def handover_boundary(k, reverse):
+            locked_rows = {(old.employee_id, old.slot.index): old for old in locked_assignments or ()}
+            cell = lambda t: (("A" if t < k else HANDOVER_PROXY) if reverse      # noqa: E731
+                              else (HANDOVER_PROXY if t < k else "A"), t)
+            work = lambda t: expression(*cell(t), lambda r: r.actual_work_time_value == 1)          # noqa: E731
+            counted = lambda t: expression(*cell(t), lambda r: r.counts_for_continuous_work_restriction  # noqa: E731
+                                           or r.actual_post_or_work_type.kind == K.PATROL)
+            seated = lambda t: expression(*cell(t), lambda r: r.actual_work_time_value == 1           # noqa: E731
+                                          and r.posture_or_mode == Posture.SEATED)
+            standing = lambda t: expression(*cell(t), lambda r: r.actual_work_time_value == 1         # noqa: E731
+                                            and r.posture_or_mode == Posture.STANDING)
+            patrol = lambda t: expression(*cell(t), lambda r: r.actual_post_or_work_type.kind == K.PATROL)  # noqa: E731
+
+            def hard(constraint):                       # LOCK·근무불가로 양쪽이 상수가 되면 파이썬 bool이 온다
+                if isinstance(constraint, bool):
+                    if not constraint:
+                        model.add_bool_or([])           # 이미 LOCK된 과거가 위반 → 해 없음으로 드러냄
+                else:
+                    model.add(constraint)
+            for s in range(max(0, k - 4), min(k, 10) + 1):
+                if s + 4 < 14:
+                    hard(sum(counted(t) for t in range(s, s + 5)) <= 4)
+            for s in range(max(0, k - 3), min(k, 11) + 1):
+                if s + 3 < 14:
+                    hard(sum(counted(t) for t in range(s, s + 4)) <= 3 + sum(seated(t) for t in range(s, s + 4)))
+            for s in range(max(0, k - 2), min(k, 12) + 1):
+                if s + 2 < 14 and s < k <= s + 2:
+                    # 2026-10-20 사용자 확정: 교대 직전 두 칸이 이미 LOCK된 입식이면(지난 과거라 바꿀 수 없음)
+                    # 교대 시점 입식 3연속을 허용 — 하드 대신 가능하면 지킬 규칙(소프트 맨 앞).
+                    before = [cell(t) for t in (k - 2, k - 1) if t >= 0]
+                    if (s == k - 2 and len(before) == 2 and all(
+                            c in locked_rows and locked_rows[c].actual_work_time_value == 1
+                            and locked_rows[c].posture_or_mode == Posture.STANDING for c in before)):
+                        miss = model.new_bool_var("handover_standing_miss")
+                        model.add(sum(standing(t) for t in range(s, s + 3)) <= 2 + miss)
+                        handover_standing_misses.append(miss)
+                        continue
+                    hard(sum(standing(t) for t in range(s, s + 3)) <= 2)
+            for t in (k - 2, k - 1):
+                if t >= 0:
+                    window = [j for j in (t + 1, t + 2) if j < 14]
+                    if window:
+                        hard(patrol(t) <= sum(1 - work(j) for j in window))
+                    if t >= 1 and t + 1 < 14:
+                        hard(standing(t - 1) + patrol(t) + work(t + 1) - seated(t + 1) <= 2)
+
+        if (rules_v220 and handover_k is not None and HANDOVER_PROXY in people and "A" in people
+                and not rule_off("교대 경계(준호 연속근무)")):
+            handover_boundary(handover_k, manager_a_start_slot > 0)
+
+        # H-20: 막타임 2시간(06·07시) 연속 휴게 금지 — 일반근무자 신분만, 결원 무관, FM 표기 기준(휴게·업무 없는 대기).
+        # 통제A·준호 관리자 대행은 관리자 역할 예외 (H-19와 같은 범위, 2026-10-20 사용자 확정). 두 칸 모두 LOCK이면 보존.
+        if rules_v220 and not rule_off("H-20 06·07시 휴게 2연속 금지"):
+            locked_keys = {(old.employee_id, old.slot.index) for old in locked_assignments or ()}
+            for pid in people:
+                if pid == "A" or (pid == "6" and (policy.manager_id == "6" or manager_a_end_slot <= 13)):
+                    continue
+                if all((pid, t) in locked_keys for t in (12, 13)):
+                    continue
+                model.add(sum(expression(pid, t, lambda row: row.displayed_assignment.label in ("휴게", "보안실 대기")
+                                         and row.actual_rest_time_value == 1) for t in (12, 13)) <= 1)
+
         for p, t in forced_rest_cells:
             if (p, t) in variables:
                 model.add(expression(p, t, lambda r: r.actual_work_time_value == 0) == 1)
@@ -1546,6 +1615,22 @@ def solve_first_trial(context, history: HistoryInput, seconds=30, *, compensatio
                 objectives.insert(0, ("emergency_leaver_rest", general_leaver_rests))
             if recovery_misses:                          # 긴급 재편성 순찰 뒤 회복(10/18): 가능하면 지킬 규칙 → 그보다도 앞
                 objectives.insert(0, ("emergency_patrol_recovery", sum(recovery_misses)))
+            if handover_standing_misses:                 # 교대 직전 LOCK 입식 2칸 뒤 입식 3연속(10/20): 가능하면 지킬 규칙
+                objectives.insert(0, ("handover_standing", sum(handover_standing_misses)))
+            # 8-10-1 (2026-10-20 사용자 확정, 아주 강한 권장): 관리자(통제A·준호 대행 모두) 04시는 최대한 비운다(실근무 없음).
+            # 빠진 근무는 그 이전(00~03시)으로 — 05·06시 관리자 실근무는 그다음으로 최소화. 가능하면 지킬 규칙 바로 다음,
+            # 막타임 순번보다 앞. A 피로도는 8-4-2 하드(0~3점 낮음) 안에서 움직이고 0~2점 목표는 최후순위 그대로. LOCK 보존.
+            # 통제A 전반부 반차(01시 출근) 날은 제외 — 0-4-4 '01~04시 실근무 최대'가 우선 (2026-10-20 사용자 확정)
+            manager_row = policy.manager_id
+            if rules_v220 and manager_row in people and manager_a_start_slot == 0:
+                locked_now = {(old.employee_id, old.slot.index) for old in locked_assignments or ()}
+                free = [t for t in (10, 11, 12) if (manager_row, t) not in locked_now]
+                work_at = {t: expression(manager_row, t, lambda r: r.actual_work_time_value == 1) for t in free}
+                early = [("manager_04_rest", work_at[10])] if 10 in free else []
+                early += [("manager_0506_work", sum(work_at[t] for t in (11, 12) if t in free))] if {11, 12} & set(free) else []
+                front_count = sum(1 for o in objectives if o[0] in ("handover_standing", "emergency_patrol_recovery", "emergency_leaver_rest",
+                                                                      "manager_leaver_rest", "vacancy1_required_standby"))
+                objectives[front_count:front_count] = [o for o in early if not isinstance(o[1], int)]
             if emergency_leaver_cells:                   # 긴급 반차·이탈자 배려 없음 — 맨 마지막 권장(10/18 사용자 확정)
                 leaver_load = sum(expression(p, t, lambda r: r.actual_work_time_value == 1)
                                   + expression(p, t, lambda r: r.actual_work_time_value == 1 and r.posture_or_mode == Posture.STANDING)
@@ -1556,8 +1641,8 @@ def solve_first_trial(context, history: HistoryInput, seconds=30, *, compensatio
                 objectives.append(("emergency_leaver_patrol_rest", sum(leaver_rest_misses)))
             if rules_v220 and long_term_balances is not None:
                 # 사용자 확정 10/20 (가): 가능하면 지킬 규칙 → 막타임 → 차단봉 → 하층 순번 → 당일 균형 → 장기 미상환 → 기타.
-                front_names = ("emergency_patrol_recovery", "emergency_leaver_rest", "manager_leaver_rest",
-                               "vacancy1_required_standby")
+                front_names = ("handover_standing", "emergency_patrol_recovery", "emergency_leaver_rest", "manager_leaver_rest",
+                               "vacancy1_required_standby", "manager_04_rest", "manager_0506_work")
                 turn_prefixes = ("last_rest_oldest_", "barrier_oldest_", "lower_oldest_")
                 front_goals = [o for o in objectives if o[0] in front_names]
                 turn_goals = [o for o in objectives if o[0].startswith(turn_prefixes)]

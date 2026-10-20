@@ -13,12 +13,13 @@ class ConflictDiagnosisTests(unittest.TestCase):
         self.assertEqual(set(re.findall(r'rule_off\("([^"]+)"\)', source)), set(RULE_GROUPS))
 
     def test_finds_single_blocking_group(self):
-        # 일반근무자 1명을 05·06·07시 모두 쉬게 강제하면 H-19(05~07시 휴게 3연속 금지)만 막는다
+        # 일반근무자 1명을 06·07시 모두 쉬게 강제하면 H-20(막타임 2시간 연속 휴게 금지)만 막는다.
+        # (10/20 전에는 05·06·07시 강제 → H-19 단독이었으나, 이제 H-19·H-20 둘 다 막아 단독 원인이 없다)
         options = SolveOptions(rules_version="2.20", seconds=20, prefer_dual_mode=False,
-                               forced_rest_cells=(("1", 11), ("1", 12), ("1", 13)))
+                               forced_rest_cells=(("1", 12), ("1", 13)))
         self.assertEqual(run_schedule(request(), HistorySelection(), options).solve_result.status, "INFEASIBLE")
         found = find_conflicting_rules(lambda opts: run_schedule(request(), HistorySelection(), opts), options)
-        self.assertEqual(found["single"], ["H-19 05~07시 휴게 3연속 금지"])
+        self.assertEqual(found["single"], ["H-20 06·07시 휴게 2연속 금지"])
 
     def test_feasibility_only_returns_no_table(self):
         out = run_schedule(request(), HistorySelection(),
