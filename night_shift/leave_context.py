@@ -22,7 +22,7 @@ class LeaveContext:
     proxy_own_slots: tuple[int, ...]   # 준호 자기 줄(일반근무) 시간
     half_day_ids: frozenset[str]       # H-09-1 반차자 처리 대상 (미리 정한 반차자 + 남은 칸 있는 긴급 이탈자)
     leaver_ids: frozenset[str]         # 남은 칸이 있는 긴급 반차·이탈 일반근무자
-    emergency_out_ids: frozenset[str]  # 12-6 대기 횟수 비교에서 빼는 긴급 반차·이탈자 (남은 칸 없음 포함)
+    emergency_out_ids: frozenset[str]  # 12-6 대기 횟수 비교에서 빼는 긴급 반차·이탈자 (남은 칸 없음 포함) + 교대 날 긴급 재편성의 준호
     manager_leaver_slots: frozenset[int]   # 통제A 긴급 반차·이탈의 빠지기 전 남은 칸
 
     @property
@@ -46,6 +46,10 @@ def build_leave_context(*, manager_id, general_ids, partial_general_ids, half_da
         half_day = frozenset()
     emergency_out = (frozenset(leaver_ids | (partial - half_day - ({HANDOVER_PROXY} if proxy_handover else set())))
                      if emergency else frozenset())
+    # 2026-10-20 사용자 확정: 관리자 교대가 있는 날의 긴급 재편성에서 준호(관리자 자리를 잇는 사람)는 12-6 비교 제외
+    # (통제A·긴급 반차/이탈자처럼). 사례: 22시 순찰 → 23·00시 휴게(12-3) 뒤 01시 승계, LOCK 과거 대기 0회라 해 없음.
+    if emergency and proxy_handover:
+        emergency_out = emergency_out | {HANDOVER_PROXY}
     own = (tuple(range(manager_a_start_slot, 14)) if manager_a_start_slot else tuple(range(manager_a_end_slot))
            ) if proxy_handover else ()
     return LeaveContext(

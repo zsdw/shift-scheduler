@@ -293,6 +293,24 @@ class ManagerLateHalfTests(unittest.TestCase):
             self.assertIn("입식 3시간 연속", handover_boundary_issues(out.record, "6", 3, 0))
             self.assertNotIn("입식 3시간 연속", handover_boundary_issues(out.record, "6", 3, 3))
 
+    def test_emergency_succession_excludes_proxy_from_standby_gap(self):
+        # 2026-10-20 사용자 확정: 관리자 교대가 있는 날의 긴급 재편성에서 준호는 12-6(대기 횟수 차이) 비교 제외.
+        # 사례(고정): 결원1, 준호 22시 순찰 → 23·00시 휴게(12-3) → 01시 통제A 긴급 반차 승계, LOCK 과거 대기
+        # 만년·성호 2회·준호 0회 → 종전엔 12-3·12-6 충돌로 해 없음.
+        import json
+        from pathlib import Path
+        from night_shift.history_store import record_from_json
+        from night_shift.service import run_reoptimization, run_schedule
+        opts = SolveOptions(rules_version="2.20", seconds=20, prefer_dual_mode=False)
+        fixture = record_from_json(json.loads((Path(__file__).parent / "fixtures/emergency_a_01_infeasible_base.json")
+                                              .read_text(encoding="utf-8")))
+        base = revalidate(run_schedule(request(absent=("4",)), HistorySelection(), opts), fixture)
+        out = run_reoptimization(base, 6, "A", 7, HistorySelection(), opts, "후반부 반차 (01시 퇴근)")
+        self.assertTrue(out.valid, (out.solve_result.status, out.validation_errors))
+        counts = {p: sum(a.employee_id == p and a.displayed_assignment.label == "보안실 대기" for a in out.record.assignments)
+                  for p in ("1", "2", "3", "5")}
+        self.assertLessEqual(max(counts.values()) - min(counts.values()), 1, counts)   # 나머지는 그대로 차이 1 이내
+
 
 if __name__ == "__main__":
     unittest.main()
