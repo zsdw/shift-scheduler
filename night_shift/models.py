@@ -249,6 +249,11 @@ POST_OPERATION_CHOICES = {"I1": ("rest", "seated"), "G1": ("seated",), "L3": ("s
 DEFAULT_POST_OPERATIONS = (("I1", 6, 9, "rest"),)          # 룰북 10-1: 00·01·02·03시 I1 휴게성
 GENERATION_POST_OPERATIONS = (("I1", 4, 9, "rest"),)       # 새 생성 기본: 22~03시, 과거 None 저장본은 종전 기준 유지
 
+# 대폭 휴게 (2026-10-20 사용자 확정): 23시~07시 이전(23·00·01·02·03·04·05·06시 = 칸 5~12) 안에서 3시간 이상 연속 실휴게.
+# 시간 범위 정의만 공유한다(판정·제약은 Solver·Validator·화면이 각자).
+BIG_REST_SLOTS = tuple(range(5, 13))
+BIG_REST_STARTS = tuple(range(BIG_REST_SLOTS[0], BIG_REST_SLOTS[-1] - 1))     # 3칸 묶음의 시작 칸 5~10
+
 
 def default_rest_start(post_operations) -> int | None:
     """기본 유도리면 I1 휴게성 시작 칸(None 저장본 6=00시, 새 기본 4=22시), 사용자 지정이면 None.

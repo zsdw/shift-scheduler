@@ -1594,14 +1594,18 @@ def render_balance_notes(reasons: list[str], monthly_rows: list[dict], duties=No
         st.caption("차단봉 집계는 2026년 10월 4일 야간부터 계산합니다.")
         st.markdown(duty_grid_html(duties), unsafe_allow_html=True)
         st.caption("합계 열은 이번 근무를 뺀 최근 6근무 기준입니다. 근무표 생성은 상층·중층 순찰은 이 6근무에서 "
-                   "밤당 덜 맡은 사람에게, 차단봉은 마지막으로 설치·철수한 날이 오래된 사람에게, 하층 순찰은 "
+                   "밤당 덜 맡은 사람에게, 차단봉은 마지막으로 설치·철수한 뒤 본인 출근이 많은 사람(안 해 본 사람 먼저)에게, 하층 순찰은 "
                    "마지막 하층 뒤 다른 층 순찰 3회 이상(공휴일 주간 포함)인 사람 중 마지막 하층이 오래된 사람에게 먼저 줍니다.")
     if shift_date is not None:                     # 막타임(07시) 휴게 표 — 비고 문장 대신 순찰표처럼 (2026-10-13 사용자 요청)
-        from history_ui import last_rest_table_html
+        from history_ui import last_rest_table_html, big_rest_table_html
         html = last_rest_table_html(shift_date, record)
         if html:
             st.markdown("**근무자별 최근 3싸이클 막타임(07시) 휴게**")
             st.markdown(html, unsafe_allow_html=True)
+        bhtml = big_rest_table_html(shift_date, record)    # 대폭 휴게 표 (2026-10-20, 막타임 표와 같은 모양)
+        if bhtml:
+            st.markdown("**근무자별 최근 3싸이클 대폭 휴게 (23시~07시 전 3시간 이상 연속 휴게)**")
+            st.markdown(bhtml, unsafe_allow_html=True)
     with st.expander("🧭 앞으로의 편성 방향 (월간 기록 기준)", expanded=False):
         from history_ui import link_night_dates               # 날짜 누르면 그 근무표로 (2026-10-13 사용자 요청)
         year = shift_date.year if shift_date is not None else date.today().year

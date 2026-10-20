@@ -7,7 +7,7 @@ from dataclasses import dataclass, replace
 from itertools import permutations
 from math import lcm
 from ortools.sat.python import cp_model
-from .models import barrier_history_counts, barrier_single, barrier_v2, mode_at, AssignmentKind as K, HistoryInput, Mode, Posture, RecordKind, ShiftRecord
+from .models import BIG_REST_SLOTS, BIG_REST_STARTS, barrier_history_counts, barrier_single, barrier_v2, mode_at, AssignmentKind as K, HistoryInput, Mode, Posture, RecordKind, ShiftRecord
 from .soft_history import lower_patrol_wait
 from .common import compile_common_policy, forbidden_same_post_pair, _actual_key
 from .profiles import options_for
@@ -44,7 +44,8 @@ def _flexible_delta(row, slot, context=None):
 
 
 def _add_dual_flexible_constraints(model, opts, variables, policy, context, people, partial_general_ids, *,
-                                   gap_rule, fatigue_rule, fatigue_band, skip_partial, balance=False):
+                                   gap_rule, fatigue_rule, fatigue_band, skip_partial, balance=False,
+                                   big_rest_rule=True, manager_a_end_slot=14, locked_keys=frozenset()):
     """FM 표를 유도리로 계산했을 때의 A 격차·차단봉 조건 (룰북 0-2-1).
 
     balance=True면 17장 당일 목표(전일 일반근무자 피로도 최대-최소 1점 이하, 실휴게 1시간 이하)를
@@ -77,6 +78,18 @@ def _add_dual_flexible_constraints(model, opts, variables, policy, context, peop
                       if r.displayed_assignment.label == installer or r.barrier_install_flag)
         remove = sum(v for r, v in zip(opts[p, 10], variables[p, 10]) if r.displayed_assignment.label == "I1")
         model.add(install + remove <= 1)
+    if big_rest_rule:                                           # 16-big: 유도리 계산 표에서도 막타임 수혜자의 대폭 휴게 동시 금지
+        def flex_rest(p, t):
+            return sum(v for r, v in zip(opts[p, t], variables[p, t])
+                       if (r.actual_rest_time_value - _flexible_delta(r, t, flex_context)[1]) == 1)
+        for pid in people:
+            if pid == "A" or (pid == "6" and (manager == "6" or manager_a_end_slot <= 13)):
+                continue
+            for s in BIG_REST_STARTS:
+                window = (s, s + 1, s + 2, 13)
+                if all((pid, t) in locked_keys for t in window):
+                    continue
+                model.add(sum(flex_rest(pid, t) for t in window) <= 3)
     if balance:                                                 # 17장 당일 목표를 두 기준 모두에서
         full = [p for p in policy.general_ids if p not in partial_general_ids]
         for flexible in (False, True):
@@ -624,6 +637,19 @@ def solve_first_trial(context, history: HistoryInput, seconds=30, *, compensatio
                     continue
                 model.add(sum(expression(pid, t, lambda row: row.displayed_assignment.label in ("휴게", "보안실 대기")
                                          and row.actual_rest_time_value == 1) for t in (12, 13)) <= 1)
+
+        # 16-big: 막타임(07시) 실휴게 수혜자는 같은 날 대폭 휴게(23시~07시 전 3연속 실휴게, models.BIG_REST_SLOTS) 동시 수혜 금지(하드).
+        # 통제A·준호 관리자 대행은 예외. 4칸 모두 LOCK이면 보존.
+        if rules_v220 and not rule_off("16-big 막타임·대폭 휴게 동시 금지"):
+            locked_keys = {(old.employee_id, old.slot.index) for old in locked_assignments or ()}
+            for pid in people:
+                if pid == "A" or (pid == "6" and (policy.manager_id == "6" or manager_a_end_slot <= 13)):
+                    continue
+                for s in BIG_REST_STARTS:
+                    window = (s, s + 1, s + 2, 13)
+                    if all((pid, t) in locked_keys for t in window):
+                        continue
+                    model.add(sum(expression(pid, t, lambda row: row.actual_rest_time_value == 1) for t in window) <= 3)
 
         for p, t in forced_rest_cells:
             if (p, t) in variables:
@@ -1499,7 +1525,10 @@ def solve_first_trial(context, history: HistoryInput, seconds=30, *, compensatio
                     gap_rule=not manager_vacancy_policy,
                     fatigue_rule=headcount in (5, 6) and not (rules_v218 and profile_absence == 2),
                     fatigue_band=(0, 3 if rules_v220 else 2) if rules_v219 and not manager_is_proxy else (-4, 4),
-                    skip_partial=rules_v215, balance=dual_balance)
+                    skip_partial=rules_v215, balance=dual_balance,
+                    big_rest_rule=rules_v220 and not rule_off("16-big 막타임·대폭 휴게 동시 금지"),
+                    manager_a_end_slot=manager_a_end_slot,
+                    locked_keys={(old.employee_id, old.slot.index) for old in locked_assignments or ()})
             # A stage that runs out of time keeps its best value as an upper bound
             # (never frozen as if proven) and later stages still run, warm-started
             # from the previous solution; the whole staged run shares a time budget.
@@ -1569,9 +1598,56 @@ def solve_first_trial(context, history: HistoryInput, seconds=30, *, compensatio
                     model.add(lower_count >= 1).only_enforce_if(flag)
                     got.append(flag)
                 lower_priorities.append(('lower_oldest_' + (day or 'never'), -sum(got)))
-            # 16장: 마지막 수혜가 오래된 순서가 HARD 다음 최우선 목표.
+            # 16장·15-8·대폭 휴게(2026-10-20 사용자 확정): 순번 기준 = 미수혜자 1순위(출근 많은 순) → 마지막 수혜 뒤 본인 출근 횟수 많은 순.
+            # 대폭 휴게(23시~07시 전 3시간+ 연속 실휴게): 결원 1.5명 미만 날 최대 인원 확보(big_rest_max) 후 순번 배정(big_rest_oldest_*).
+            def _turn_key(records_for_p, check_fn):
+                idx = max((i for i, r in enumerate(records_for_p) if check_fn(r)), default=-1)
+                return (0, -len(records_for_p)) if idx < 0 else (1, -(len(records_for_p) - 1 - idx))
+
+            def _had_big_rest(rec, pid):
+                if rec.context.manager_handover and not rec.context.manager_handover_reverse:
+                    if rec.context.manager_handover[1] == pid and rec.context.manager_handover[0] <= 13:
+                        return False
+                rest_t = {x.slot.index for x in rec.assignments if x.employee_id == pid and x.actual_rest_time_value == 1}
+                return any(all(t in rest_t for t in (s, s + 1, s + 2)) for s in BIG_REST_STARTS)
+
+            big_rest_priorities = []
+            if rules_v220 and not manager_vacancy_policy and (absence_count + 0.5 * len(partial_general_ids)) < 1.5:
+                big_vars = {}
+                for p in policy.general_ids:
+                    if p == "6" and (policy.manager_id == "6" or manager_a_end_slot <= 13):
+                        continue
+                    att = next((a for a in context.attendance if a.employee_id == p and a.present), None)
+                    if att is None or sum(att.is_available(t) for t in BIG_REST_SLOTS) < 3:
+                        continue
+                    wins = []
+                    for s in BIG_REST_STARTS:
+                        win = model.new_bool_var(f"big_rest_win_{p}_{s}")
+                        for j in (s, s + 1, s + 2):
+                            model.add(win <= expression(p, j, lambda r: r.actual_rest_time_value == 1))
+                        model.add(win >= sum(expression(p, j, lambda r: r.actual_rest_time_value == 1) for j in (s, s + 1, s + 2)) - 2)
+                        wins.append(win)
+                    got_big = model.new_bool_var(f"big_rest_person_{p}")
+                    for win in wins:
+                        model.add(got_big >= win)
+                    model.add(got_big <= sum(wins))
+                    big_vars[p] = got_big
+                if big_vars:
+                    big_rest_priorities.append(("big_rest_max", -sum(big_vars.values())))
+                    if last_rest_records:
+                        big_groups = {}
+                        for p in big_vars:
+                            att_b = sorted((r for r in last_rest_records
+                                            if barrier_history_counts(r.context) and r.context.shift_start_date < context.shift_start_date
+                                            and any(a.employee_id == p and a.present and a.is_general_worker for a in r.context.attendance)),
+                                           key=lambda r: r.context.shift_start_date)
+                            big_groups.setdefault(_turn_key(att_b, lambda r, p=p: _had_big_rest(r, p)), []).append(p)
+                        if len(big_groups) > 1:
+                            for key, group in sorted(big_groups.items()):
+                                big_rest_priorities.append((f"big_rest_oldest_{key[0]}_{-key[1]}", -sum(big_vars[p] for p in group)))
+
             if not last_rest_records:
-                objectives = lower_priorities + objectives
+                objectives = lower_priorities + big_rest_priorities + objectives
             if last_rest_records:
                 groups = {}
                 for p in policy.general_ids:
@@ -1586,9 +1662,10 @@ def solve_first_trial(context, history: HistoryInput, seconds=30, *, compensatio
                             model.add(expression(p,13,lambda r:r.actual_rest_time_value==1)==0)
                         continue
                     if not next(a for a in context.attendance if a.employee_id==p).is_available(13):continue
-                    groups.setdefault(max(received) if received else -1,[]).append(p)
-                priorities=[('last_rest_oldest_'+str(day),sum(1-expression(p,13,lambda r:r.actual_rest_time_value==1)
-                             for p in group)) for day,group in sorted(groups.items())]
+                    groups.setdefault(_turn_key(attended, lambda r, p=p: any(
+                        x.employee_id == p and x.slot.index == 13 and x.actual_rest_time_value == 1 for x in r.assignments)), []).append(p)
+                priorities = [(f'last_rest_oldest_{key[0]}_{-key[1]}', sum(1 - expression(p, 13, lambda r: r.actual_rest_time_value == 1)
+                               for p in group)) for key, group in sorted(groups.items())]
                 # 15-8 (2026-10-19 사용자 확정): 차단봉 설치·철수 중 아무거나 마지막으로 한 날이 오래된 사람부터,
                 # 막타임 다음 최우선. 10/04 야간 이후 저장된 실제 야간 전체, 이력에 없으면 가장 오래 기다린 그룹.
                 barrier_groups = {}
@@ -1598,11 +1675,16 @@ def solve_first_trial(context, history: HistoryInput, seconds=30, *, compensatio
                     done = [r.context.shift_start_date.toordinal() for r in last_rest_records
                             if barrier_history_counts(r.context) and r.context.shift_start_date < context.shift_start_date
                             and any(x.employee_id == p and (x.barrier_install_flag or x.barrier_remove_flag) for x in r.assignments)]
-                    barrier_groups.setdefault(max(done) if done else -1, []).append(p)
+                    att_b = sorted((r for r in last_rest_records
+                                    if barrier_history_counts(r.context) and r.context.shift_start_date < context.shift_start_date
+                                    and any(a.employee_id == p and a.present and a.is_general_worker for a in r.context.attendance)),
+                                   key=lambda r: r.context.shift_start_date)
+                    barrier_groups.setdefault(_turn_key(att_b, lambda r, p=p: any(
+                        x.employee_id == p and (x.barrier_install_flag or x.barrier_remove_flag) for x in r.assignments)), []).append(p)
                 if len(barrier_groups) > 1:
-                    priorities += [('barrier_oldest_' + str(day), -sum(expression(p, t, lambda r: r.barrier_install_flag or r.barrier_remove_flag)
-                                    for p in group for t in (2, 10))) for day, group in sorted(barrier_groups.items())]
-                objectives=priorities+lower_priorities+objectives
+                    priorities += [(f'barrier_oldest_{key[0]}_{-key[1]}', -sum(expression(p, t, lambda r: r.barrier_install_flag or r.barrier_remove_flag)
+                                    for p in group for t in (2, 10))) for key, group in sorted(barrier_groups.items())]
+                objectives = priorities + lower_priorities + big_rest_priorities + objectives
             if vacancy1_standby_missing:                 # 12-5 결원 1명 시간: 가능하면 지킬 규칙 → 소프트 목표 맨 앞
                 objectives.insert(0, ("vacancy1_required_standby", sum(vacancy1_standby_missing)))
             # 긴급 반차·이탈자(통제A·일반근무자 모두): 빠지기 전 남은 칸은 필요한 곳만 휴게 → 소프트 맨 앞
@@ -1643,7 +1725,7 @@ def solve_first_trial(context, history: HistoryInput, seconds=30, *, compensatio
                 # 사용자 확정 10/20 (가): 가능하면 지킬 규칙 → 막타임 → 차단봉 → 하층 순번 → 당일 균형 → 장기 미상환 → 기타.
                 front_names = ("handover_standing", "emergency_patrol_recovery", "emergency_leaver_rest", "manager_leaver_rest",
                                "vacancy1_required_standby", "manager_04_rest", "manager_0506_work")
-                turn_prefixes = ("last_rest_oldest_", "barrier_oldest_", "lower_oldest_")
+                turn_prefixes = ("last_rest_oldest_", "barrier_oldest_", "lower_oldest_", "big_rest_")
                 front_goals = [o for o in objectives if o[0] in front_names]
                 turn_goals = [o for o in objectives if o[0].startswith(turn_prefixes)]
                 # 결원 2명 조장-일반 평균 4점 이내(17-5)는 당일 균형 묶음의 맨 앞(2026-10-20 사용자 확정:

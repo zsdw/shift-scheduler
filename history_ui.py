@@ -503,6 +503,22 @@ def render_history_editor(prefix: str, drag_grid, selected: date,
                     st.rerun()
 
     ops_key = f"{prefix}_ops_open_{selected}"
+    # 야간 FM 저장표 '이날 실제 운영' 한 번에 고르기 (2026-10-20 사용자 확정): 유도리로 근무함 = 이 표의 유도리 운영값
+    # (새 생성 I1 22~03시, 옛 저장본 None은 00~03시)을 포스트별 실제 운영 수정으로 넣어 바로 저장한다. 그 칸이 실휴게가
+    # 되므로 대폭 휴게·막타임 등 이력 집계에도 그대로 들어간다. 저장된 수정만 바꾸고 아직 저장 안 한 다른 수정은 건드리지 않는다.
+    if plan.context.effective_mode.value == "FM" and plan.context.flexible_from_slot is None:
+        flex_ops = night_flex_operations(plan)
+        is_flex = flex_applied(data["edits"], flex_ops)
+        choice = st.radio("이날 실제 운영", ("FM 그대로", "유도리로 근무함"), index=int(is_flex), horizontal=True,
+                          key=f"{prefix}_actual_mode_{selected}_{int(is_flex)}",
+                          help="유도리로 근무함: " + ", ".join(f"{p} {HOURS[lo]}~{HOURS[hi]} {'휴게성' if s == 'rest' else '좌식'}"
+                                                         for p, lo, hi, s in flex_ops) + " — 고르면 바로 저장됩니다.")
+        if (choice == "유도리로 근무함") != is_flex:
+            history_store.save_edits(store_dir(), selected, toggle_flex(data["edits"], flex_ops, not is_flex))
+            edits[:] = toggle_flex(edits, flex_ops, not is_flex)
+            st.session_state[f"{prefix}_return_final_{selected}"] = True     # 저장한 최종 수정본 화면으로 (선택칸이 거기 있음)
+            st.toast("이날 실제 운영을 유도리로 저장했습니다." if not is_flex else "이날 실제 운영을 FM 그대로로 저장했습니다.")
+            st.rerun()
     if st.button("✏️ 포스트별 실제 운영 수정" if not st.session_state.get(ops_key) else "포스트별 수정 닫기",
                  key=f"{prefix}_ops_toggle_{selected}"):
         st.session_state[ops_key] = not st.session_state.get(ops_key)
@@ -957,12 +973,79 @@ def last_rest_table_html(shift_date: date, current=None) -> str:
         cells = [f"<td class='name'>{escape(names[p])}</td>"]
         cells += [f"<td>{'🛌' if p in rest else ''}</td>" for _, _, rest in nights]
         rows.append("<tr>" + "".join(cells) + "</tr>")
-    verdict = ("배정 기준: 직전 출근 수혜자 제외 · 마지막 수혜가 오래된 사람 우선 · "
+    verdict = ("배정 기준: 직전 출근 수혜자 제외 · 한 번도 안 받은 사람 먼저, 그다음 마지막 수혜 뒤 본인 출근이 많은 사람 · "
                + f"표에 표시된 수혜 횟수 차이 {gap}회 · "
                + ("연속 수혜 없음" if not repeats else "연속 수혜: " + ", ".join(repeats)))
     return (css + f"<div style='font-size:.85rem;margin:2px 0 4px'>{escape(verdict)}</div>"
             + "<table class='lastrest'><tr>" + head + "</tr>" + "".join(rows) + "</table>"
             + "<div style='height:12px'></div>")
+
+def night_flex_operations(plan) -> tuple:
+    """이 야간 표를 유도리로 운영했을 때의 포스트별 운영값 — models.post_operation과 같은 기준
+    (새 생성 표는 저장된 값 I1 22~03시, 옛 저장본 None은 종전 00~03시)."""
+    from night_shift.models import DEFAULT_POST_OPERATIONS
+    ops = plan.context.post_operations
+    return tuple(tuple(op) for op in (DEFAULT_POST_OPERATIONS if ops is None else ops))
+
+
+def flex_applied(edits: list[dict], flex_ops) -> bool:
+    """저장된 수정에 유도리 운영값이 전부 그대로 들어 있나 (이날 실제 운영 = 유도리)."""
+    return bool(flex_ops) and all(any(
+        e.get("type") == "state" and int(e["from"]) == lo and int(e["to"]) == hi and e.get("posts", {}).get(post) == state
+        for e in edits) for post, lo, hi, state in flex_ops)
+
+
+def toggle_flex(edits: list[dict], flex_ops, on: bool) -> list[dict]:
+    """유도리 운영값을 포스트별 실제 운영 수정으로 넣거나(on) 그 수정만 뺀다(off). 다른 수정은 그대로."""
+    out = list(edits)
+    for post, lo, hi, state in flex_ops:
+        if on:
+            out = add_state_edit(out, post, lo, hi, state)
+        else:
+            out = [e for e in out if not (e.get("type") == "state" and int(e["from"]) == lo and int(e["to"]) == hi
+                                          and e.get("posts") == {post: state})]
+    return out
+
+
+def _big_rest_people(record) -> tuple[dict[str, str], list[str]]:
+    """그 밤 대폭 휴게(23시~07시 이전, 3시간 이상 연속 실휴게)를 받은 일반근무자. 관리자(통제A·대행) 제외."""
+    from night_shift.models import BIG_REST_STARTS
+    stats = calculate_all_stats(record)
+    names = {p: s.name for p, s in stats.items() if not s.is_manager}
+    rest = {(r.employee_id, r.slot.index) for r in record.assignments if r.actual_rest_time_value == 1}
+    big = [p for p in names if any(all((p, t) in rest for t in (s, s + 1, s + 2)) for s in BIG_REST_STARTS)]
+    return names, big
+
+
+def big_rest_table_html(shift_date: date, current=None) -> str:
+    """대폭 휴게 표 (2026-10-20): 사람 × 최근 6근무(+이번 근무, 10/04 야간부터), 받은 칸에 🛌. 막타임 표와 같은 모양."""
+    recent = sorted(history_store.recent_actuals(store_dir(), shift_date, limit=6), key=lambda r: r.context.shift_start_date)
+    nights = [(f"{r.context.shift_start_date:%m/%d}", *_big_rest_people(r)) for r in recent
+              if r.context.shift_start_date >= date(2026, 10, 4)]
+    if current is not None:
+        nights.append(("이번", *_big_rest_people(current)))
+    if not nights:
+        return ""
+    names = {}
+    for _, day_names, _ in nights:
+        names.update(day_names)
+    people = sorted(names, key=lambda p: (not p.isdigit(), int(p) if p.isdigit() else 0, p))
+    counts = {p: sum(p in big for _, _, big in nights) for p in people}
+    gap = max(counts.values()) - min(counts.values()) if counts else 0
+    css = ("<style>.lastrest{border-collapse:collapse;width:100%;table-layout:fixed;font-size:.82rem}"
+           ".lastrest th{font-weight:600;color:#475569;padding:6px 2px;border-bottom:1px solid #e2e8f066;text-align:center;"
+           "white-space:nowrap;font-size:.78rem}.lastrest th:first-child{width:3.6em}"
+           ".lastrest td{padding:6px 2px;border-bottom:1px solid #e2e8f033;text-align:center;height:1.6em}"
+           ".lastrest td.name{text-align:left;font-weight:600;white-space:nowrap}</style>")
+    head = "<th>직원</th>" + "".join(f"<th>{escape(label)}</th>" for label, _, _ in nights)
+    rows = ["<tr>" + f"<td class='name'>{escape(names[p])}</td>"
+            + "".join(f"<td>{'🛌' if p in big else ''}</td>" for _, _, big in nights) + "</tr>" for p in people]
+    verdict = ("배정 기준: 가능한 많은 사람에게 → 한 번도 안 받은 사람 먼저, 그다음 마지막 수혜 뒤 본인 출근이 많은 사람 · "
+               f"막타임(07시) 받는 사람은 같은 날 제외 · 표에 표시된 수혜 횟수 차이 {gap}회")
+    return (css + f"<div style='font-size:.85rem;margin:2px 0 4px'>{escape(verdict)}</div>"
+            + "<table class='lastrest'><tr>" + head + "</tr>" + "".join(rows) + "</table>"
+            + "<div style='height:12px'></div>")
+
 
 def link_night_dates(text: str, year: int) -> str:
     """문장 속 'MM/DD'가 저장된 야간 근무표 날짜면 그 근무표로 가는 링크로 (2026-10-13 사용자 요청: 현장 변동 날짜 클릭).

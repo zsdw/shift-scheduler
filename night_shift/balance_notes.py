@@ -175,21 +175,38 @@ def history_influence_lines(record, stats, prepared=None, manual: bool = False) 
     if turns:
         out.append("하층 순찰: 마지막 하층 뒤 다른 층 순찰 3회 이상이고 마지막 하층이 오래된 " + ", ".join(turns)
                    + "에게 오늘 하층을 맡겼습니다(14-7, 막타임·차단봉 다음 우선).")
-    # 15-8 차단봉: 설치·철수 중 아무거나 마지막으로 한 날이 오래된 사람 우선(2026-10-19, 횟수 기준 폐지)
-    barrier_records = [r for r in getattr(prepared, "last_rest_records", ()) or ()
-                       if r.context.shift_start_date < record.context.shift_start_date
-                       and r.context.shift_start_date >= date(2026, 10, 4)]
+    # 15-8 차단봉·대폭 휴게 순번(2026-10-20 사용자 확정): 한 번도 안 받은 사람 먼저(출근 많은 순), 그다음
+    # 마지막으로 받은 뒤 본인 출근 횟수가 많은 사람 — 10/04 야간 이후 저장된 실제 야간 기준.
+    barrier_records = sorted((r for r in getattr(prepared, "last_rest_records", ()) or ()
+                              if date(2026, 10, 4) <= r.context.shift_start_date < record.context.shift_start_date),
+                             key=lambda r: r.context.shift_start_date)
+
+    def wait_text(pid, got, none="받은 기록 없음"):
+        attended = [r for r in barrier_records if any(a.employee_id == pid and a.present and a.is_general_worker
+                                                     for a in r.context.attendance)]
+        last = max((i for i, r in enumerate(attended) if got(r)), default=None)
+        if last is None:
+            return f"{names.get(pid, pid)}({none}·출근 {len(attended)}회)"
+        return f"{names.get(pid, pid)}(마지막 {attended[last].context.shift_start_date:%m/%d} 뒤 출근 {len(attended) - 1 - last}회)"
+
     barrier_today = [pid for pid in general if any(r.barrier_install_flag or r.barrier_remove_flag
                                                    for r in rows.get(pid, {}).values())]
     if barrier_records and barrier_today:
-        def last_barrier(pid):
-            days = [r.context.shift_start_date for r in barrier_records
-                    if any(x.employee_id == pid and (x.barrier_install_flag or x.barrier_remove_flag) for x in r.assignments)]
-            return max(days) if days else None
-        parts = [f"{names.get(pid, pid)}(" + (f"마지막 {last_barrier(pid):%m/%d}" if last_barrier(pid) else "참여 기록 없음") + ")"
-                 for pid in barrier_today]
-        out.append("차단봉: 마지막으로 설치·철수한 날이 오래된 " + ", ".join(parts)
-                   + "에게 오늘 맡겼습니다(15-8, 막타임 다음 우선).")
+        parts = [wait_text(pid, lambda r, pid=pid: any(x.employee_id == pid and (x.barrier_install_flag or x.barrier_remove_flag)
+                                                       for x in r.assignments), "참여 기록 없음") for pid in barrier_today]
+        out.append("차단봉: 오래 기다린 순서대로 " + ", ".join(parts) + "에게 오늘 맡겼습니다(15-8, 막타임 다음 우선).")
+    from .models import BIG_REST_STARTS
+
+    def big_rest(rest_cells, pid):
+        return any(all((pid, t) in rest_cells for t in (s, s + 1, s + 2)) for s in BIG_REST_STARTS)
+    today_rest = {(pid, t) for pid, cells in rows.items() for t, r in cells.items() if r.actual_rest_time_value == 1}
+    big_today = [pid for pid in sorted(general) if big_rest(today_rest, pid)]
+    if barrier_records and big_today:
+        def got_big(r, pid):
+            return big_rest({(x.employee_id, x.slot.index) for x in r.assignments if x.actual_rest_time_value == 1}, pid)
+        parts = [wait_text(pid, lambda r, pid=pid: got_big(r, pid)) for pid in big_today]
+        out.append("대폭 휴게(23시~07시 전 3시간 이상 연속 휴게): 가능한 많은 사람에게, 오래 기다린 순서대로 "
+                   + ", ".join(parts) + "에게 오늘 줬습니다(하층 순번 다음 우선).")
     rates = getattr(prepared, "duty_rates", None) or {}
     for metric, label in (("upper", "상층 순찰"), ("middle", "중층 순찰")):
         table = rates.get(metric) or {}

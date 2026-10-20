@@ -56,7 +56,7 @@
   차단봉                      제15장                  solver, history,
                                                       validator
 
-  마지막 휴게                 제16장                  solver, history,
+  마지막 휴게·대폭 휴게       제16장 / 16-1 / 16-big  solver, history,
                                                       validator
 
   당일 밸런스                 제17장                  solver objective,
