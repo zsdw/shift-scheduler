@@ -58,6 +58,10 @@ class BigRestRotationTests(unittest.TestCase):
         self.assertFalse(big & last, (big, last))
         stage = next(a for a in self.n1.solve_result.attempts if a.get("stage") == "big_rest_max")
         self.assertEqual(stage["value"], -len(big))
+        four_stage = next(a for a in self.n1.solve_result.attempts if a.get("stage") == "four_hour_runs")
+        self.assertEqual(four_stage["value"], 0)
+        stages = [a.get("stage") for a in self.n1.solve_result.attempts if isinstance(a, dict)]
+        self.assertLess(stages.index("four_hour_runs"), stages.index("big_rest_max"))
 
     def test_validator_rejects_last_rest_and_big_rest_overlap_unless_locked(self):
         overlap = replace(_record(date(2026, 10, 15), last_rest_pid="1", big_rest_pids=("1",)),

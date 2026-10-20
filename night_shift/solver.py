@@ -1713,6 +1713,12 @@ def solve_first_trial(context, history: HistoryInput, seconds=30, *, compensatio
                 front_count = sum(1 for o in objectives if o[0] in ("handover_standing", "emergency_patrol_recovery", "emergency_leaver_rest",
                                                                       "manager_leaver_rest", "vacancy1_required_standby"))
                 objectives[front_count:front_count] = [o for o in early if not isinstance(o[1], int)]
+            if rules_v220:
+                run_goals = [o for o in objectives if o[0] in ("actual_work_long_runs", "four_hour_runs")]
+                objectives = [o for o in objectives if o[0] not in ("actual_work_long_runs", "four_hour_runs")]
+                run_pos = sum(1 for o in objectives if o[0] in ("handover_standing", "emergency_patrol_recovery", "emergency_leaver_rest",
+                                                                  "manager_leaver_rest", "vacancy1_required_standby", "manager_04_rest", "manager_0506_work"))
+                objectives[run_pos:run_pos] = run_goals
             if emergency_leaver_cells:                   # 긴급 반차·이탈자 배려 없음 — 맨 마지막 권장(10/18 사용자 확정)
                 leaver_load = sum(expression(p, t, lambda r: r.actual_work_time_value == 1)
                                   + expression(p, t, lambda r: r.actual_work_time_value == 1 and r.posture_or_mode == Posture.STANDING)
@@ -1724,7 +1730,7 @@ def solve_first_trial(context, history: HistoryInput, seconds=30, *, compensatio
             if rules_v220 and long_term_balances is not None:
                 # 사용자 확정 10/20 (가): 가능하면 지킬 규칙 → 막타임 → 차단봉 → 하층 순번 → 당일 균형 → 장기 미상환 → 기타.
                 front_names = ("handover_standing", "emergency_patrol_recovery", "emergency_leaver_rest", "manager_leaver_rest",
-                               "vacancy1_required_standby", "manager_04_rest", "manager_0506_work")
+                               "vacancy1_required_standby", "manager_04_rest", "manager_0506_work", "actual_work_long_runs", "four_hour_runs")
                 turn_prefixes = ("last_rest_oldest_", "barrier_oldest_", "lower_oldest_", "big_rest_")
                 front_goals = [o for o in objectives if o[0] in front_names]
                 turn_goals = [o for o in objectives if o[0].startswith(turn_prefixes)]

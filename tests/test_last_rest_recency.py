@@ -34,6 +34,6 @@ class LastRestRecencyTests(unittest.TestCase):
         rest=[r.employee_id for r in solved.record.assignments if r.slot.index==13 and r.actual_rest_time_value==1 and r.employee_id!='A']
         self.assertEqual(rest,['1'])
         # 2026-10-20: 관리자 04시 비우기(8-10-1, 아주 강한 권장)가 막타임 순번 바로 앞 — 그 다음 첫 단계가 막타임 순번
-        stages=[a['stage'] for a in solved.attempts if isinstance(a,dict) and a.get('stage') and not a['stage'].startswith('manager_0')]
+        stages=[a['stage'] for a in solved.attempts if isinstance(a,dict) and a.get('stage') and not a['stage'].startswith('manager_0') and a['stage'] not in ('actual_work_long_runs','four_hour_runs')]
         self.assertTrue(stages[0].startswith('last_rest_oldest_'),stages[:3])
         self.assertFalse([e for e in validate_first_trial(solved.record,HistoryInput((),()),rules_v220=True,last_rest_records=past) if e['rule']=='16-next'])
