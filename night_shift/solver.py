@@ -225,6 +225,12 @@ def solve_first_trial(context, history: HistoryInput, seconds=30, *, compensatio
     proxy_handover = leave.proxy_handover
     planned_handover = leave.planned
     late_proxy_manager_rules = leave.late_half
+    # '온전 출근' 날(2026-10-22 사용자 확정): 반차·이탈·관리자 교대·긴급 재편성(LOCK) 없음. H-22·8-10-2 하드는 이런 날만
+    # (반차·이탈 날은 새벽 인원이 줄어 해가 없음 → 강한 권장 four_hour_runs·manager_04_rest로).
+    whole_day = (not partial_general_ids and not proxy_handover and not planned_handover
+                 and manager_a_start_slot == 0 and manager_a_end_slot == 14
+                 and not emergency_leaver_cells and not locked_assignments
+                 and all(a.is_available(t) for a in context.attendance if a.present for t in range(14)))
     # 14-2 예외 [하드, 2026-10-18 사용자 확정]: 결원 1명 + 미리 정한 통제A 반차 → 준호는 관리자 자리 순찰만,
     # 나머지 일반근무자 4명이 5회(정확히 1명 2회, 14-3: 전반부·후반부 1회씩, 14-6 소프트 우선순위).
     proxy_patrol_exception = planned_handover and absence_count == 1
@@ -295,6 +301,26 @@ def solve_first_trial(context, history: HistoryInput, seconds=30, *, compensatio
             for p in full_general_ids:
                 model.add(day_fatigue(p) - day_fatigue(policy.manager_id) >= 1)
                 model.add(day_fatigue(p) - day_fatigue(policy.manager_id) <= 2)
+        if (rules_v220 and whole_day and absence_count != 1 and (policy.manager_id, 10) in variables
+                and (policy.manager_id, 10) not in {(old.employee_id, old.slot.index) for old in locked_assignments or ()}
+                and not rule_off("8-10-2 관리자 04시 근무 금지")):
+            # 8-10-2 [하드, 2026-10-22 사용자 확정 — 8-10-1 권장에서 격상]: 관리자(통제A·준호 대행, 교대 날은 04시에 관리자
+            # 자리를 서는 사람) 04시 실근무 금지. 통제A는 8-10으로 휴게만, 대행 준호는 휴게·업무 없는 대기. LOCK 보존.
+            # 결원 1명(6명 출근, 통제 결근 포함) 날은 제외 — H-11 순찰 뒤 휴게와 충돌해 해가 없어 8-10-1 아주 강한 권장(사용자 확정).
+            model.add(expression(policy.manager_id, 10, lambda r: r.actual_work_time_value == 1) == 0)
+        if (rules_v220 and manager_is_proxy and not proxy_handover and absence_count <= 1
+                and not rule_off("대행 준호 순찰 앞뒤 휴게 최대 2시간")):
+            # [하드, 2026-10-22 사용자 확정] 하루 종일 준호 대행·결원 1명(통제 결근)까지: 순찰 앞 2시간 + 뒤 2시간(4칸) 중
+            # 실휴게 최대 2시간 (휴게가 몰리면 그 근무를 순찰 앞뒤로 당기고 04시는 비운다 — 8-10-1 아주 강한 권장).
+            proxy = policy.manager_id
+            locked_proxy = {old.slot.index for old in locked_assignments or () if old.employee_id == proxy}
+            for t in range(14):
+                window = [j for j in (t - 2, t - 1, t + 1, t + 2) if 0 <= j < 14]
+                if len(window) < 3 or set(window + [t]) <= locked_proxy:
+                    continue
+                patrol = expression(proxy, t, lambda r: r.actual_post_or_work_type.kind == K.PATROL)
+                rests = sum(expression(proxy, j, lambda r: r.actual_rest_time_value == 1) for j in window)
+                model.add(rests + 4 * patrol <= 6)          # 순찰 칸이면 앞뒤 휴게 ≤ 2
         if (rules_v220 and policy.manager_id == "A" and not manager_is_proxy and manager_vacancy_policy
                 and full_general_ids and not rule_off("관리자 하대 금지(결원 2명)")):
             # [하드, 2026-10-20 사용자 확정] 결원 2명 날 관리자 우대는 없어도 하대는 없다:
@@ -406,11 +432,16 @@ def solve_first_trial(context, history: HistoryInput, seconds=30, *, compensatio
         # LOCK 칸만으로 이미 3번 이상인 구간은 보존(미래 추가는 막힘).
         if rules_v220 and not rule_off("H-21 4시간 같은 포스트 3번 금지"):
             def window_family(r):
+                # 실제로 선 포스트 기준(2026-10-22 사용자 지적: 07시 I1 '실제 L3'는 L3). 유도리 휴게성 포스트는 표시 포스트로,
+                # 18시 관리자 L3(실제 대기)는 포스트 아님.
                 if r.displayed_assignment.kind != K.POST:
                     return None
-                if weekday_start and r.slot.index == 0 and r.employee_id == policy.manager_id:
-                    return None
-                return r.displayed_assignment.label.split("(")[0]
+                actual = r.actual_post_or_work_type
+                if actual.kind == K.POST:
+                    return actual.label.split("(")[0]
+                if actual.kind == K.REST:
+                    return r.displayed_assignment.label.split("(")[0]
+                return None
             locked_family = {(old.employee_id, old.slot.index): window_family(old) for old in locked_assignments or ()}
             for p in people:
                 families = {window_family(r) for t in range(14) for r in opts[p, t]} - {None}
@@ -421,6 +452,19 @@ def solve_first_trial(context, history: HistoryInput, seconds=30, *, compensatio
                             continue
                         model.add(sum(expression(p, t, lambda r, family=family: window_family(r) == family)
                                       for t in window) <= 2)
+        # H-22 [하드, 2026-10-22 사용자 확정]: 결원 0~1명(통제 결근 포함) 날은 누구든(통제A·준호 포함) 4시간 연속 근무 금지.
+        # 실제 운영 기준(같은 날 사용자 정정 — 유도리 휴게성 포스트는 실제로 쉬는 칸): 실근무(포스트·순찰) = 근무,
+        # 휴게·업무 없는 대기·차단봉만·휴게성 포스트 = 쉼. 네 칸 모두 LOCK이면 보존.
+        if rules_v220 and whole_day and absence_count <= 1 and not rule_off("H-22 4시간 연속 근무 금지(결원 0~1명)"):
+            def fm_work(r):
+                return r.actual_work_time_value == 1
+            locked_run = {(old.employee_id, old.slot.index) for old in locked_assignments or ()}
+            for p in people:
+                for start in range(11):
+                    window = range(start, start + 4)
+                    if all((p, t) in locked_run for t in window):
+                        continue
+                    model.add(sum(expression(p, t, fm_work) for t in window) <= 3)
         # H-18 [하드, 2026-10-05 사용자 확정]: 하루 전체 근무하는 일반근무자끼리 실근무 차이 최대 1시간.
         # 0-2-1(FM·유도리 두 기준 해)보다 앞선다 — 하드라 두 기준 단계에도 그대로 걸린다. 실제 모드 표 기준.
         if rules_v220 and len(full_general_ids) >= 2:
@@ -1086,9 +1130,17 @@ def solve_first_trial(context, history: HistoryInput, seconds=30, *, compensatio
             model.add(sum(expression(p, 2, lambda r: r.barrier_install_flag) for p in people) == (1 if barrier_single(context) else 2))
             model.add(sum(expression(p, 2, lambda r: r.barrier_install_flag and r.displayed_assignment.label == "보안실 대기")
                           for p in people) == (0 if barrier_single(context) else 1))
-            if policy.manager_id == "A" and not manager_is_proxy and ("A", 2) not in {
-                    (old.employee_id, old.slot.index) for old in locked_assignments or ()}:
+            locked_barrier = {(old.employee_id, old.slot.index) for old in locked_assignments or ()}
+            if policy.manager_id == "A" and not manager_is_proxy and ("A", 2) not in locked_barrier:
                 model.add(expression("A", 2, lambda r: r.barrier_install_flag) == 0)
+            if manager_is_proxy and not proxy_handover:
+                # [하드, 2026-10-22 사용자 지적] 하루 종일 대행 준호도 관리자 — 통제A처럼 차단봉 설치·철수 불참(LOCK 보존).
+                # (04시 I1 = 철수 담당이라 대행 준호는 04시 I1도 서지 않는다.)
+                proxy_row = policy.manager_id
+                if (proxy_row, 2) not in locked_barrier:
+                    model.add(expression(proxy_row, 2, lambda r: r.barrier_install_flag) == 0)
+                if (proxy_row, 10) not in locked_barrier:
+                    model.add(expression(proxy_row, 10, lambda r: r.barrier_remove_flag) == 0)
         elif mode_at(context, 2) == Mode.FM:
             model.add(sum(expression(p, 2, lambda r: r.barrier_install_flag) for p in people) == 1)
         else:
@@ -1722,9 +1774,8 @@ def solve_first_trial(context, history: HistoryInput, seconds=30, *, compensatio
                 free = [t for t in (9, 10, 11, 12) if (manager_row, t) not in locked_now]
                 work_at = {t: expression(manager_row, t, lambda r: r.actual_work_time_value == 1) for t in free}
                 early = [("manager_04_rest", work_at[10])] if 10 in free else []
-                # 하루 종일 준호 대행은 04시 다음으로 03시도 비운다(아주 강한 권장, 2026-10-22 사용자 확정). 통제A는 04시만.
-                if manager_is_proxy and not proxy_handover and 9 in free:
-                    early.append(("proxy_03_rest", work_at[9]))
+                # (10/22 '04시 못 비우면 I1'은 삭제 — 04시 I1은 차단봉 철수 담당이라 대행 준호는 설 수 없다.)
+                # 03시 I1 권장(proxy_03_i1)은 대폭 휴게 뒤에 따로 둔다.
                 early += [("manager_0506_work", sum(work_at[t] for t in (11, 12) if t in free))] if {11, 12} & set(free) else []
                 front_count = sum(1 for o in objectives if o[0] in ("handover_standing", "emergency_patrol_recovery", "emergency_leaver_rest",
                                                                       "manager_leaver_rest", "vacancy1_required_standby"))
@@ -1733,7 +1784,7 @@ def solve_first_trial(context, history: HistoryInput, seconds=30, *, compensatio
                 run_goals = [o for o in objectives if o[0] in ("actual_work_long_runs", "four_hour_runs")]
                 objectives = [o for o in objectives if o[0] not in ("actual_work_long_runs", "four_hour_runs")]
                 run_pos = sum(1 for o in objectives if o[0] in ("handover_standing", "emergency_patrol_recovery", "emergency_leaver_rest",
-                                                                  "manager_leaver_rest", "vacancy1_required_standby", "manager_04_rest", "proxy_03_rest", "manager_0506_work"))
+                                                                  "manager_leaver_rest", "vacancy1_required_standby", "manager_04_rest", "manager_0506_work"))
                 objectives[run_pos:run_pos] = run_goals
             if emergency_leaver_cells:                   # 긴급 반차·이탈자 배려 없음 — 맨 마지막 권장(10/18 사용자 확정)
                 leaver_load = sum(expression(p, t, lambda r: r.actual_work_time_value == 1)
@@ -1746,7 +1797,7 @@ def solve_first_trial(context, history: HistoryInput, seconds=30, *, compensatio
             if rules_v220 and long_term_balances is not None:
                 # 사용자 확정 10/20 (가): 가능하면 지킬 규칙 → 막타임 → 차단봉 → 하층 순번 → 당일 균형 → 장기 미상환 → 기타.
                 front_names = ("handover_standing", "emergency_patrol_recovery", "emergency_leaver_rest", "manager_leaver_rest",
-                               "vacancy1_required_standby", "manager_04_rest", "proxy_03_rest", "manager_0506_work", "actual_work_long_runs", "four_hour_runs")
+                               "vacancy1_required_standby", "manager_04_rest", "manager_0506_work", "actual_work_long_runs", "four_hour_runs")
                 turn_prefixes = ("last_rest_oldest_", "barrier_oldest_", "lower_oldest_", "big_rest_")
                 front_goals = [o for o in objectives if o[0] in front_names]
                 turn_goals = [o for o in objectives if o[0].startswith(turn_prefixes)]
@@ -1764,6 +1815,20 @@ def solve_first_trial(context, history: HistoryInput, seconds=30, *, compensatio
             standing_at = next((i for i, o in enumerate(objectives) if o[0] == "standing_triples"), None)
             if big_at is not None and standing_at is not None and standing_at > big_at:
                 objectives.insert(big_at, objectives.pop(standing_at))
+            # 하루 종일 준호 대행 03시 I1 [강한 권장, 2026-10-22 사용자 확정]: 순번 목표(막타임·차단봉·하층·입식 3연속·
+            # 대폭 휴게) 바로 뒤 — 근무자들 대폭 휴게 해 찾기보다 우선하지 않는다. LOCK된 03시는 보존.
+            proxy_row = policy.manager_id
+            if (rules_v220 and manager_is_proxy and not proxy_handover and proxy_row in people
+                    and (proxy_row, 9) not in {(old.employee_id, old.slot.index) for old in locked_assignments or ()}):
+                goal = ("proxy_03_i1", 1 - expression(proxy_row, 9, lambda r: r.displayed_assignment.label == "I1"))
+                turn_names = ("last_rest_oldest_", "barrier_oldest_", "lower_oldest_", "big_rest_", "standing_triples")
+                front = ("handover_standing", "emergency_patrol_recovery", "emergency_leaver_rest", "manager_leaver_rest",
+                         "vacancy1_required_standby", "manager_04_rest", "manager_0506_work",
+                         "actual_work_long_runs", "four_hour_runs")
+                last_turn = max((i for i, o in enumerate(objectives) if o[0].startswith(turn_names)), default=None)
+                at = (last_turn + 1 if last_turn is not None
+                      else sum(1 for o in objectives if o[0] in front))
+                objectives.insert(at, goal)
             for objective_name, objective in objectives:
                 model.minimize(objective)
                 cap = STAGE_TIME_CAPS.get(objective_name, float(seconds))

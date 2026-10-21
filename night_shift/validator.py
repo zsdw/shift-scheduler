@@ -274,12 +274,16 @@ def validate_first_trial(record, history, *, refinement=False, rules_v22=False, 
     if rules_v220:                                       # H-21 (2026-10-22): 연속 4시간 안 같은 포스트(표시) 최대 2번
         locked_h21 = {(str(p), int(t)) for p, t in locked_cells}
         family = {}
-        for r in record.assignments:
+        for r in record.assignments:                     # 실제로 선 포스트 기준(07시 I1 실제 L3 = L3, 10/22 사용자 지적)
             if r.displayed_assignment.kind != K.POST:
                 continue
             if c.night_type in (NightType.N1, NightType.N2) and r.slot.index == 0 and r.employee_id == managers[0]:
                 continue                                 # 평일 시작 18시 관리자 L3는 표기만(6-1)
-            family[r.employee_id, r.slot.index] = r.displayed_assignment.label.partition("(")[0]
+            actual = r.actual_post_or_work_type
+            if actual.kind == K.POST:
+                family[r.employee_id, r.slot.index] = actual.label.partition("(")[0]
+            elif actual.kind == K.REST:                  # 유도리 휴게성 포스트는 표시 포스트로
+                family[r.employee_id, r.slot.index] = r.displayed_assignment.label.partition("(")[0]
         for p in {key[0] for key in family}:
             for start in range(11):
                 cells = [(p, t) for t in range(start, start + 4)]
@@ -287,6 +291,17 @@ def validate_first_trial(record, history, *, refinement=False, rules_v22=False, 
                     same = [cell for cell in cells if family.get(cell) == post]
                     if len(same) >= 3 and not all(cell in locked_h21 for cell in same):
                         check(False, "H-21", f"Same post 3+ times within 4 hours {p}/{post}/{start}")
+    # '온전 출근' 날(2026-10-22 사용자 확정): 반차·이탈·관리자 교대·긴급 재편성(LOCK) 없음 — H-22·8-10-2 하드는 이런 날만
+    whole_day = (not reoptimization and not locked_cells and manager_a_start_slot == 0 and manager_a_end_slot == 14
+                 and all(a.is_available(t) for a in present for t in range(14)))
+    if rules_v220 and whole_day and absence_count <= 1:  # H-22 (2026-10-22): 결원 0~1명 날 4시간 연속 근무 금지(실제 운영 기준)
+        locked_h22 = {(str(p), int(t)) for p, t in locked_cells}
+        fm_work = {(r.employee_id, r.slot.index) for r in record.assignments if r.actual_work_time_value == 1}
+        for p in {r.employee_id for r in record.assignments}:
+            for start in range(11):
+                cells = [(p, t) for t in range(start, start + 4)]
+                if all(cell in fm_work for cell in cells) and not all(cell in locked_h22 for cell in cells):
+                    check(False, "H-22", f"Four consecutive work hours with 0-1 vacancy {p}/{start}")
     # 6-2-1 [하드, 2026-10-05]: 주말 시작(N3/N4) 통제A(관리자대행 아님) 18시 휴게 고정. 재편성은 LOCK 과거라 보지 않는다.
     if rules_v220 and not reoptimization and c.night_type in (NightType.N3, NightType.N4) and managers == ["A"]:
         first = next((r for r in record.assignments if r.employee_id == "A" and r.slot.index == 0), None)
@@ -669,6 +684,11 @@ def validate_first_trial(record, history, *, refinement=False, rules_v22=False, 
               "15-0", "04:00 I1 must remove the barrier")
         if managers == ["A"] and not reoptimization:
             check(not any(r.employee_id == "A" for r in installers + removers), "15-0", "Manager A takes no barrier duty")
+        if rules_v220 and manager_is_proxy and not proxy_handover:
+            # [하드, 2026-10-22 사용자 지적] 하루 종일 대행 준호도 차단봉 설치·철수 불참 (LOCK 보존)
+            locked_b = {(str(p), int(t)) for p, t in locked_cells}
+            check(not any(r.employee_id == managers[0] and (r.employee_id, r.slot.index) not in locked_b
+                          for r in installers + removers), "15-0-대행", "Full-day proxy takes no barrier duty")
     else:
         check(len(installers) == (1 if slot_mode(2) == Mode.FM else 2) and len(removers) == 1, "§10/§11", "Barrier staffing count")
     if slot_mode(2) == Mode.FLEXIBLE and not barrier_v2:
@@ -735,6 +755,19 @@ def validate_first_trial(record, history, *, refinement=False, rules_v22=False, 
             # [하드, 2026-10-22 사용자 확정] 하루 종일 준호 대행(A 결근): 준호 피로도 = 각 일반근무자보다 1~2점 낮음(동점 금지)
             check(all(1 <= f - manager_day_fatigue <= 2 for f in full_fatigue), "대행준호-최저피로도",
                   f"Full-day proxy fatigue must be 1-2 below every general: {manager_day_fatigue}/{sorted(full_fatigue)}")
+        if rules_v220 and whole_day and absence_count != 1 and (manager, 10) not in {(str(p), int(t)) for p, t in locked_cells}:
+            # 8-10-2 [하드, 2026-10-22]: 관리자(통제A·준호 대행, 교대 날은 04시 관리자 자리) 04시 실근무 금지(결원 1명 날 제외)
+            check(facts[manager, 10]["work"] == 0, "8-10-2", f"Manager works at 04:00: {manager}")
+        if rules_v220 and manager_is_proxy and not proxy_handover and absence_count <= 1:
+            # [하드, 2026-10-22 사용자 확정] 하루 종일 준호 대행·결원 1명(통제 결근)까지: 순찰 앞뒤 2시간 중 실휴게 최대 2시간 (LOCK 보존)
+            locked_proxy = {int(t) for p, t in locked_cells if str(p) == manager}
+            for t in range(14):
+                if facts[manager, t]["kind"] != K.PATROL:
+                    continue
+                window = [j for j in (t - 2, t - 1, t + 1, t + 2) if 0 <= j < 14]
+                if len(window) >= 3 and not set(window + [t]) <= locked_proxy:
+                    check(sum(facts[manager, j]["rest"] for j in window) <= 2, "대행준호-순찰앞뒤휴게",
+                          f"Full-day proxy rests 3+ hours around patrol: {t}")
         if rules_v220 and manager == "A" and not manager_is_proxy and manager_vacancy_policy and full_fatigue:
             # [하드, 2026-10-20 사용자 확정] 결원 2명 날 관리자 하대 금지: 통제A ≤ 일반근무자 최고
             check(manager_day_fatigue <= max(full_fatigue), "관리자-하대금지",

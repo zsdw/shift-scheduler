@@ -11,9 +11,15 @@ from tests.test_proxy_lowest import DAY, OPTIONS, staff
 
 
 def violations(record):
-    family = {(r.employee_id, r.slot.index): r.displayed_assignment.label.partition("(")[0]
-              for r in record.assignments if r.displayed_assignment.kind == K.POST
-              and not (r.slot.index == 0 and r.employee_id == "A")}
+    family = {}                                   # 실제로 선 포스트 기준(07시 I1 실제 L3 = L3)
+    for r in record.assignments:
+        if r.displayed_assignment.kind != K.POST:
+            continue
+        actual = r.actual_post_or_work_type
+        if actual.kind == K.POST:
+            family[r.employee_id, r.slot.index] = actual.label.partition("(")[0]
+        elif actual.kind == K.REST:
+            family[r.employee_id, r.slot.index] = r.displayed_assignment.label.partition("(")[0]
     out = []
     for p in {key[0] for key in family}:
         for start in range(11):
@@ -46,6 +52,19 @@ class SamePostWindowTests(unittest.TestCase):
     def test_validator_rejects_three_in_four_hours(self):
         errors = validate_first_trial(self.bad(), HistoryInput((), ()), rules_v220=True)
         self.assertTrue(any(e["rule"] == "H-21" for e in errors))
+
+    def test_seven_oclock_i1_counts_as_actual_l3(self):
+        # 2026-10-22 사용자 지적: N1 07시 I1은 실제 L3 → 04·05시 L3 + 07시 I1 = 같은 포스트 3번
+        rec = self.fm.record
+        cells = {9: "휴게", 10: "L3", 11: "L3", 12: "휴게", 13: "I1"}
+        rows = [make_record(rec.context, "1", r.slot.index, cells[r.slot.index])
+                if r.employee_id == "1" and r.slot.index in cells else r for r in rec.assignments]
+        bad = replace(rec, assignments=tuple(rows))
+        self.assertEqual(next(r for r in bad.assignments if (r.employee_id, r.slot.index) == ("1", 13))
+                         .actual_post_or_work_type.label, "L3")
+        errors = validate_first_trial(bad, HistoryInput((), ()), rules_v220=True)
+        self.assertTrue(any(e["rule"] == "H-21" and e["detail"].startswith("Same post 3+ times within 4 hours 1/L3")
+                            for e in errors), [e for e in errors if e["rule"] == "H-21"])
 
     def test_locked_past_is_kept(self):
         errors = validate_first_trial(self.bad(), HistoryInput((), ()), rules_v220=True,

@@ -62,10 +62,43 @@ class ProxyLowestTests(unittest.TestCase):
         self.assertTrue(r.valid, (r.solve_result.status, r.validation_errors))
         self.assertTrue(all(1 <= g - fatigue(r)["6"] <= 2 for g in self.general_fatigue(r, ("6",))), fatigue(r))
 
-    def test_full_day_proxy_03_rest_goal_after_04(self):
+    def test_full_day_proxy_rest_around_patrol_at_most_two(self):
+        # 2026-10-22 사용자 확정: 대행 준호(결원 1명까지)는 순찰 앞 2시간 + 뒤 2시간 중 휴게 최대 2시간
+        from night_shift.models import AssignmentKind
+        rows = {r.slot.index: r for r in self.vac0.record.assignments if r.employee_id == "6"}
+        patrols = [t for t, r in rows.items() if r.actual_post_or_work_type.kind == AssignmentKind.PATROL]
+        self.assertTrue(patrols)
+        for t in patrols:
+            window = [j for j in (t - 2, t - 1, t + 1, t + 2) if 0 <= j < 14]
+            self.assertLessEqual(sum(rows[j].actual_rest_time_value for j in window), 2, (t, window))
+        # 위반표 거부: 순찰 앞뒤를 모두 휴게로 바꾼 표
+        from night_shift.profiles import make_record
+        t = patrols[0]
+        window = [j for j in (t - 2, t - 1, t + 1, t + 2) if 0 <= j < 14]
+        bad = replace(self.vac0.record, assignments=tuple(
+            make_record(self.vac0.record.context, "6", r.slot.index, "휴게")
+            if r.employee_id == "6" and r.slot.index in window else r for r in self.vac0.record.assignments))
+        self.assertIn("대행준호-순찰앞뒤휴게", rules(bad))
+
+    def test_full_day_proxy_takes_no_barrier_duty(self):
+        # 2026-10-22 사용자 지적: 대행 준호는 관리자 — 차단봉 설치·철수 불참(04시 I1 = 철수라 04시 I1도 불가)
+        from night_shift.actual_edit import apply_edits
+        for r in (self.vac0, self.vac2):
+            duty = [x for x in r.record.assignments if x.employee_id == "6" and (x.barrier_install_flag or x.barrier_remove_flag)]
+            self.assertEqual(duty, [])
+        i1 = next(x.employee_id for x in self.vac0.record.assignments if x.slot.index == 10 and x.displayed_assignment.label == "I1")
+        bad = apply_edits(self.vac0.record, [{"type": "swap", "a": ["6", 10], "b": [i1, 10]}])
+        self.assertTrue(any(x.employee_id == "6" and x.barrier_remove_flag for x in bad.assignments))
+        self.assertIn("15-0-대행", rules(bad))
+
+    def test_full_day_proxy_04_i1_and_03_i1_goal_order(self):
+        # 2026-10-22 사용자 확정: 04시 비우기 … 대폭 휴게 뒤에 03시 I1 (03시 비우기·04시 I1은 삭제)
         stages = [a.get("stage") for a in self.vac0.solve_result.attempts if isinstance(a, dict)]
-        self.assertLess(stages.index("manager_04_rest"), stages.index("proxy_03_rest"))
-        self.assertLess(stages.index("proxy_03_rest"), stages.index("manager_0506_work"))
+        self.assertNotIn("proxy_03_rest", stages)
+        self.assertNotIn("proxy_04_i1", stages)                    # 04시 I1은 차단봉 철수라 대행 불가(삭제)
+        big = [i for i, s in enumerate(stages) if str(s).startswith("big_rest_")]
+        if big:
+            self.assertGreater(stages.index("proxy_03_i1"), max(big))
 
     def test_validator_rejects_proxy_above_lowest(self):
         r = self.vac2

@@ -21,7 +21,9 @@ class Manager0400RestTests(unittest.TestCase):
                                           (NightType.N1, False, "6"), (NightType.N4, False, "6")):
             result = run_schedule(ShiftRequest(DAY, night, Mode.FM, staff(a_present=a_present)), HistorySelection(), OPTIONS)
             self.assertIsNotNone(result.record, (night, manager))
-            self.assertEqual(work_at(result, manager, 10), 0, (night, manager))
+            if a_present:       # 7명 온전 출근(결원 0명): 8-10-2 하드 (2026-10-22)
+                self.assertEqual(work_at(result, manager, 10), 0, (night, manager))
+            # 통제 결근(6명, 결원 1명) 날은 8-10-1 아주 강한 권장 — 6명이면 H-11과 겹쳐 비우지 못하는 날이 있다(10/22 사용자 확정)
             stages = [a.get("stage") for a in result.solve_result.attempts if isinstance(a, dict)]
             self.assertLess(stages.index("manager_04_rest"),
                             min([stages.index(s) for s in stages if s and s.startswith("last_rest_oldest_")] or [99]))
