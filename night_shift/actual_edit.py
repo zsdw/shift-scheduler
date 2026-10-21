@@ -63,8 +63,14 @@ def _rebarrier(record: ShiftRecord, rows: dict, slots) -> None:
 
 
 def _swap(record: ShiftRecord, a, b) -> ShiftRecord:
-    rows = _rows(record)
     ka, kb = (str(a[0]), int(a[1])), (str(b[0]), int(b[1]))
+    if ka[0] != kb[0] and ka[1] != kb[1]:
+        # 2026-10-21 사용자 사례: 시간이 다른 두 사람 교환(성호 19시 ↔ 준호 20시) = 두 시간 모두 두 사람 근무를 맞바꿈.
+        # 칸끼리만 바꾸면 한 포스트에 2명·다른 포스트 빈칸이 생긴다.
+        for slot in (ka[1], kb[1]):
+            record = _swap(record, (ka[0], slot), (kb[0], slot))
+        return record
+    rows = _rows(record)
     ra, rb = rows[ka], rows[kb]
     if K.UNAVAILABLE in (ra.displayed_assignment.kind, rb.displayed_assignment.kind):
         raise ValueError("근무불가(×) 칸은 바꿀 수 없습니다.")
@@ -189,6 +195,8 @@ def apply_edits(plan: ShiftRecord, edits: list[dict]) -> ShiftRecord:
 def describe_edit(edit: dict, names: dict) -> str:
     if edit.get("type") == "swap":
         (p1, t1), (p2, t2) = edit["a"], edit["b"]
+        if p1 != p2 and int(t1) != int(t2):
+            return f"{names.get(p1, p1)} ↔ {names.get(p2, p2)} {HOUR(int(t1))}·{HOUR(int(t2))} 근무 맞바꿈"
         return f"{names.get(p1, p1)} {HOUR(t1)} ↔ {names.get(p2, p2)} {HOUR(t2)} 근무 교환"
     if edit.get("type") == "person":
         return f"{names.get(edit['a'], edit['a'])} ↔ {names.get(edit['b'], edit['b'])} 번호·자리 교환 (근무표는 그대로)"
@@ -262,6 +270,7 @@ def actual_checks(record: ShiftRecord) -> list[dict]:
 
 
 ACCOUNTING_RULES = {"§3/§4", "§4/§6–§11"}      # 회계 재계산 차이(휴게성·피로도 주석 수정)는 규칙 위반이 아님
+MANAGER_GAP_RULES = {"8-4-2", "관리자-하대금지"}  # 통제–근무자 피로도 격차
 
 
 def strong_soft_checks(record: ShiftRecord) -> list[dict]:
@@ -323,6 +332,10 @@ def edit_violations(plan: ShiftRecord, actual: ShiftRecord) -> list[str]:
 
     before, after = hard(plan), hard(actual)
     new_hard = [e for k, e in after.items() if k not in before]
+    # 2026-10-21 사용자 확정: 근무자끼리 교환(통제 칸 그대로)으로 벌어진 통제–근무자 피로도 격차 문장은 표시하지 않는다
+    managers = {a.employee_id for a in actual.context.attendance if a.present and a.acts_as_manager}
+    if not any(p in managers for p, _ in changed_cells(plan, actual)):
+        new_hard = [e for e in new_hard if e.get("rule") not in MANAGER_GAP_RULES]
     hints = {"H-18": "일반근무자 사이 실근무 시간 차이가 1시간을 넘습니다"}   # 화면에는 코드 대신 뜻만
     lines = []
     for error in new_hard:

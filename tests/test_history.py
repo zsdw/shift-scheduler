@@ -68,8 +68,11 @@ class HistoryTests(unittest.TestCase):
         other = next(r.employee_id for r in plan.assignments
                      if r.slot.index == 0 and r.employee_id != patroller)
         actual = apply_edits(plan, [{"type": "swap", "a": [patroller, 7], "b": [other, 0]}])
-        moved = next(r for r in actual.assignments if (r.employee_id, r.slot.index) == (other, 0))
+        # 시간이 다른 두 사람 교환 = 두 시간 모두 두 사람 근무 맞바꿈(시간별 포스트 인원은 그대로)
+        moved = next(r for r in actual.assignments if (r.employee_id, r.slot.index) == (other, 7))
         self.assertEqual(moved.actual_post_or_work_type.kind, AssignmentKind.PATROL)
+        labels = lambda rec, t: sorted(r.displayed_assignment.label for r in rec.assignments if r.slot.index == t)  # noqa: E731
+        self.assertEqual([labels(actual, t) for t in (0, 7)], [labels(plan, t) for t in (0, 7)])
         self.assertEqual(calculate_all_stats(actual)[other].fatigue_value,
                          sum(r.fatigue_value for r in actual.assignments if r.employee_id == other))
 

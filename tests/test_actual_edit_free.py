@@ -34,17 +34,35 @@ class ActualEditFreeTests(unittest.TestCase):
 
     def test_installer_moved_to_other_hour_is_allowed_and_reassigned(self):
         r = rows(self.plan)
+        # 한 사람이 자기 20시 G2(설치)를 자기 다른 시간 휴게와 바꿈 → 20시 G2 없으면 I1 근무자가 설치
         installer = self.installers(self.plan, 2, "barrier_install_flag")[0]
-        rester = next(p for p in NAMES if r[(p, 3)].displayed_assignment.label == "휴게")
-        actual = apply_edits(self.plan, [{"type": "swap", "a": [installer.employee_id, 2], "b": [rester, 3]}])
+        p = installer.employee_id
+        u = next(t for t in range(14) if t not in (2, 10) and r[(p, t)].displayed_assignment.label == "휴게")
+        actual = apply_edits(self.plan, [{"type": "swap", "a": [p, 2], "b": [p, u]}])
         new = self.installers(actual, 2, "barrier_install_flag")
         self.assertEqual(len(new), 1)
         labels_20 = {x.displayed_assignment.label for x in actual.assignments if x.slot.index == 2}
         self.assertEqual(new[0].displayed_assignment.label, "G2" if "G2" in labels_20 else "I1")
         self.assertFalse(any(x.barrier_install_flag for x in actual.assignments if x.slot.index != 2))
-        moved = rows(actual)[(rester, 3)]
+        moved = rows(actual)[(p, u)]
         self.assertEqual(moved.displayed_assignment.label, installer.displayed_assignment.label)
         self.assertFalse(moved.barrier_install_flag)
+
+    def test_two_people_different_hours_exchange_both_hours(self):
+        # 사용자 사례(10/21): 성호 19시 I1 ↔ 준호 20시 G2(설치) — 칸끼리 바꾸면 19시 G2 2명·I1 빈칸, 20시 I1 2명·G2 빈칸이었다
+        r = rows(self.plan)
+        installer = self.installers(self.plan, 2, "barrier_install_flag")[0].employee_id
+        other = next(p for p in NAMES if p != installer and r[(p, 1)].displayed_assignment.kind == K.POST)
+        actual = apply_edits(self.plan, [{"type": "swap", "a": [other, 1], "b": [installer, 2]}])
+        labels = lambda rec, t: sorted(x.displayed_assignment.label for x in rec.assignments if x.slot.index == t)  # noqa: E731
+        self.assertEqual([labels(actual, t) for t in (1, 2)], [labels(self.plan, t) for t in (1, 2)])
+        new = rows(actual)
+        for t in (1, 2):
+            self.assertEqual(new[(other, t)].displayed_assignment.label, r[(installer, t)].displayed_assignment.label)
+            self.assertEqual(new[(installer, t)].displayed_assignment.label, r[(other, t)].displayed_assignment.label)
+        self.assertEqual([x.employee_id for x in self.installers(actual, 2, "barrier_install_flag")], [other])
+        # 근무자끼리 교환이면 통제–근무자 피로도 격차 문장은 없음
+        self.assertFalse(any("관리자 피로도 격차" in line for line in edit_violations(self.plan, actual)))
 
     def test_same_hour_swap_moves_install_to_new_g2(self):
         r = rows(self.plan)
