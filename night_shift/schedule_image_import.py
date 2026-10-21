@@ -301,9 +301,10 @@ def parse_image(data):
     return ImageDraft(day,kind,team,mapping,sorted(controls),rows,warnings,hashlib.sha256(data).hexdigest(),
                       f'제목·시간대: {shift} / 날짜: {day or "미확인"} / 시간 행 {len(hour_by_row)}/{len(expected)}',extra_names)
 
-def build_day(day, rows, mapping, kind='day', statuses=None, newcomers=(), shapes=None, fill_gaps=None):
+def build_day(day, rows, mapping, kind='day', statuses=None, newcomers=(), shapes=None, fill_gaps=None, allow_unassigned=False):
     """shapes = {번호: {'leave_from'|'join_from': 슬롯}} (일찍 퇴근·늦게 출근), fill_gaps = 목록을 주면 근무 가능
-    시간의 빈칸을 휴게로 채우고 그 내용을 목록에 적는다(엑셀 일괄 가져오기용, 2026-10-11). 이미지 업로드는 그대로 엄격."""
+    시간의 빈칸을 휴게로 채우고 그 내용을 목록에 적는다(엑셀 일괄 가져오기용).
+    allow_unassigned는 사용자 이미지 수정 저장용: 미확인 배정은 휴게로 추정하지 않고 빈칸으로 보존한다."""
     from .day_shift import DayPerson,DaySchedule,POSTS
     if not mapping or any(not re.fullmatch(r'[가-힣A-Za-z ]{2,20}',n.strip()) for n in mapping.values()):
         raise ValueError('번호별 이름을 모두 확인하고 입력하세요.')
@@ -316,6 +317,7 @@ def build_day(day, rows, mapping, kind='day', statuses=None, newcomers=(), shape
         assigned={}
         for post,text in row.items():
             if post=='시간':continue
+            if allow_unassigned and text == UNKNOWN:continue
             tokens=persons(text)
             for p in tokens:
                 if p.isdigit() and p not in mapping:raise ValueError(f'{row["시간"]} {post}: {p}번 이름을 확인하세요.')
@@ -339,6 +341,8 @@ def build_day(day, rows, mapping, kind='day', statuses=None, newcomers=(), shape
                 assigned[p]=post;grid[p][t]=label
     active={p for p,row in grid.items() if any(v is not None for v in row)}
     active={p for p in active if p not in ancillary or any(v in (*POSTS,'순찰','대기') for v in grid[p])}
+    if allow_unassigned:
+        active.update(p for p in mapping if p not in ancillary)
     statuses=statuses or {p:'출근' for p in active}
     from .day_shift import slots_of
     people=[];name_grid={}
@@ -348,6 +352,9 @@ def build_day(day, rows, mapping, kind='day', statuses=None, newcomers=(), shape
             if t not in slots_of(person):
                 if grid[p][t] is not None:raise ValueError(f'{mapping[p]}: {t+8}시 배정과 출근 상태가 서로 다릅니다.')
             elif grid[p][t] is None:
+                if allow_unassigned:
+                    grid[p][t]='교육' if (p,t) in ancillary_at else ''
+                    continue
                 if fill_gaps is None:raise ValueError(f'{t+8:02d}시 {mapping[p]} 배정을 읽지 못했습니다. 휴게·근무불가 여부를 직접 확인하세요.')
                 if (p,t) in ancillary_at:      # 4C 'A.9' = A와 9번이 같이 4C 근무. 주간 집계엔 4C 칸이 없어 교육(동행)으로 셈
                     grid[p][t]='교육';fill_gaps.append(f'{t+8:02d}시 {mapping[p]}: A와 같이 4C 근무(원본 칸 그대로, 집계는 교육 동행)')
@@ -359,20 +366,22 @@ def build_day(day, rows, mapping, kind='day', statuses=None, newcomers=(), shape
         if 'A' not in controls:raise ValueError('휴일 주간 통제A의 시간별 배정을 확인하세요.')
         manager=[]
         for row in rows:
-            hits=[p for p,v in row.items() if p in core and 'A' in persons(v)]
+            hits=[p for p,v in row.items() if p in core and not (allow_unassigned and v == UNKNOWN) and 'A' in persons(v)]
             if len(hits)>1 and '휴게' in hits:hits.remove('휴게')
             if not hits and fill_gaps is not None:   # 엑셀 일괄: 어느 칸에도 없으면 휴게 (포스트 먼저, 2026-10-11)
                 hits=['휴게'];fill_gaps.append(f'{row["시간"][:2]}시 통제A: 표에 없어 휴게로 둠')
+            if not hits and allow_unassigned:
+                manager.append('');continue
             if len(hits)!=1:raise ValueError(f'{row["시간"]} 통제A 배정을 확인하세요.')
             manager.append('휴게' if hits[0] in ('대기','보안실') else hits[0])
         weekend_grid={p:['휴게' if x in ('대기','교육') else '×' if x is None else x for x in grid[p]] for p in active}
         weekend_grid['A']=manager
-        if any(x not in (*LABELS,'×') for r in weekend_grid.values() for x in r):raise ValueError('휴일 주간 포스트가 현재 저장 양식과 다릅니다. G1·G2·I1·L1·순찰·휴게 표를 확인하세요.')
+        if any(x not in (*LABELS,'×',*([''] if allow_unassigned else [])) for r in weekend_grid.values() for x in r):raise ValueError('휴일 주간 포스트가 현재 저장 양식과 다릅니다. G1·G2·I1·L1·순찰·휴게 표를 확인하세요.')
         return WeekendSchedule(str(day),{'A':'통제A',**{p:mapping[p] for p in active}},weekend_grid,
                                half_days={p:s for p,s in statuses.items() if '반차' in s},rule_exempt_names=tuple(mapping[p] for p in newcomers))
     return DaySchedule(day,tuple(people),name_grid,shuttle,'image', 'A' in controls,patrol,fill=fill,control_patrol_slots=tuple(patrols),rule_exempt_names=tuple(mapping[p] for p in newcomers),source_layout={"mapping":dict(mapping),"rows":apply_rest_priority(rows)})
 
-def save_day_image(store, schedule, draft, rows, mapping, data, filename, expected=None, team='', statuses=None):
+def save_day_image(store, schedule, draft, rows, mapping, data, filename, expected=None, team='', statuses=None, exact_edits=False):
     """Atomic final save, original backup and stale-review protection; source rows are lossless."""
     from .day_shift import to_json
     kind=draft.kind
@@ -397,8 +406,10 @@ def save_day_image(store, schedule, draft, rows, mapping, data, filename, expect
         payload['import_rule_warnings']=validate_day(schedule)
     payload['source_review']['rest_priority_notes']=rest_priority_notes(rows,mapping)
     path=store/f'{day}.json'
-    from .import_compare import identical,mark_overwrite
-    if identical(path,payload):return path
+    from .import_compare import identical,mark_overwrite,canonical
+    if exact_edits:
+        if path.exists() and canonical(json.loads(path.read_text(encoding='utf-8'))) == canonical(payload):return path
+    elif identical(path,payload):return path
     mark_overwrite(path,payload)
     from .source_attachment import stash
     payload["source_attachment"]=stash(store,data,filename)

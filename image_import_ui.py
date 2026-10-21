@@ -49,6 +49,7 @@ def render_image_review(file,data,digest,reanalyze=False):
         cp=st.data_editor(pd.DataFrame([{'번호':p,'이름':n} for p,n in draft.extra_names.items()]),
                           disabled=['번호'],hide_index=True,width='stretch',key=key+'_cp_names')
         extras={str(r['번호']):str(r['이름']).strip() for r in cp.to_dict('records')}
+    save_edited = st.button('💾 수정한 대로 저장', type='primary', key=key+'_save_edited')
     st.write('**시간별 배정 확인·수정**')
     st.caption('확인 필요 칸은 원본을 보고 수정하세요. 번호는 점(.)으로 구분합니다. 원본에 없는 빈칸은 그대로 두세요. 휴게·근무불가를 자동 추정하지 않습니다.')
     revision=st.session_state.get(key+'_revision',0)
@@ -76,7 +77,7 @@ def render_image_review(file,data,digest,reanalyze=False):
         for col,value in row.items():
             if value==images.UNKNOWN:st.warning(f'{row["시간"]} {col}: 확인 필요')
     unresolved=sum(v==images.UNKNOWN for row in rows for v in row.values())
-    if unresolved:st.error(f'아직 확인하지 않은 칸 {unresolved}개가 있습니다. 수정 전에는 저장되지 않습니다.')
+    if unresolved:st.warning(f'확인 필요 칸 {unresolved}개가 있습니다. 주간 표는 현재 수정 내용대로 저장하며 미확인 배정은 빈칸으로 보존합니다.')
     mode='FM'
     off=[];statuses={}
     if kind=='night':
@@ -86,7 +87,7 @@ def render_image_review(file,data,digest,reanalyze=False):
         with st.expander('출근 상태 확인 (반차·연차·기타가 있으면 변경)',expanded=False):
             for p,n in mapping.items():
                 statuses[p]=st.selectbox(f'{p}번 {n} 상태',['출근','오전반차','오후반차','연차','기타'],key=key+'_status_'+p)
-    if not day or team=='확인 필요' or unresolved:
+    if not day or team=='확인 필요' or (unresolved and kind=='night'):
         st.caption('날짜·근무조·확인 필요 칸을 모두 확인하면 저장할 수 있습니다.');return
     draft=replace(draft,kind=kind,extra_names=extras)
     try:
@@ -101,7 +102,7 @@ def render_image_review(file,data,digest,reanalyze=False):
             st.dataframe(pd.DataFrame([{'직원':s.name,'실근무':s.actual_work_time_value,'실휴게':s.actual_rest_time_value,'피로도':s.fatigue_value} for s in calculate_all_stats(schedule).values()]),hide_index=True,width='stretch')
             target=store_dir()
         else:
-            schedule=images.build_day(day,rows,mapping,kind,statuses,newcomers)
+            schedule=images.build_day(day,rows,mapping,kind,statuses,newcomers,allow_unassigned=True)
             if kind=='day':
                 from night_shift.day_shift import validate_day
                 messages=[str(e) for e in validate_day(schedule)];target=day_store_dir()
@@ -121,9 +122,9 @@ def render_image_review(file,data,digest,reanalyze=False):
     current=images.fingerprint(target,day);snap=key+'_snapshot_'+str(target)+'_'+str(day)
     expected=st.session_state[snap]
     if expected!=current:st.error('확인 중 저장본이 바뀌었습니다. 파일을 다시 분석하세요.');return
-    if current:st.info(f'{day} 시간별 포스트 투입자가 같으면 유지하고(휴게·대기 차이 제외), 다르면 백업 후 교체하며 비고에 표시합니다.')
-    verified=st.checkbox('원본의 날짜·근무조·이름·모든 시간 배정을 대조했고 실제 기록으로 저장합니다.',key=key+'_verified')
-    if st.button(f'💾 {day} {LABELS[kind]} 이미지 확인본 저장',type='primary',disabled=not verified,key=key+'_save'):
+    if current:st.info(f'{day} 수정한 이름·배정을 저장합니다. 기존 기록이 바뀌면 백업 후 교체합니다.' if kind!='night' else f'{day} 시간별 포스트 투입자가 같으면 유지하고(휴게·대기 차이 제외), 다르면 백업 후 교체하며 비고에 표시합니다.')
+    save_bottom=st.button('💾 수정한 대로 저장',type='primary',key=key+'_save')
+    if save_edited or save_bottom:
         try:
             if kind=='night':
                 from night_shift.history_import import save_import
@@ -135,7 +136,7 @@ def render_image_review(file,data,digest,reanalyze=False):
                 from night_shift.history_store import record_to_json
                 save_import(target,schedule,'image-import','이미지 원본 대조 확인.\n'+'\n'.join(messages),expected,extra)
             else:
-                images.save_day_image(target,schedule,draft,rows,mapping,data,file.name,expected,team,statuses)
+                images.save_day_image(target,schedule,draft,rows,mapping,data,file.name,expected,team,statuses,exact_edits=True)
             from night_shift.cp_schedule import save_image_override
             cp_changed = team == 'A' and save_image_override(
                 store_dir(), day, 'night' if kind == 'night' else 'day', rows, extras, file.name)

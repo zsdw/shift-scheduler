@@ -163,8 +163,8 @@ class ImageImportTests(unittest.TestCase):
                 self.assertFalse(any('09:00 CP: 확인 필요' in x.value or '11:00 순찰: 확인 필요' in x.value for x in at.warning))
                 from hashlib import sha256
                 key='image_review_'+sha256(data).hexdigest()[:12]
-                self.assertTrue(at.button(key=key+'_save').disabled)
-                at.checkbox(key=key+'_verified').check();run()
+                self.assertFalse(at.button(key=key+'_save').disabled)
+                self.assertFalse(at.button(key=key+'_save_edited').disabled)
                 at.button(key=key+'_save').click();run();self.assertFalse(at.exception,[e.message for e in at.exception])
                 path=Path(folder)/'day'/'2026-10-07.json';self.assertTrue(path.exists())
                 self.assertFalse((Path(folder)/'2026-10-07.json').exists())
