@@ -51,7 +51,7 @@ def render_image_review(file,data,digest,reanalyze=False):
         extras={str(r['번호']):str(r['이름']).strip() for r in cp.to_dict('records')}
     save_edited = st.button('💾 수정한 대로 저장', type='primary', key=key+'_save_edited')
     st.write('**시간별 배정 확인·수정**')
-    st.caption('확인 필요 칸은 원본을 보고 수정하세요. 번호는 점(.)으로 구분합니다. 원본에 없는 빈칸은 그대로 두세요. 휴게·근무불가를 자동 추정하지 않습니다.')
+    st.caption('번호는 점(.)으로 구분합니다. 주간 표는 출근 시간에 포스트·순찰 등 업무 배정이 없는 사람을 휴게로 처리합니다. 반차·연차 시간은 출근 상태를 따릅니다.')
     revision=st.session_state.get(key+'_revision',0)
     rows=st.data_editor(pd.DataFrame(draft.rows),hide_index=True,width='stretch',key=key+'_cells_'+str(revision)).fillna('').to_dict('records')
     from night_shift.newcomers import detect
@@ -77,7 +77,7 @@ def render_image_review(file,data,digest,reanalyze=False):
         for col,value in row.items():
             if value==images.UNKNOWN:st.warning(f'{row["시간"]} {col}: 확인 필요')
     unresolved=sum(v==images.UNKNOWN for row in rows for v in row.values())
-    if unresolved:st.warning(f'확인 필요 칸 {unresolved}개가 있습니다. 주간 표는 현재 수정 내용대로 저장하며 미확인 배정은 빈칸으로 보존합니다.')
+    if unresolved:st.warning(f'확인 필요 칸 {unresolved}개가 있습니다. 주간 표는 수정한 대로 저장하며, 업무 배정이 없는 출근자는 휴게로 처리합니다.')
     mode='FM'
     off=[];statuses={}
     if kind=='night':

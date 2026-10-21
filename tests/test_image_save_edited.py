@@ -15,6 +15,28 @@ from night_shift.day_shift import load_day
 
 
 class ImageSaveEditedTests(unittest.TestCase):
+    def test_missing_duty_is_rest_but_leave_and_known_auxiliary_are_preserved(self):
+        rows=[{'시간':f'{h:02d}:00','G1':'1','휴게':'2','4C':''} for h in range(8,18)]
+        rows[0]['G2']='2';rows[0]['휴게']=''
+        rows[5]['휴게']='';rows[5]['4C']='A.2'
+        rows[6]['휴게']=''
+        names={'1':'성호','2':'용주','3':'여진'}
+        schedule=images.build_day(date(2026,10,26),rows,names,
+            statuses={'1':'출근','2':'출근','3':'연차'},allow_unassigned=True)
+        self.assertEqual(schedule.grid['용주'][0],'G2')
+        self.assertEqual(schedule.grid['용주'][5],'교육')
+        self.assertEqual(schedule.grid['용주'][6],'휴게')
+        self.assertEqual(schedule.grid['여진'],[None]*10)
+        self.assertNotIn('3',schedule.source_layout['applied_rows'][6]['휴게'].split('.'))
+
+    def test_weekend_missing_duty_is_rest_for_worker_and_manager(self):
+        rows=[{'시간':f'{h:02d}:00','G1':'1','휴게':'A.2'} for h in range(8,18)]
+        rows[5]['휴게']=''
+        schedule=images.build_day(date(2026,10,25),rows,{'1':'성호','2':'용주'},
+            kind='weekend_day',allow_unassigned=True)
+        self.assertEqual(schedule.grid['2'][5],'휴게')
+        self.assertEqual(schedule.grid['A'][5],'휴게')
+
     def test_corrected_names_and_missing_assignment_save_on_pc_and_mobile(self):
         b=BytesIO(); Image.new('RGB',(20,20),'white').save(b,'PNG'); data=b.getvalue()
         digest=hashlib.sha256(data).hexdigest(); key='image_review_'+digest[:12]
@@ -50,7 +72,8 @@ render_image_review(SimpleNamespace(name='review.png'),{data!r},{digest!r})
                 payload=json.loads(path.read_text(encoding='utf-8'))
                 self.assertEqual(payload['source_review']['mapping'],{'1':'성호','2':'용주'})
                 self.assertEqual(payload['source_review']['rows'],rows)
-                self.assertEqual(load_day(path.parent,date(2026,10,26))['schedule'].grid['용주'][5],'')
+                self.assertEqual(load_day(path.parent,date(2026,10,26))['schedule'].grid['용주'][5],'휴게')
+                self.assertIn('2',payload['source_layout']['applied_rows'][5]['휴게'].split('.'))
                 self.assertIn('확인 필요',payload['source_review']['rows'][6]['CP'])
 
     def test_default_builder_stays_strict(self):
