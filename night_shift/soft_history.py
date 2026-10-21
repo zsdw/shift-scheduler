@@ -1,10 +1,40 @@
 """v2.13 soft-rule history. Only confirmed actual shifts can change debt."""
 from collections import defaultdict
+from fractions import Fraction
 
 from .models import AssignmentKind, RecordKind, barrier_history_counts
 
 
 TRACKED_SOFT_RULES = ("H-06-1", "H-06", "H-08", "15-7", "14-7")
+
+
+def recent_six_fatigue_averages(records, before):
+    """최근 실제 6근무 평균: 화면과 같이 반차·이탈은 당일 일반 평균 대입."""
+    from .service import calculate_all_stats
+    totals = defaultdict(list)
+    recent = sorted((r for r in records if r.context.shift_start_date < before
+                     and r.kind == RecordKind.ACTUAL and r.confirmed_at is not None),
+                    key=lambda r: r.context.shift_start_date)[-6:]
+    for record in recent:
+        stats = calculate_all_stats(record)
+        full = [Fraction(str(p.fatigue_value)) for p in stats.values()
+                if not p.is_manager and p.available_time == 14]
+        average = sum(full) / len(full) if full else None
+        for pid, person in stats.items():
+            value = average if person.available_time < 14 else Fraction(str(person.fatigue_value))
+            if value is not None:
+                totals[pid].append(value)
+    return {pid: sum(values) / len(values) for pid, values in totals.items()}
+
+
+def rest_tie_groups(group, averages):
+    """동일 순번 안에서만 낮은 평균 우선. 기록 없는 사람이 섞이면 기존 목표로 결정."""
+    if any(p not in averages for p in group):
+        return []
+    values = sorted({averages[p] for p in group})
+    if len(values) < 2:
+        return []
+    return [[p for p in group if averages[p] == value] for value in values[:-1]]
 
 
 def debt_weight(debt, rule, employee_id):
