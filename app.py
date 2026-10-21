@@ -1606,7 +1606,9 @@ def group_note_lines(lines: list[str]) -> dict:
         line = line.removeprefix("· ")
         key = next((k for prefix, k in ROTATION_KEYS if line.startswith(prefix)), None)
         if key == "last_rest" and " · 직전 근무 07시 휴게자(" in line:
-            line, blocked = line.split(" · ", 1)
+            # 괄호 안에도 ' · '가 있어(같은 순번 설명) 정확히 '직전 근무 07시 휴게자' 앞에서만 자른다 (10/22 버그 수정)
+            line, blocked = line.split(" · 직전 근무 07시 휴게자(", 1)
+            blocked = "직전 근무 07시 휴게자(" + blocked
             groups["rule"].append(blocked.rstrip(".") + ".")
             line = line.rstrip(".") + "."
         if key:

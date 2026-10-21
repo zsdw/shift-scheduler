@@ -48,6 +48,15 @@ class NotesLayoutTests(unittest.TestCase):
         self.assertNotIn("반영했습니다", every)                              # 제대로 피한 개인 회피는 적지 않음
         self.assertNotIn("과거 싸이클 영향", every)
 
+    def test_last_rest_split_ignores_dot_inside_parentheses(self):
+        # 10/22 버그: 막타임 줄 괄호 안 ' · 같은 순번은…'에서 잘라 규칙 묶음에 막타임 조각이 들어갔다
+        line = ("마지막 휴게(07시): 2 광희(이번 이전 마지막 수혜 10/16 · 같은 순번은 최근 3싸이클 평균 피로도 높은 사람 우선), "
+                "3 원종(이번 이전 마지막 수혜 10/16 · 같은 순번은 최근 3싸이클 평균 피로도 높은 사람 우선) · "
+                "직전 근무 07시 휴게자(4 만년)는 새 편성에서 연속 수혜 금지(16장).")
+        g = app.group_note_lines([line])
+        self.assertEqual(g["rule"], ["직전 근무 07시 휴게자(4 만년)는 새 편성에서 연속 수혜 금지(16장)."])
+        self.assertTrue(g["rotation"][0][1].startswith("마지막 휴게(07시): 2 광희"))
+
     def test_unbalanced_points_to_detail(self):
         g = app.group_note_lines(["밸런스 판정 — 온전 출근 일반근무자 5명: 피로도 12~14점(차이 2).",
                                   "· 피로도: 아래 상위 규칙을 지키면서 계산해 보니 줄일 수 없었습니다(계산상 최소 확인)."])
