@@ -22,7 +22,7 @@ from __future__ import annotations
 import json
 import random
 from dataclasses import dataclass, field, replace
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from pathlib import Path
 
 HOURS = tuple(f"{h:02d}시" for h in range(8, 18))
@@ -47,6 +47,17 @@ CONTROL_LABEL = "통제"   # 교육 신입이 통제A를 따라 통제 칸(4C)�
 TRAINEE = "교육"   # 교육받는 신입: 편성 인원에서 빼고 마지막 번호, 고른 사람과 같은 칸에 동행 (2026-10-07 사용자 요청)
 SENIOR_NAMES = ("태환", "준호")                   # 선임: 예전 태환, 이후 준호. 둘 다 있으면 태환 (9/1 실제표)
 DEFAULT_ROSTER = ("원종", "도운", "준형", "만년", "용주", "제욱", "광희", "준호", "성욱", "성호")
+
+
+def early_worker_name(day: date) -> str:
+    """2026-09-28 시작 주 성욱, 다음 주 용주. 월·연도가 바뀌어도 교대 유지."""
+    monday=day-timedelta(days=day.weekday())
+    return ('성욱','용주')[((monday-date(2026,9,28)).days//7)%2]
+
+
+def early_worker(day, people):
+    name=early_worker_name(day)
+    return next((p for p in people if p.name.strip().endswith(name) and 0 in slots_of(p)),None)
 ROTATION = {"G1": "G2", "G2": "G3", "G3": "L1", "L1": "L2", "L2": "G1"}
 
 
@@ -374,6 +385,14 @@ def _template_schedule(day, people, size, control, exclude, seed):
             seat = TEMPLATE_SENIOR_SEAT[size]
             holder = next(pid for pid, n in numbers.items() if n == seat)
             numbers[holder], numbers[senior.pid] = numbers[senior.pid], seat
+        early=early_worker(day,present)
+        if early is not None and FIXED_TEMPLATES[size][numbers[early.pid]-1][0] not in (REST,STANDBY,PATROL):
+            seats=[n for n,row in enumerate(FIXED_TEMPLATES[size],1)
+                   if row[0] in (REST,STANDBY,PATROL) and (senior is None or n!=numbers[senior.pid])]
+            if not seats:return None,'INFEASIBLE: 조출 당번의 08시 휴게·대기·순찰 자리가 없습니다.'
+            seat=rng.choice(seats)
+            holder=next(pid for pid,n in numbers.items() if n==seat)
+            numbers[holder],numbers[early.pid]=numbers[early.pid],seat
         grid = {p.pid: [None] * 10 for p in people}
         for pid, n in numbers.items():
             grid[pid] = list(FIXED_TEMPLATES[size][n - 1])
@@ -536,6 +555,9 @@ def _solve_day(day: date, people: list[DayPerson], seconds: int = 20, exclude=()
         m.add(work(senior.pid, first) == 0)
         if first in PATROL_SLOTS:
             penal(40, 1 - x[senior.pid, first, PATROL])
+    early=early_worker(day,present)
+    if early is not None:
+        m.add(sum(cell(early.pid,0,state) for state in (REST,STANDBY,PATROL))==1)
 
     full = [p.pid for p in present if p.status == "출근"]
     for pid in ids:
@@ -736,6 +758,11 @@ def _reoptimize_day(base: DaySchedule, start: int, pid: str, leave_from: int, ki
 
     def work(q, t):
         return sum(cell(q, t, st) for st in POSTS) if t in avail[q] else 0
+
+    if start==0:
+        early=early_worker(base.day,people)
+        if early is not None:
+            m.add(sum(cell(early.pid,0,st) for st in (REST,STANDBY,PATROL))==1)
 
     penalties = []
 
@@ -959,7 +986,7 @@ def _validator_cycle_possible(schedule: DaySchedule) -> bool:
 # §25 긴급 재편성: 근근휴 패턴(주간-3)과 표 자체가 성립하는 조건(근무가능시간·중복 배정)만 HARD,
 # 나머지 기존 하드룰은 '강력 권장'으로 따로 보여 준다.
 # §27 v1.0: 핵심 포스트 빈칸 금지(주간-2-1)와 통제A·E 메움 규칙(주간-27)은 긴급 재편성에서도 무조건 HARD.
-EMERGENCY_HARD_RULES = frozenset({"주간-1", "주간-2", "주간-2-1", "주간-3", "주간-27", "주간-28", "주간-A-편입"})
+EMERGENCY_HARD_RULES = frozenset({"주간-1", "주간-2", "주간-2-1", "주간-3", "주간-27", "주간-28", "주간-29", "주간-A-편입"})
 
 
 def validate_day(schedule: DaySchedule) -> list[dict]:
@@ -1159,6 +1186,14 @@ def _check_day(schedule: DaySchedule) -> list[dict]:
         first = next(label for label in row if label is not None)
         if first in POSTS:
             add("주간-21", f"선임 {senior.name} 첫 타임이 {first} (휴게·대기·순찰로 시작해야 함)")
+    # Solver의 대상 선택을 재사용하지 않고 날짜·출근 상태·실제 08시 칸으로 독립 검사.
+    if emergency is None or emergency.get('start',0)==0:
+        monday=schedule.day-timedelta(days=schedule.day.weekday())
+        due='성욱' if ((monday-date(2026,9,28)).days//7)%2==0 else '용주'
+        for p in schedule.people:
+            if p.name.strip().endswith(due) and 0 in slots_of(p):
+                if schedule.grid[p.pid][0] not in (REST,STANDBY,PATROL):
+                    add('주간-29',f'이번 주 조출 {p.name}: 08시는 휴게·대기·순찰 중 하나여야 합니다.')
     return errors
 
 
@@ -1199,6 +1234,9 @@ def day_findings(schedule: DaySchedule) -> list[str]:
     schedule = rule_schedule(schedule)
     notes = []
     people = {p.pid: p for p in schedule.people}
+    due=early_worker_name(schedule.day)
+    early=early_worker(schedule.day,schedule.people)
+    notes.append(f'이번 주 조출: {due} · '+('08시 휴게·대기·순찰 배정 대상.' if early is not None else '08시 출근 대상이 없어 적용하지 않습니다(다른 사람으로 대체하지 않음).'))
     if schedule.emergency:
         info = schedule.emergency
         notes.append(f"긴급 재편성: {HOURS[info['start'] - 1]}까지 기존 배정 LOCK, {HOURS[info['start']]}부터 다시 편성.")
