@@ -571,6 +571,29 @@ def _edit_footer(base, key: str) -> None:
         st.session_state.get("day_originals", {}).pop(id(base), None)
         st.session_state["flash"] = f"{base.day} 주간 실제 근무를 최종본으로 저장했습니다."
         st.rerun()
+    if saved:
+        _rename_person_ui(base, key)
+
+
+def _rename_person_ui(base, key):
+    from hashlib import sha256
+    from night_shift.day_shift import rename_saved_person
+    with st.expander('✏️ 근무자 이름 수정',expanded=False):
+        people={p.pid:p for p in base.people}
+        if not people:return
+        expected=sha256((day_store_dir()/f'{base.day}.json').read_bytes()).hexdigest()
+        pid=st.selectbox('수정할 근무자',list(people),format_func=lambda p:f'{people[p].number}번 {people[p].name}',key=f'day_rename_who_{key}')
+        name=st.text_input('수정할 이름',value=people[pid].name,key=f'day_rename_name_{key}_{pid}')
+        if st.button('💾 이름 수정 저장',type='primary',key=f'day_rename_save_{key}'):
+            try:
+                rename_saved_person(day_store_dir(),base.day,pid,name,expected)
+            except (ValueError,OSError) as exc:
+                st.error(str(exc));return
+            for cache in list(st.session_state):
+                if cache.startswith(f'day_saved_work_{base.day}_'):
+                    del st.session_state[cache]
+            st.session_state['flash']=f'{base.day} 이름을 {name.strip()}(으)로 수정해 저장했습니다.'
+            st.rerun()
 
 
 def _lock_sheet(base, results: list, key: str, seconds: int, view_key: str = "") -> None:

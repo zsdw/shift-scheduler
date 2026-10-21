@@ -1436,6 +1436,47 @@ def load_day(store: Path, day: date) -> dict:
     return data
 
 
+def rename_saved_person(store: Path, day: date, pid: str, new_name: str, expected=None) -> None:
+    """저장된 한 날짜의 이름만 정정한다. 배정·번호·원본 첨부는 보존한다."""
+    import hashlib
+    import os
+    import shutil
+    import tempfile
+    path=Path(store)/f'{day.isoformat()}.json'
+    raw=path.read_bytes()
+    if expected is not None and hashlib.sha256(raw).hexdigest()!=expected:
+        raise ValueError('저장본이 변경됐습니다. 화면을 새로고침한 뒤 다시 수정하세요.')
+    payload=json.loads(raw)
+    schedule=from_json(payload)
+    person=next((p for p in schedule.people if p.pid==pid),None)
+    if person is None:raise ValueError('수정할 근무자를 찾지 못했습니다.')
+    new_name=new_name.strip()
+    if not new_name:raise ValueError('이름을 입력하세요.')
+    if any(p.pid!=pid and (p.name==new_name or p.pid==new_name) for p in schedule.people):
+        raise ValueError('이미 있는 근무자 이름입니다. 중복되지 않는 이름을 입력하세요.')
+    if new_name==person.name:return
+    def rename(value):
+        if isinstance(value,dict):
+            return {(new_name if k in (pid,person.name) else k):rename(v) for k,v in value.items()}
+        if isinstance(value,list):return [rename(v) for v in value]
+        return new_name if isinstance(value,str) and value in (pid,person.name) else value
+    # 이름을 참조하는 구조만 정정. 파일명·원본·기존 비고 문구는 그대로 둔다.
+    for field in ('people','grid','shuttle','trainees','emergency','rule_exempt_names','source_layout','source_review'):
+        if field in payload:payload[field]=rename(payload[field])
+    payload['confirmed_at']=datetime.now().isoformat(timespec='microseconds')
+    payload['final_save_method']='screen-edit'
+    payload['note']=(payload.get('note','')+'\n'+f'이름 정정: {person.name} → {new_name}').strip()
+    from_json(payload)  # 쓰기 전에 다시 열 수 있는지 확인
+    fd,temp=tempfile.mkstemp(prefix='.rename-',suffix='.tmp',dir=path.parent)
+    try:
+        with os.fdopen(fd,'w',encoding='utf-8') as f:json.dump(payload,f,ensure_ascii=False,indent=1)
+        if path.read_bytes()!=raw:raise ValueError('저장 직전 기록이 변경됐습니다. 다시 확인하세요.')
+        trash=path.parent/'.trash';trash.mkdir(exist_ok=True)
+        shutil.copy2(path,trash/f'{day}__deleted-rename-{datetime.now():%Y%m%d-%H%M%S%f}.json')
+        os.replace(temp,path)
+    finally:Path(temp).unlink(missing_ok=True)
+
+
 def load_roster(path: Path) -> list[str]:
     try:
         names = json.loads(Path(path).read_text(encoding="utf-8"))
