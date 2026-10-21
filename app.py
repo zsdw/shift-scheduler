@@ -1577,11 +1577,78 @@ def flexible_note_numbers(reasons: list[str], record) -> tuple[list[str], object
     return out, flex
 
 
+SUMMARY_PREFIXES = ("긴급 재편성", "기타(근무 제외)", "통제 결근", "연차:", "통제 전반부 반차", "통제가 ",
+                    "결원 2명 회차", "조장 피로도", "FM·유도리", "유도리 포스트별 운영")
+DETAIL_PREFIXES = ("· 피로도:", "· 실휴게:", "· 밸런스보다 먼저", "포스트 고루 배정", "통제A 피로도 격차",
+                   "근무자 선호(17-1)", "최근 2싸이클 평균 차이", "실근무 ")
+RULE_CODES = ("(15-3)", "(15-4)", "(15-5)", "(14-1-2)")
+ROTATION_KEYS = (("마지막 휴게(07시)", "last_rest"), ("차단봉:", "barrier"), ("대폭 휴게", "big_rest"),
+                 ("하층 순찰:", "patrol"), ("상층 순찰:", "patrol"), ("중층 순찰:", "patrol"))
+
+
+def group_note_lines(lines: list[str]) -> dict:
+    """특이사항·비고 줄을 화면 묶음으로 나눈다 (2026-10-22 사용자 확정). 문장 내용은 그대로, 보이는 자리만.
+    저장 당시 문장(스냅샷)도 같은 규칙으로 묶이도록 줄 머리말로 판별한다. 모르는 줄은 '오늘 한눈에'(숨기지 않음).
+    반환: summary·rule·detail = [줄], rotation = [(종류, 줄)]."""
+    groups = {"summary": [], "rotation": [], "rule": [], "detail": []}
+    detail_reasons = []
+    for raw in lines:
+        line = str(raw).strip()
+        if not line or line in ("과거 싸이클 영향 —", "특이사항 없음."):
+            continue
+        if "회피(개인 선호): 반영했습니다" in line:          # 제대로 반영된 개인 회피는 적지 않는다
+            continue
+        if line.startswith(("· 피로도:", "· 실휴게:")):
+            detail_reasons.append(line)
+        if line.startswith(DETAIL_PREFIXES):
+            groups["detail"].append(line.removeprefix("· "))
+            continue
+        line = line.removeprefix("· ")
+        key = next((k for prefix, k in ROTATION_KEYS if line.startswith(prefix)), None)
+        if key == "last_rest" and " · 직전 근무 07시 휴게자(" in line:
+            line, blocked = line.split(" · ", 1)
+            groups["rule"].append(blocked.rstrip(".") + ".")
+            line = line.rstrip(".") + "."
+        if key:
+            groups["rotation"].append((key, line))
+        elif any(code in line for code in RULE_CODES):
+            groups["rule"].append(line)
+        elif line.startswith("밸런스 판정 —"):
+            # 꼬리말(가능한 최소인지)은 아래에서 설명 줄을 다 본 뒤 붙인다
+            groups["summary"].append(line.replace("밸런스 판정 — 온전 출근 일반근무자 ", "밸런스(온전 출근 ", 1)
+                                     .replace("명: ", "명): ", 1))
+        elif line.startswith(SUMMARY_PREFIXES) or "반차로 근무 가능 시간" in line or "부터 유도리·결원 2명" in line:
+            groups["summary"].append(line)
+        elif ": 최근 2싸이클 밤당" in line or "회피(개인 선호)" in line:
+            groups["detail"].append(line)
+        else:
+            groups["summary"].append(line)
+    for i, line in enumerate(groups["summary"]):            # 밸런스 한 줄 요약: 가능한 최소인지 꼬리말
+        if line.startswith("밸런스(") and "완전 n빵" not in line:
+            minimal = detail_reasons and all("가능한 최소" in r for r in detail_reasons)
+            groups["summary"][i] = line.rstrip(".") + (" — 가능한 최소." if minimal else " — 이유는 '밸런스 자세히'.")
+    return groups
+
+
+def _rotation_box(label: str, html: str | None, caption: str | None = None) -> None:
+    """순번 한 줄 = 접힌 칸 제목, 펼치면 최근 3싸이클 표 (표가 없으면 줄만)."""
+    text = label.replace("~", "\\~")
+    if not html:
+        st.markdown("- " + text)
+        return
+    with st.expander(text, expanded=False):
+        st.markdown(html, unsafe_allow_html=True)
+        if caption:
+            st.caption(caption)
+
+
 def render_balance_notes(reasons: list[str], monthly_rows: list[dict], duties=None, shift_date=None, record=None,
                          view_key: str | None = None, caption: str | None = None, extras=(),
                          violations=()) -> None:
     """Page bottom: why someone gained or lost balance, and the monthly direction.
-    violations: 실제 근무 수정으로 새로 생긴 하드·강한 권장 위반 (2026-10-21, 맨 위 짧은 줄, PC·폰 공통)."""
+    violations: 실제 근무 수정으로 새로 생긴 하드·강한 권장 위반 (2026-10-21, 맨 위 짧은 줄, PC·폰 공통).
+    2026-10-22 사용자 확정 정리: ⚠️ 위반 → 📌 오늘 한눈에 → 🔄 순번으로 정한 것(줄을 누르면 표) → 🛡 규칙 때문에
+    바뀐 것 → (참고 검사 접힌 칸) → ⚖️ 밸런스 자세히(스위치: 계산 설명·선호·최근 피로도 표·장기 장부) → 🧭 편성 방향."""
     st.divider()
     st.markdown("#### 📝 특이사항 · 비고")
     if violations:
@@ -1589,48 +1656,71 @@ def render_balance_notes(reasons: list[str], monthly_rows: list[dict], duties=No
         st.markdown("<div style='border:1px solid #FDBA74;background:#FFF7ED;border-radius:8px;padding:6px 10px;"
                     "margin-bottom:8px;font-size:.88rem'><b>⚠️ 실제 수정으로 생긴 규칙 위반</b>"
                     f"<ul style='margin:2px 0 0 0;padding-left:18px'>{items}</ul></div>", unsafe_allow_html=True)
-    if shift_date is not None:
-        from night_shift.fatigue_ledger_ui import render as render_ledger
-        render_ledger(store_dir(), shift_date, current=record)
-    if len(reasons) > 1 and "특이사항 없음." in reasons:
-        reasons = [line for line in reasons if line != "특이사항 없음."]
     from history_ui import view_mode
     if record is not None and view_key and view_mode(view_key, record) == "유도리":   # 표 제목 줄 '유도리' 보기
         reasons, record = flexible_note_numbers(reasons, record)
         st.caption("🟣 유도리 기준 숫자입니다(오늘 피로도 많이/적게·밸런스 판정). 배정 이유 설명은 FM·유도리 같습니다.")
     if caption:                                   # 2026-10-20: 저장 당시 문장인지 현재 규칙 계산인지 표시
         st.caption(caption)
-    for line in note_lines_html(reasons, record):
+    groups = group_note_lines(reasons)
+
+    st.markdown("**📌 오늘 한눈에**")
+    summary = note_lines_html(groups["summary"], record)
+    for line in summary or ["- 특이사항 없음."]:
         st.markdown(line, unsafe_allow_html=True)
+
+    tables = {}
+    if shift_date is not None:
+        from history_ui import last_rest_table_html, big_rest_table_html
+        tables = {"last_rest": last_rest_table_html(shift_date, record),
+                  "big_rest": big_rest_table_html(shift_date, record)}
+    has_duties = duties is not None and not duties.empty
+    if groups["rotation"] or any(tables.values()) or has_duties:
+        st.markdown("**🔄 순번으로 정한 것**")
+        shown = set()
+        for key in ("last_rest", "big_rest"):
+            for kind, line in groups["rotation"]:
+                if kind == key:
+                    _rotation_box(line, tables.get(key))
+                    shown.add(key)
+            if key not in shown and tables.get(key):
+                _rotation_box("막타임(07시) 휴게 — 최근 3싸이클 표" if key == "last_rest"
+                              else "대폭 휴게(23시~07시 전 3시간 이상 연속 휴게) — 최근 3싸이클 표", tables[key])
+        for kind, line in groups["rotation"]:
+            if kind in ("barrier", "patrol"):
+                st.markdown("- " + line.replace("~", "\\~"))
+        if has_duties:
+            _rotation_box("차단봉·순찰 — 최근 3싸이클 표", duty_grid_html(duties),
+                          "차단봉 집계는 2026년 10월 4일 야간부터. 합계 열은 이번 근무를 뺀 최근 6근무 기준입니다. 상층·중층 순찰은 "
+                          "이 6근무에서 밤당 덜 맡은 사람에게, 차단봉은 마지막으로 설치·철수한 뒤 본인 출근이 많은 사람(안 해 본 "
+                          "사람 먼저)에게, 하층 순찰은 마지막 하층 뒤 다른 층 순찰 3회 이상(공휴일 주간 포함)인 사람 중 마지막 "
+                          "하층이 오래된 사람에게 먼저 줍니다.")
+
+    if groups["rule"]:
+        st.markdown("**🛡 규칙 때문에 바뀐 것**")
+        for line in note_lines_html(groups["rule"]):
+            st.markdown(line, unsafe_allow_html=True)
+
     for title, lines in extras:                   # 현재 규칙 기준 다시 계산·참고 검사 (접힌 칸, PC·폰 공통)
         with st.expander(title, expanded=False):
             for line in lines or ["차이 없음."]:
                 st.markdown("- " + str(line).replace("~", "\\~"))
-    if duties is not None and not duties.empty:
-        st.markdown("**근무자별 최근 3싸이클 차단봉·순찰**")
-        st.caption("차단봉 집계는 2026년 10월 4일 야간부터 계산합니다.")
-        st.markdown(duty_grid_html(duties), unsafe_allow_html=True)
-        st.caption("합계 열은 이번 근무를 뺀 최근 6근무 기준입니다. 근무표 생성은 상층·중층 순찰은 이 6근무에서 "
-                   "밤당 덜 맡은 사람에게, 차단봉은 마지막으로 설치·철수한 뒤 본인 출근이 많은 사람(안 해 본 사람 먼저)에게, 하층 순찰은 "
-                   "마지막 하층 뒤 다른 층 순찰 3회 이상(공휴일 주간 포함)인 사람 중 마지막 하층이 오래된 사람에게 먼저 줍니다.")
-    if shift_date is not None:                     # 막타임(07시) 휴게 표 — 비고 문장 대신 순찰표처럼 (2026-10-13 사용자 요청)
-        from history_ui import last_rest_table_html, big_rest_table_html
-        html = last_rest_table_html(shift_date, record)
-        if html:
-            st.markdown("**근무자별 최근 3싸이클 막타임(07시) 휴게**")
-            st.markdown(html, unsafe_allow_html=True)
-        bhtml = big_rest_table_html(shift_date, record)    # 대폭 휴게 표 (2026-10-20, 막타임 표와 같은 모양)
-        if bhtml:
-            st.markdown("**근무자별 최근 3싸이클 대폭 휴게 (23시~07시 전 3시간 이상 연속 휴게)**")
-            st.markdown(bhtml, unsafe_allow_html=True)
+
+    # 장기 장부 안에 접힌 칸이 있어(접힌 칸 안 접힌 칸 불가) 스위치로 연다
+    if st.toggle("⚖️ 밸런스 자세히 (계산 설명·선호·최근 피로도·장기 장부)",
+                 key=f"notes_detail_{view_key or 'gen'}_{shift_date}"):
+        for line in note_lines_html(groups["detail"]):
+            st.markdown(line, unsafe_allow_html=True)
+        if shift_date is not None:
+            from history_ui import render_recent_fatigue
+            render_recent_fatigue(shift_date)
+            from night_shift.fatigue_ledger_ui import render as render_ledger
+            render_ledger(store_dir(), shift_date, current=record)
     with st.expander("🧭 앞으로의 편성 방향 (월간 기록 기준)", expanded=False):
         from history_ui import link_night_dates               # 날짜 누르면 그 근무표로 (2026-10-13 사용자 요청)
         year = shift_date.year if shift_date is not None else date.today().year
         for line in monthly_direction(monthly_rows):
             st.markdown("- " + link_night_dates(line, year).replace("~", "\\~"), unsafe_allow_html=True)
-    if shift_date is not None:
-        from history_ui import render_recent_fatigue
-        render_recent_fatigue(shift_date)
 
 
 def history_store_exists(day) -> bool:

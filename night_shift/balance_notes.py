@@ -48,10 +48,10 @@ def _preference_notes(rows, general, prepared, names, hour) -> list[str]:
         out.append(text + ". (밸런스를 다 맞춘 뒤 남는 선택지에서 반영)")
     for employee_id, slot, label in avoid:
         cell = rows.get(employee_id, {}).get(slot)
-        got = cell is not None and cell.displayed_assignment.label == label
+        if cell is None or cell.displayed_assignment.label != label:
+            continue                       # 2026-10-22 사용자 확정: 제대로 피했으면 적지 않는다(못 피했을 때만)
         who = names.get(employee_id, employee_id)
-        out.append(f"{who} {hour(slot)} {label} 회피(개인 선호): "
-                   + ("하드룰 또는 상위 우선순위 때문에 피하지 못했습니다." if got else "반영했습니다."))
+        out.append(f"{who} {hour(slot)} {label} 회피(개인 선호): 하드룰 또는 상위 우선순위 때문에 피하지 못했습니다.")
     return out
 
 
