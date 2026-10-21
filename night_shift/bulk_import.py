@@ -84,7 +84,7 @@ def _names(rows) -> tuple[dict, set]:
     for r in rows[:8]:
         for v in r:
             s = _norm(v)
-            m = re.fullmatch(r"(\d{1,2})([가-힣]{2,4})", s)
+            m = re.fullmatch(r"(\d{1,2})[.,·\-]?([가-힣]{2,4})", s)   # '8.세명'처럼 점 찍힌 칸도 (2026-10-21)
             if m:
                 numbered[m[1]] = m[2]
             m = re.fullmatch(r"통제([A-Z])", s)

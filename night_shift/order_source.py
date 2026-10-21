@@ -120,7 +120,7 @@ def parse_sheet(ws, day, shift):
     for row in rows[:6]:
         for value in row:
             text = normalize(value)
-            m = re.fullmatch(r'(\d{1,2})([가-힣]{2,4})', text)
+            m = re.fullmatch(r'(\d{1,2})[.,·\-]?([가-힣]{2,4})', text)   # '8.세명'처럼 점 찍힌 칸도 (2026-10-21)
             if m: names[m[1]] = m[2]
             m = re.fullmatch(r'CP([123])([가-힣]{2,4})', text)
             if m: cp[m[1]] = m[2]
