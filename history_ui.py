@@ -1041,7 +1041,7 @@ def big_rest_table_html(shift_date: date, current=None) -> str:
     rows = ["<tr>" + f"<td class='name'>{escape(names[p])}</td>"
             + "".join(f"<td>{'🛌' if p in big else ''}</td>" for _, _, big in nights) + "</tr>" for p in people]
     verdict = ("배정 기준: 가능한 많은 사람에게 → 한 번도 안 받은 사람 먼저, 그다음 마지막 수혜 뒤 본인 출근이 많은 사람 · "
-               f"막타임(07시) 받는 사람은 같은 날 제외 · 표에 표시된 수혜 횟수 차이 {gap}회")
+               f"막타임(07시)과는 따로 순번 · 표에 표시된 수혜 횟수 차이 {gap}회")
     return (css + f"<div style='font-size:.85rem;margin:2px 0 4px'>{escape(verdict)}</div>"
             + "<table class='lastrest'><tr>" + head + "</tr>" + "".join(rows) + "</table>"
             + "<div style='height:12px'></div>")

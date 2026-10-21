@@ -44,8 +44,7 @@ def _flexible_delta(row, slot, context=None):
 
 
 def _add_dual_flexible_constraints(model, opts, variables, policy, context, people, partial_general_ids, *,
-                                   gap_rule, fatigue_rule, fatigue_band, skip_partial, balance=False,
-                                   big_rest_rule=True, manager_a_end_slot=14, locked_keys=frozenset()):
+                                   gap_rule, fatigue_rule, fatigue_band, skip_partial, balance=False):
     """FM 표를 유도리로 계산했을 때의 A 격차·차단봉 조건 (룰북 0-2-1).
 
     balance=True면 17장 당일 목표(전일 일반근무자 피로도 최대-최소 1점 이하, 실휴게 1시간 이하)를
@@ -78,18 +77,6 @@ def _add_dual_flexible_constraints(model, opts, variables, policy, context, peop
                       if r.displayed_assignment.label == installer or r.barrier_install_flag)
         remove = sum(v for r, v in zip(opts[p, 10], variables[p, 10]) if r.displayed_assignment.label == "I1")
         model.add(install + remove <= 1)
-    if big_rest_rule:                                           # 16-big: 유도리 계산 표에서도 막타임 수혜자의 대폭 휴게 동시 금지
-        def flex_rest(p, t):
-            return sum(v for r, v in zip(opts[p, t], variables[p, t])
-                       if (r.actual_rest_time_value - _flexible_delta(r, t, flex_context)[1]) == 1)
-        for pid in people:
-            if pid == "A" or (pid == "6" and (manager == "6" or manager_a_end_slot <= 13)):
-                continue
-            for s in BIG_REST_STARTS:
-                window = (s, s + 1, s + 2, 13)
-                if all((pid, t) in locked_keys for t in window):
-                    continue
-                model.add(sum(flex_rest(pid, t) for t in window) <= 3)
     if balance:                                                 # 17장 당일 목표를 두 기준 모두에서
         full = [p for p in policy.general_ids if p not in partial_general_ids]
         for flexible in (False, True):
@@ -638,18 +625,7 @@ def solve_first_trial(context, history: HistoryInput, seconds=30, *, compensatio
                 model.add(sum(expression(pid, t, lambda row: row.displayed_assignment.label in ("휴게", "보안실 대기")
                                          and row.actual_rest_time_value == 1) for t in (12, 13)) <= 1)
 
-        # 16-big: 막타임(07시) 실휴게 수혜자는 같은 날 대폭 휴게(23시~07시 전 3연속 실휴게, models.BIG_REST_SLOTS) 동시 수혜 금지(하드).
-        # 통제A·준호 관리자 대행은 예외. 4칸 모두 LOCK이면 보존.
-        if rules_v220 and not rule_off("16-big 막타임·대폭 휴게 동시 금지"):
-            locked_keys = {(old.employee_id, old.slot.index) for old in locked_assignments or ()}
-            for pid in people:
-                if pid == "A" or (pid == "6" and (policy.manager_id == "6" or manager_a_end_slot <= 13)):
-                    continue
-                for s in BIG_REST_STARTS:
-                    window = (s, s + 1, s + 2, 13)
-                    if all((pid, t) in locked_keys for t in window):
-                        continue
-                    model.add(sum(expression(pid, t, lambda row: row.actual_rest_time_value == 1) for t in window) <= 3)
+        # 16-big(막타임·대폭 휴게 동시 금지)은 2026-10-21 사용자 확정으로 삭제 — 막타임·대폭 휴게는 각자 순번대로.
 
         for p, t in forced_rest_cells:
             if (p, t) in variables:
@@ -1525,10 +1501,7 @@ def solve_first_trial(context, history: HistoryInput, seconds=30, *, compensatio
                     gap_rule=not manager_vacancy_policy,
                     fatigue_rule=headcount in (5, 6) and not (rules_v218 and profile_absence == 2),
                     fatigue_band=(0, 3 if rules_v220 else 2) if rules_v219 and not manager_is_proxy else (-4, 4),
-                    skip_partial=rules_v215, balance=dual_balance,
-                    big_rest_rule=rules_v220 and not rule_off("16-big 막타임·대폭 휴게 동시 금지"),
-                    manager_a_end_slot=manager_a_end_slot,
-                    locked_keys={(old.employee_id, old.slot.index) for old in locked_assignments or ()})
+                    skip_partial=rules_v215, balance=dual_balance)
             # A stage that runs out of time keeps its best value as an upper bound
             # (never frozen as if proven) and later stages still run, warm-started
             # from the previous solution; the whole staged run shares a time budget.

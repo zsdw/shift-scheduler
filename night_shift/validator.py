@@ -498,12 +498,6 @@ def validate_first_trial(record, history, *, refinement=False, rules_v22=False, 
             if not all((pid, t) in locked for t in (12, 13)):
                 rests = [facts[pid, t]["label"] in ("휴게", "보안실 대기") and facts[pid, t]["rest"] == 1 for t in (12, 13)]
                 check(not all(rests), "H-20", f"General worker must not rest both 06/07: {pid}")
-            # 16-big (2026-10-20): 07시 막타임 실휴게 일반근무자는 같은 날 대폭 휴게(23시~07시 전 3시간 이상 연속 실휴게) 금지.
-            from .models import BIG_REST_STARTS
-            for s in BIG_REST_STARTS:
-                if not all((pid, t) in locked for t in (s, s + 1, s + 2, 13)):
-                    check(not all(facts[pid, t]["rest"] == 1 for t in (s, s + 1, s + 2, 13)),
-                          "16-big", f"General worker with 07:00 rest must not also have a 3h+ rest block 23-06: {pid}/{s}")
     for t in range(14):
         labels = Counter(facts[p, t]["label"] for p in people if facts[p, t]["label"] in post_labels)
         expected = Counter({"G1": 1, "L3": 1, "I1": 1, **south.get(t, {})})

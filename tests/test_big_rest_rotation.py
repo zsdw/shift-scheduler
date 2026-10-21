@@ -1,7 +1,7 @@
 """대폭 휴게 (2026-10-20 사용자 확정, 아르곤 제안 1~4 추천안).
 
 - 대폭 휴게 = 23시~07시 전(칸 5~12) 안에서 3시간 이상 연속 실휴게(models.BIG_REST_SLOTS).
-- [하드 16-big] 그날 막타임(07시) 휴게를 받는 일반근무자는 대폭 휴게 동시 금지(통제A·준호 대행 제외, 전부 LOCK이면 보존).
+- 막타임(07시)과 대폭 휴게는 각자 순번(2026-10-21 사용자 확정: 같은 날 동시 금지 16-big 삭제).
 - [소프트] 결원 1.5명 미만 날: 대폭 휴게 인원 최대 → 순번(한 번도 안 받은 사람 먼저·출근 많은 순, 그다음 마지막 수혜
   뒤 본인 출근 많은 순). 하층 순번 다음, 당일 균형 앞. 직전 출근 수혜자도 금지는 아니고 순번만 뒤.
 - 저장표 '이날 실제 운영: 유도리로 근무함' = 그 표의 유도리 운영값을 포스트별 실제 운영 수정으로 저장 → 이력 집계에 반영.
@@ -51,11 +51,10 @@ class BigRestRotationTests(unittest.TestCase):
     def setUpClass(cls):
         cls.n1 = run_schedule(ShiftRequest(DAY, NightType.N1, Mode.FM, staff()), HistorySelection(), OPTIONS)
 
-    def test_generation_maximizes_big_rest_without_last_rest_overlap(self):
+    def test_generation_maximizes_big_rest(self):
         self.assertTrue(self.n1.valid, self.n1.validation_errors)
         big, last = _big_rest_ids(self.n1.record), _last_rest_ids(self.n1.record)
-        self.assertGreaterEqual(len(big), 4, big)                 # 평일 전날 결원 0명: 막타임 1명 빼고 대부분 받음
-        self.assertFalse(big & last, (big, last))
+        self.assertGreaterEqual(len(big), 4, big)                 # 평일 전날 결원 0명: 대부분 받음
         stage = next(a for a in self.n1.solve_result.attempts if a.get("stage") == "big_rest_max")
         self.assertEqual(stage["value"], -len(big))
         four_stage = next(a for a in self.n1.solve_result.attempts if a.get("stage") == "four_hour_runs")
@@ -63,17 +62,15 @@ class BigRestRotationTests(unittest.TestCase):
         stages = [a.get("stage") for a in self.n1.solve_result.attempts if isinstance(a, dict)]
         self.assertLess(stages.index("four_hour_runs"), stages.index("big_rest_max"))
 
-    def test_validator_rejects_last_rest_and_big_rest_overlap_unless_locked(self):
+    def test_last_rest_and_big_rest_same_day_is_allowed(self):
+        # 2026-10-21 사용자 확정: 막타임·대폭 휴게 같은 날 동시 금지(16-big) 삭제
         overlap = replace(_record(date(2026, 10, 15), last_rest_pid="1", big_rest_pids=("1",)),
                           kind=RecordKind.PLAN, confirmed_at=None)
         errors = validate_first_trial(overlap, HistoryInput((), ()), rules_v220=True)
-        self.assertTrue(any(e["rule"] == "16-big" for e in errors))
-        locked_ok = validate_first_trial(overlap, HistoryInput((), ()), rules_v220=True,
-                                         locked_cells=(("1", 6), ("1", 7), ("1", 8), ("1", 13)))
-        self.assertFalse(any(e["rule"] == "16-big" for e in locked_ok))
+        self.assertFalse(any(e["rule"] == "16-big" for e in errors))
 
     def test_vacancy_one_and_half_has_no_big_rest_goal(self):
-        # 결원 1명 + 반차 1명 = 1.5명 이상: 대폭 휴게 목표를 두지 않는다(다른 소프트 우선). 16-big 하드는 그대로.
+        # 결원 1명 + 반차 1명 = 1.5명 이상: 대폭 휴게 목표를 두지 않는다(다른 소프트 우선).
         rows = [replace(s, available_slot_indices=tuple(range(7))) if s.employee_id == "3" else s
                 for s in staff(absent=("2",))]
         result = run_schedule(ShiftRequest(DAY, NightType.N1, Mode.FM, tuple(rows)), HistorySelection(), OPTIONS)
@@ -93,18 +90,15 @@ class BigRestRotationTests(unittest.TestCase):
             actual_past = history_store.actual_record(store, d_past)
             self.assertEqual(_big_rest_ids(actual_past), {"2", "3", "4"})   # 유도리 I1 휴게성으로 '2'도 수혜로 집계
 
-            # 다음 근무: 한 번도 안 받은 1·5·6이 먼저('1'은 직전 막타임 수혜자지만 대폭 휴게는 순번만 적용)
+            # 다음 근무: 한 번도 안 받은 1·5·6이 먼저(막타임과 무관하게 대폭 휴게 순번만 적용)
             target = _record(date(2026, 10, 22), last_rest_pid="5")
             solved = solve_first_trial(target.context, HistoryInput((), ()), seconds=15, rules_v220=True,
                                        last_rest_records=(actual_past,))
             self.assertIsNotNone(solved.record, solved.status)
             stages = [a["stage"] for a in solved.attempts if str(a.get("stage", "")).startswith("big_rest_oldest_")]
             self.assertTrue(stages and stages[0].startswith("big_rest_oldest_0_"), stages)
-            big_today, last_today = _big_rest_ids(solved.record), _last_rest_ids(solved.record)
-            self.assertFalse(big_today & last_today)
-            self.assertTrue(({"1", "5", "6"} - last_today) <= big_today, (big_today, last_today))
-            self.assertFalse(any(e["rule"] == "16-big"
-                                 for e in validate_first_trial(solved.record, HistoryInput((), ()), rules_v220=True)))
+            big_today = _big_rest_ids(solved.record)
+            self.assertTrue({"1", "5", "6"} <= big_today, big_today)
 
 
 class FlexActualModeTests(unittest.TestCase):
