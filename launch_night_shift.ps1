@@ -99,6 +99,11 @@ try {
         throw '60초 안에 Streamlit 서버가 준비되지 않았습니다.'
     }
     Assert-OurListener
+    # 홈 화면 앱(PWA) 설치용 파일 서버 127.0.0.1:8510 (2026-10-22). 이미 떠 있으면 그대로.
+    if (-not (Get-NetTCPConnection -LocalPort 8510 -State Listen -ErrorAction SilentlyContinue)) {
+        Start-Process -FilePath $python -ArgumentList @("`"$(Join-Path $projectDir 'pwa_server.py')`"") `
+            -WorkingDirectory $projectDir -WindowStyle Hidden | Out-Null
+    }
     if ($NoBrowser) {
         Write-Host "서버를 켰습니다 (브라우저 열지 않음): $browserUrl"
     } else {

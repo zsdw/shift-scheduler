@@ -15,6 +15,16 @@ import pandas as pd
 import streamlit as st
 import streamlit.components.v1 as components
 
+import pwa_server                      # 홈 화면 앱 설치용 파일 서버(127.0.0.1:8510, 2026-10-22) — 이미 떠 있으면 그대로
+
+
+@st.cache_resource(show_spinner=False)
+def _start_pwa_server() -> bool:         # 화면을 다시 그릴 때마다가 아니라 앱 프로세스당 한 번
+    return pwa_server.start()
+
+
+_start_pwa_server()
+
 # Streamlit reruns app.py inside the existing server process.  Reload the local
 # dependency graph once when an already-running v2.13 server sees the v2.15
 # model, so the desktop user does not have to kill the server manually.

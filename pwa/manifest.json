@@ -1,0 +1,16 @@
+{
+  "name": "보안팀 근무표",
+  "short_name": "근무표",
+  "id": "/pwa/",
+  "start_url": "/pwa/",
+  "scope": "/pwa/",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#0E1117",
+  "theme_color": "#0E1117",
+  "icons": [
+    {"src": "/pwa/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any"},
+    {"src": "/pwa/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any"},
+    {"src": "/pwa/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable"}
+  ]
+}
