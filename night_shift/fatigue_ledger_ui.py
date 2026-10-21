@@ -1,7 +1,24 @@
 """PC·폰 공통 장부 표시. 후보/보기 변경은 저장된 실제 장부에 적립하지 않는다."""
 from datetime import timedelta
+from html import escape
 import streamlit as st
 from . import fatigue_ledger as ledger
+
+
+def _table(rows, columns):
+    """좁은 화면에서도 한 사람을 한 행으로 비교한다."""
+    head = ''.join(f'<th scope="col">{escape(label)}</th>' for _, label in columns)
+    body = ''.join('<tr>' + ''.join(
+        f'<td>{escape(str(row[field]))}</td>' for field, _ in columns) + '</tr>'
+        for row in rows)
+    return ('<style>.fatigue-ledger{width:100%;max-width:760px;table-layout:fixed;'
+            'border-collapse:collapse;font-size:clamp(11px,2.9vw,14px);font-variant-numeric:tabular-nums}'
+            '.fatigue-ledger th,.fatigue-ledger td{text-align:center;padding:8px 2px;'
+            'border-bottom:1px solid #94a3b833;overflow-wrap:anywhere}'
+            '.fatigue-ledger th{background:#3182f610;font-weight:600}'
+            '.fatigue-ledger td:first-child{font-weight:600}'
+            '</style><table class="fatigue-ledger"><thead><tr>' + head +
+            '</tr></thead><tbody>' + body + '</tbody></table>')
 
 
 def render(store, day, kind='night', current=None, key='main'):
@@ -30,17 +47,20 @@ def render(store, day, kind='night', current=None, key='main'):
     import mobile_ui
     mobile = mobile_ui.is_mobile()
     if mobile:
-        for row in rows:
-            st.markdown(f"**{row['근무자']}** · 이전 {row['이전 잔액']} → 예상 {row['적용 후 예상']}\n\n"
-                        f"이 표 증감 {row['이 표 증감']} · 실제 저장 잔액 {row['실제 저장 잔액']}")
+        st.markdown(_table(rows, [('근무자', '근무자'), ('이전 잔액', '이전'),
+                    ('이 표 증감', '증감'), ('적용 후 예상', '예상'),
+                    ('실제 저장 잔액', '실제 저장')]), unsafe_allow_html=True)
     else:
         st.dataframe(rows, hide_index=True, width='stretch', key=f'ledger_{kind}_{day}_{key}_totals')
     st.caption('후보를 다시 생성해도 적립되지 않습니다. 실제 저장 잔액은 선택일까지 확정한 기록만 반영하며, '
                '과거 기록 수정·삭제·복구 시 다시 계산됩니다. 이 표 증감과 예상은 현재 배정의 미리보기입니다.')
     with st.expander(f'장부 날짜별 내역 · {title}', expanded=False):
         if mobile:
-            for e in entries[-60:]:
-                st.caption(f"{e['day']} {e['name']} · 당일 {fmt(e['delta'])} · 당시 잔액 {fmt(e['balance'])}")
+            detail = [{'날짜': e['day'].strftime('%m/%d'), '근무자': e['name'],
+                       '당일 손해': fmt(e['delta']), '당시 잔액': fmt(e['balance'])}
+                      for e in entries[-60:]]
+            st.markdown(_table(detail, [('날짜', '날짜'), ('근무자', '근무자'),
+                        ('당일 손해', '당일 증감'), ('당시 잔액', '당시 잔액')]), unsafe_allow_html=True)
             if len(entries) > 60:
                 st.caption('화면에는 최근 60건만 표시하며 잔액은 전체 기간을 반영합니다.')
         else:
