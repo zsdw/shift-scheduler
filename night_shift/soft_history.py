@@ -8,13 +8,18 @@ from .models import AssignmentKind, RecordKind, barrier_history_counts
 TRACKED_SOFT_RULES = ("H-06-1", "H-06", "H-08", "15-7", "14-7")
 
 
+def recent_six_records(records, before):
+    """편성일 전 저장된 실제 야간 최근 6근무(최근 3싸이클) — 휴게 순번 동점 기준이 함께 쓴다."""
+    return sorted((r for r in records if r.context.shift_start_date < before
+                   and r.kind == RecordKind.ACTUAL and r.confirmed_at is not None),
+                  key=lambda r: r.context.shift_start_date)[-6:]
+
+
 def recent_six_fatigue_averages(records, before):
     """최근 실제 6근무 평균: 화면과 같이 반차·이탈은 당일 일반 평균 대입."""
     from .service import calculate_all_stats
     totals = defaultdict(list)
-    recent = sorted((r for r in records if r.context.shift_start_date < before
-                     and r.kind == RecordKind.ACTUAL and r.confirmed_at is not None),
-                    key=lambda r: r.context.shift_start_date)[-6:]
+    recent = recent_six_records(records, before)
     for record in recent:
         stats = calculate_all_stats(record)
         full = [Fraction(str(p.fatigue_value)) for p in stats.values()
@@ -27,15 +32,19 @@ def recent_six_fatigue_averages(records, before):
     return {pid: sum(values) / len(values) for pid, values in totals.items()}
 
 
-def rest_tie_groups(group, averages):
-    """동일 순번 안에서만 높은 평균 우선(2026-10-22 사용자 확정 — 10/21 '낮은 평균'에서 변경: 최근 3싸이클
-    피로도를 더 받은 사람이 휴게 혜택을 먼저). 기록 없는 사람이 섞이면 기존 목표로 결정."""
-    if any(p not in averages for p in group):
+def rest_tie_groups(group, averages, counts=None):
+    """동일 순번 안의 우선 묶음(앞 묶음부터 먼저 받음).
+    2026-10-22 사용자 확정: ① 최근 3싸이클(6근무) 수혜 횟수 적은 사람 먼저(counts) → ② 평균 피로도 높은 사람 먼저
+    (10/21 '낮은 평균'에서 변경). 평균 기록 없는 사람이 섞이면 ②는 쓰지 않는다. 마지막(가장 뒤) 묶음은 반환하지 않는다."""
+    use_average = all(p in averages for p in group)
+    if counts is None and not use_average:
         return []
-    values = sorted({averages[p] for p in group}, reverse=True)
+    def key(p):
+        return ((counts.get(p, 0) if counts is not None else 0), (-averages[p] if use_average else 0))
+    values = sorted({key(p) for p in group})
     if len(values) < 2:
         return []
-    return [[p for p in group if averages[p] == value] for value in values[:-1]]
+    return [[p for p in group if key(p) == value] for value in values[:-1]]
 
 
 def debt_weight(debt, rule, employee_id):

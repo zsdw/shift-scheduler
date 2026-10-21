@@ -19,6 +19,13 @@ class RestAverageTieTests(unittest.TestCase):
         self.assertEqual(rest_tie_groups(['1', '3'], av), [])
         self.assertEqual(rest_tie_groups(['1', '4'], av), [])
 
+    def test_recent_receipt_count_first_then_higher_average(self):
+        # 2026-10-22 사용자 확정(11/14 사례): 수혜 횟수 적은 사람 → 평균 높은 사람
+        av = {'만년': Fraction(27, 2), '제욱': Fraction(41, 3), '광희': Fraction(83, 6), '성호': Fraction(27, 2)}
+        counts = {'만년': 4, '제욱': 3, '광희': 3, '성호': 2}
+        self.assertEqual(rest_tie_groups(['만년', '제욱', '광희', '성호'], av, counts), [['성호'], ['광희'], ['제욱']])
+        self.assertEqual(rest_tie_groups(['1', '2'], {}, {'1': 1, '2': 0}), [['2']])   # 평균 없으면 횟수만
+
     def test_only_six_actual_records_before_target(self):
         records = [_record(date(2026, 10, d)) for d in range(4, 12)]
         records = [replace(r, assignments=tuple(
