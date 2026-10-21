@@ -61,6 +61,36 @@ class BigRestRotationTests(unittest.TestCase):
         self.assertEqual(four_stage["value"], 0)
         stages = [a.get("stage") for a in self.n1.solve_result.attempts if isinstance(a, dict)]
         self.assertLess(stages.index("four_hour_runs"), stages.index("big_rest_max"))
+        # 2026-10-22 사용자 확정: 입식 3연속 회피가 대폭 휴게보다 먼저
+        self.assertLess(stages.index("standing_triples"), stages.index("big_rest_max"))
+
+    def test_standing_triples_counted_in_every_window(self):
+        # 2026-10-22 버그 수정: 종전엔 05~07시 구간만 셌다. 이제 하루 모든 3시간 구간을 센다.
+        from night_shift.models import Posture
+        rows = {(r.employee_id, r.slot.index): r for r in self.n1.record.assignments}
+        people = {p for p, _ in rows}
+        from night_shift.models import AssignmentKind
+        stand = lambda p, t: (rows[(p, t)].actual_work_time_value == 1 and rows[(p, t)].posture_or_mode == Posture.STANDING  # noqa: E731
+                              and rows[(p, t)].actual_post_or_work_type.kind != AssignmentKind.PATROL)   # 순찰 미포함(10/22)
+        count = sum(all(stand(p, t) for t in range(s, s + 3)) for p in people for s in range(12))
+        stage = next(a for a in self.n1.solve_result.attempts if a.get("stage") == "standing_triples")
+        self.assertEqual(stage["value"], count)
+        self.assertEqual(count, 0)                                 # 결원 0명 평일 전날: 입식 3연속 없이 가능
+
+    def test_two_standing_plus_patrol_is_not_standing_triple(self):
+        # 2026-10-22 사용자 확정: 입식 3연속 회피는 순찰 미포함 (실제 수정 비고의 강한 권장 판정도 같은 기준)
+        from night_shift.actual_edit import strong_soft_checks
+        from night_shift.profiles import make_record
+        rec = self.n1.record
+        p = "1"
+
+        def with_cells(labels):
+            cells = {(p, t): make_record(rec.context, p, t, label, patrol_standing=True) for t, label in labels}
+            return replace(rec, assignments=tuple(cells.get((r.employee_id, r.slot.index), r) for r in rec.assignments))
+        triple = lambda r: [c for c in strong_soft_checks(r) if c["rule"] == "H-06" and c["detail"] == "입식 3시간 연속"  # noqa: E731
+                            and c["time"] == "21시~23시"]
+        self.assertEqual(triple(with_cells([(2, "휴게"), (3, "G2"), (4, "G2"), (5, "upper"), (6, "휴게")])), [])
+        self.assertTrue(triple(with_cells([(2, "휴게"), (3, "G2"), (4, "G2"), (5, "G2"), (6, "휴게")])))
 
     def test_last_rest_and_big_rest_same_day_is_allowed(self):
         # 2026-10-21 사용자 확정: 막타임·대폭 휴게 같은 날 동시 금지(16-big) 삭제

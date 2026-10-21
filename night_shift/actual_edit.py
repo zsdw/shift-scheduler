@@ -292,9 +292,9 @@ def strong_soft_checks(record: ShiftRecord) -> list[dict]:
     for person, rows in by.items():
         work = [bool(r and (r.actual_work_time_value == 1 or r.actual_post_or_work_type.kind == K.PATROL)) for r in rows]
         rest = [bool(r and r.actual_rest_time_value == 1) for r in rows]
-        posture = [r.posture_or_mode if r and work[i] else None for i, r in enumerate(rows)]
-        posture = [Posture.STANDING if r and r.actual_post_or_work_type.kind == K.PATROL else p
-                   for r, p in zip(rows, posture)]
+        # 입식·좌식 3연속은 포스트만 센다 — 순찰은 미포함(2026-10-22 사용자 확정, 입식2+순찰은 3연속 아님)
+        posture = [r.posture_or_mode if r and work[i] and r.actual_post_or_work_type.kind != K.PATROL else None
+                   for i, r in enumerate(rows)]
         for s in range(12):
             for kind, text in ((Posture.STANDING, "입식 3시간 연속"), (Posture.SEATED, "좌식 3시간 연속")):
                 if all(p == kind for p in posture[s:s + 3]) and not (s > 0 and posture[s - 1] == kind):

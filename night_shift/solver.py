@@ -1262,16 +1262,26 @@ def solve_first_trial(context, history: HistoryInput, seconds=30, *, compensatio
                         actual_five.append(flag)
                 objectives.append(("rest_4plus_windows",sum(rest_four)))
                 objectives.append(("actual_work_5plus_windows",sum(actual_five)))
-                posture_triples = []
+                posture_triples = {Posture.STANDING: [], Posture.SEATED: []}
                 for p in people:
                     for posture in (Posture.STANDING, Posture.SEATED):
                         for start in range(12):
-                            n = sum(expression(p, j, lambda r: r.actual_work_time_value == 1 and r.posture_or_mode == posture) for j in range(start, start + 3))
+                            # 2026-10-22 사용자 확정: 입식 3연속은 순찰 미포함(입식 포스트만, 입식2+순찰은 세지 않음).
+                            # 입식→순찰→입식은 별도 하드(H-11)로 그대로.
+                            n = sum(expression(p, j, lambda r: r.actual_work_time_value == 1 and r.posture_or_mode == posture
+                                               and not (rules_v220 and r.actual_post_or_work_type.kind == K.PATROL))
+                                    for j in range(start, start + 3))
                             flag = model.new_bool_var(f"v212_posture_triple_{p}_{posture}_{start}")
                             model.add(n == 3).only_enforce_if(flag)
                             model.add(n <= 2).only_enforce_if(flag.Not())
-                        posture_triples.append(debt_weight(soft_debt, "H-06", p) * flag if rules_v213 else flag)
-                objectives.append(("same_posture_triples", sum(posture_triples)))
+                            # 2026-10-22 버그 수정: 종전엔 이 줄이 구간 반복 밖이라 마지막 05~07시 구간만 셌다
+                            posture_triples[posture].append(debt_weight(soft_debt, "H-06", p) * flag if rules_v213 else flag)
+                if rules_v220:
+                    # 2026-10-22 사용자 확정: 입식 3연속 회피는 대폭 휴게(16-1)보다 먼저 — 아래 순서 조립에서 대폭 휴게 앞으로 옮긴다.
+                    objectives.append(("standing_triples", sum(posture_triples[Posture.STANDING])))
+                    objectives.append(("seated_triples", sum(posture_triples[Posture.SEATED])))
+                else:
+                    objectives.append(("same_posture_triples", sum(posture_triples[Posture.STANDING] + posture_triples[Posture.SEATED])))
                 if previous_install_ids or previous_remove_ids:
                     recent_role_reversal = sum(expression(p,10,lambda r:r.barrier_remove_flag) for p in previous_install_ids if p in people)
                     recent_role_reversal += sum(expression(p,2,lambda r:r.barrier_install_flag) for p in previous_remove_ids if p in people)
@@ -1725,6 +1735,12 @@ def solve_first_trial(context, history: HistoryInput, seconds=30, *, compensatio
                 placed = {id(o) for o in front_goals + turn_goals + balance_goals + ledger_goals}
                 other_goals = [o for o in objectives if id(o) not in placed]
                 objectives = front_goals + turn_goals + balance_goals + ledger_goals + other_goals
+            # 입식 3연속 회피(H-06) → 대폭 휴게(최대 인원·순번) 바로 앞 (2026-10-22 사용자 확정: 대폭 휴게자가 줄어도
+            # 입식 3연속을 먼저 피하고, 못 받는 사람은 대폭 휴게 순번으로 정한다). 대폭 휴게 목표가 없는 날은 제자리.
+            big_at = next((i for i, o in enumerate(objectives) if o[0].startswith("big_rest_")), None)
+            standing_at = next((i for i, o in enumerate(objectives) if o[0] == "standing_triples"), None)
+            if big_at is not None and standing_at is not None and standing_at > big_at:
+                objectives.insert(big_at, objectives.pop(standing_at))
             for objective_name, objective in objectives:
                 model.minimize(objective)
                 cap = STAGE_TIME_CAPS.get(objective_name, float(seconds))
