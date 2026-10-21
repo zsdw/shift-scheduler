@@ -28,10 +28,11 @@ def recent_six_fatigue_averages(records, before):
 
 
 def rest_tie_groups(group, averages):
-    """동일 순번 안에서만 낮은 평균 우선. 기록 없는 사람이 섞이면 기존 목표로 결정."""
+    """동일 순번 안에서만 높은 평균 우선(2026-10-22 사용자 확정 — 10/21 '낮은 평균'에서 변경: 최근 3싸이클
+    피로도를 더 받은 사람이 휴게 혜택을 먼저). 기록 없는 사람이 섞이면 기존 목표로 결정."""
     if any(p not in averages for p in group):
         return []
-    values = sorted({averages[p] for p in group})
+    values = sorted({averages[p] for p in group}, reverse=True)
     if len(values) < 2:
         return []
     return [[p for p in group if averages[p] == value] for value in values[:-1]]

@@ -1,4 +1,4 @@
-"""2026-10-20 사용자 확정: 하루 종일 준호 대행(A 결근)은 준호 피로도 = 일반근무자 중 최저(하드, 결원 0·1·2 공통),
+"""2026-10-20 사용자 확정: 하루 종일 준호 대행(A 결근)은 준호 피로도 = 일반근무자 중 최저(하드, 결원 0·1·2 공통 — 10/22부터 각 일반근무자보다 1~2점 낮게),
 결원 2명 날 통제A 하대 금지(통제A ≤ 일반근무자 최고, 하드), 대행 날 2회 순찰 관리자 선호 없음, 장부에 대행 준호 적립."""
 import unittest
 from dataclasses import replace
@@ -51,15 +51,21 @@ class ProxyLowestTests(unittest.TestCase):
         f = fatigue(result)
         return [f[p] for p in NAMES if p not in exclude and p in f]
 
+    # 2026-10-22 사용자 확정: 하루 종일 대행 준호 = 각 일반근무자보다 1~2점 낮게(동점 금지)
     def test_full_day_proxy_is_lowest_with_two_vacancies(self):
         r = self.vac2
         self.assertTrue(r.valid, (r.solve_result.status, r.validation_errors))
-        self.assertLessEqual(fatigue(r)["6"], min(self.general_fatigue(r, ("2", "6"))))
+        self.assertTrue(all(1 <= g - fatigue(r)["6"] <= 2 for g in self.general_fatigue(r, ("2", "6"))), fatigue(r))
 
     def test_full_day_proxy_is_lowest_without_vacancy(self):
         r = self.vac0
         self.assertTrue(r.valid, (r.solve_result.status, r.validation_errors))
-        self.assertLessEqual(fatigue(r)["6"], min(self.general_fatigue(r, ("6",))))
+        self.assertTrue(all(1 <= g - fatigue(r)["6"] <= 2 for g in self.general_fatigue(r, ("6",))), fatigue(r))
+
+    def test_full_day_proxy_03_rest_goal_after_04(self):
+        stages = [a.get("stage") for a in self.vac0.solve_result.attempts if isinstance(a, dict)]
+        self.assertLess(stages.index("manager_04_rest"), stages.index("proxy_03_rest"))
+        self.assertLess(stages.index("proxy_03_rest"), stages.index("manager_0506_work"))
 
     def test_validator_rejects_proxy_above_lowest(self):
         r = self.vac2

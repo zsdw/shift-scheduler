@@ -206,7 +206,7 @@ def history_influence_lines(record, stats, prepared=None, manual: bool = False) 
             return big_rest({(x.employee_id, x.slot.index) for x in r.assignments if x.actual_rest_time_value == 1}, pid)
         parts = [wait_text(pid, lambda r, pid=pid: got_big(r, pid)) for pid in big_today]
         out.append("대폭 휴게(23시~07시 전 3시간 이상 연속 휴게): 가능한 많은 사람에게, 오래 기다린 순서대로 "
-                   + ", ".join(parts) + "에게 오늘 줬습니다(하층 순번 다음 우선 · 같은 순번은 최근 3싸이클 평균 피로도 낮은 사람 우선).")
+                   + ", ".join(parts) + "에게 오늘 줬습니다(하층 순번 다음 우선 · 같은 순번은 최근 3싸이클 평균 피로도 높은 사람 우선).")
     rates = getattr(prepared, "duty_rates", None) or {}
     for metric, label in (("upper", "상층 순찰"), ("middle", "중층 순찰")):
         table = rates.get(metric) or {}
@@ -269,7 +269,7 @@ def last_rest_lines(record, stats, prepared=None, manual: bool = False) -> list[
                 x.employee_id==p.employee_id and x.slot.index==13 and x.actual_rest_time_value==1 for x in r.assignments)]
             previous=max(received).strftime('%m/%d') if received else '저장 이력에 없음'
             why = f"이번 이전 마지막 수혜 {previous}"
-            why += " · 같은 순번은 최근 3싸이클 평균 피로도 낮은 사람 우선"
+            why += " · 같은 순번은 최근 3싸이클 평균 피로도 높은 사람 우선"
         else:
             why = "07시 포스트를 채우고 남는 인원 중 하드룰·밸런스를 지키는 배정"
         lines.append(f"{_name(p)}({why})")

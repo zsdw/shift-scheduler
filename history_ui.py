@@ -974,7 +974,7 @@ def last_rest_table_html(shift_date: date, current=None) -> str:
         cells += [f"<td>{'🛌' if p in rest else ''}</td>" for _, _, rest in nights]
         rows.append("<tr>" + "".join(cells) + "</tr>")
     verdict = ("배정 기준: 직전 출근 수혜자 제외 · 한 번도 안 받은 사람 먼저, 그다음 마지막 수혜 뒤 본인 출근이 많은 사람 · "
-               "같은 순번은 최근 3싸이클 평균 피로도 낮은 사람 우선 · "
+               "같은 순번은 최근 3싸이클 평균 피로도 높은 사람 우선 · "
                + f"표에 표시된 수혜 횟수 차이 {gap}회 · "
                + ("연속 수혜 없음" if not repeats else "연속 수혜: " + ", ".join(repeats)))
     return (css + f"<div style='font-size:.85rem;margin:2px 0 4px'>{escape(verdict)}</div>"
@@ -1042,7 +1042,7 @@ def big_rest_table_html(shift_date: date, current=None) -> str:
     rows = ["<tr>" + f"<td class='name'>{escape(names[p])}</td>"
             + "".join(f"<td>{'🛌' if p in big else ''}</td>" for _, _, big in nights) + "</tr>" for p in people]
     verdict = ("배정 기준: 가능한 많은 사람에게 → 한 번도 안 받은 사람 먼저, 그다음 마지막 수혜 뒤 본인 출근이 많은 사람 · "
-               "같은 순번은 최근 3싸이클 평균 피로도 낮은 사람 우선 · "
+               "같은 순번은 최근 3싸이클 평균 피로도 높은 사람 우선 · "
                f"막타임(07시)과는 따로 순번 · 표에 표시된 수혜 횟수 차이 {gap}회")
     return (css + f"<div style='font-size:.85rem;margin:2px 0 4px'>{escape(verdict)}</div>"
             + "<table class='lastrest'><tr>" + head + "</tr>" + "".join(rows) + "</table>"

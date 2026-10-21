@@ -271,6 +271,22 @@ def validate_first_trial(record, history, *, refinement=False, rules_v22=False, 
                 per_post[key] = per_post.get(key, 0) + 1
         for (p, post), n in sorted(per_post.items()):
             check(n <= 3, "H-17", f"Same post more than three times {p}/{post}/{n}")
+    if rules_v220:                                       # H-21 (2026-10-22): 연속 4시간 안 같은 포스트(표시) 최대 2번
+        locked_h21 = {(str(p), int(t)) for p, t in locked_cells}
+        family = {}
+        for r in record.assignments:
+            if r.displayed_assignment.kind != K.POST:
+                continue
+            if c.night_type in (NightType.N1, NightType.N2) and r.slot.index == 0 and r.employee_id == managers[0]:
+                continue                                 # 평일 시작 18시 관리자 L3는 표기만(6-1)
+            family[r.employee_id, r.slot.index] = r.displayed_assignment.label.partition("(")[0]
+        for p in {key[0] for key in family}:
+            for start in range(11):
+                cells = [(p, t) for t in range(start, start + 4)]
+                for post in {family.get(cell) for cell in cells} - {None}:
+                    same = [cell for cell in cells if family.get(cell) == post]
+                    if len(same) >= 3 and not all(cell in locked_h21 for cell in same):
+                        check(False, "H-21", f"Same post 3+ times within 4 hours {p}/{post}/{start}")
     # 6-2-1 [하드, 2026-10-05]: 주말 시작(N3/N4) 통제A(관리자대행 아님) 18시 휴게 고정. 재편성은 LOCK 과거라 보지 않는다.
     if rules_v220 and not reoptimization and c.night_type in (NightType.N3, NightType.N4) and managers == ["A"]:
         first = next((r for r in record.assignments if r.employee_id == "A" and r.slot.index == 0), None)
@@ -716,9 +732,9 @@ def validate_first_trial(record, history, *, refinement=False, rules_v22=False, 
                               f"Leaving manager standing triple inside a four-hour run: {t}")
         manager_day_fatigue = sum(facts[manager, t]["fatigue"] for t in range(14))
         if rules_v220 and manager_is_proxy and not proxy_handover and full_fatigue:
-            # [하드, 2026-10-20 사용자 확정] 하루 종일 준호 대행(A 결근)도 준호 피로도 = 일반근무자 중 최저(동점 허용)
-            check(manager_day_fatigue <= min(full_fatigue), "대행준호-최저피로도",
-                  f"Full-day proxy fatigue must be the lowest: {manager_day_fatigue}/{min(full_fatigue)}")
+            # [하드, 2026-10-22 사용자 확정] 하루 종일 준호 대행(A 결근): 준호 피로도 = 각 일반근무자보다 1~2점 낮음(동점 금지)
+            check(all(1 <= f - manager_day_fatigue <= 2 for f in full_fatigue), "대행준호-최저피로도",
+                  f"Full-day proxy fatigue must be 1-2 below every general: {manager_day_fatigue}/{sorted(full_fatigue)}")
         if rules_v220 and manager == "A" and not manager_is_proxy and manager_vacancy_policy and full_fatigue:
             # [하드, 2026-10-20 사용자 확정] 결원 2명 날 관리자 하대 금지: 통제A ≤ 일반근무자 최고
             check(manager_day_fatigue <= max(full_fatigue), "관리자-하대금지",
