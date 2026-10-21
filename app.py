@@ -1675,26 +1675,19 @@ def render_balance_notes(reasons: list[str], monthly_rows: list[dict], duties=No
         tables = {"last_rest": last_rest_table_html(shift_date, record),
                   "big_rest": big_rest_table_html(shift_date, record)}
     has_duties = duties is not None and not duties.empty
-    if groups["rotation"] or any(tables.values()) or has_duties:
+    if any(tables.values()) or has_duties:
+        # 2026-10-22 사용자 확정: 이름만 한 줄(설명 문장 없음), 누르면 배정 기준 + 최근 3싸이클 표만
         st.markdown("**🔄 순번으로 정한 것**")
-        shown = set()
-        for key in ("last_rest", "big_rest"):
-            for kind, line in groups["rotation"]:
-                if kind == key:
-                    _rotation_box(line, tables.get(key))
-                    shown.add(key)
-            if key not in shown and tables.get(key):
-                _rotation_box("막타임(07시) 휴게 — 최근 3싸이클 표" if key == "last_rest"
-                              else "대폭 휴게(23시~07시 전 3시간 이상 연속 휴게) — 최근 3싸이클 표", tables[key])
-        for kind, line in groups["rotation"]:
-            if kind in ("barrier", "patrol"):
-                st.markdown("- " + line.replace("~", "\\~"))
+        if tables.get("last_rest"):
+            _rotation_box("마지막 휴게(07시)", tables["last_rest"])
+        if tables.get("big_rest"):
+            _rotation_box("대폭 휴게", tables["big_rest"])
         if has_duties:
-            _rotation_box("차단봉·순찰 — 최근 3싸이클 표", duty_grid_html(duties),
-                          "차단봉 집계는 2026년 10월 4일 야간부터. 합계 열은 이번 근무를 뺀 최근 6근무 기준입니다. 상층·중층 순찰은 "
-                          "이 6근무에서 밤당 덜 맡은 사람에게, 차단봉은 마지막으로 설치·철수한 뒤 본인 출근이 많은 사람(안 해 본 "
-                          "사람 먼저)에게, 하층 순찰은 마지막 하층 뒤 다른 층 순찰 3회 이상(공휴일 주간 포함)인 사람 중 마지막 "
-                          "하층이 오래된 사람에게 먼저 줍니다.")
+            _rotation_box("차단봉·순찰", duty_grid_html(duties),
+                          "배정 기준: 차단봉은 안 해 본 사람 먼저, 그다음 마지막으로 설치·철수한 뒤 본인 출근이 많은 사람 · "
+                          "상층·중층 순찰은 최근 6근무에서 밤당 덜 맡은 사람 · 하층 순찰은 마지막 하층 뒤 다른 층 순찰 3회 이상"
+                          "(공휴일 주간 포함)인 사람 중 마지막 하층이 오래된 사람 · 차단봉 집계는 10/04 야간부터, 합계 열은 "
+                          "이번 근무를 뺀 최근 6근무.")
 
     if groups["rule"]:
         st.markdown("**🛡 규칙 때문에 바뀐 것**")

@@ -70,12 +70,13 @@ class NotesLayoutTests(unittest.TestCase):
                 at.run()
                 self.assertFalse(at.exception, [e.value for e in at.exception])
                 text = " ".join(m.value for m in at.markdown)
-                for heading in ("📌 오늘 한눈에", "🔄 순번으로 정한 것", "🛡 규칙 때문에 바뀐 것"):
+                for heading in ("📌 오늘 한눈에", "🛡 규칙 때문에 바뀐 것"):
                     self.assertIn(heading, text)
                 self.assertNotIn("반영했습니다", text)
+                # 2026-10-22: 순번 묶음은 이름만(설명 문장 없음), 누르면 배정 기준 + 표
+                self.assertNotIn("오래 기다린 순서대로", text)
                 labels = [e.label for e in at.expander]
-                self.assertTrue(any(label.startswith("마지막 휴게(07시)") for label in labels) or
-                                "마지막 휴게(07시)" in text)
+                self.assertFalse(any("오래 기다린" in label for label in labels))
                 toggle = next(t for t in at.toggle if t.label.startswith("⚖️ 밸런스 자세히"))
                 self.assertNotIn("피로도: 합계 82점", text)                 # 계산 설명은 스위치 안
                 toggle.set_value(True).run()
