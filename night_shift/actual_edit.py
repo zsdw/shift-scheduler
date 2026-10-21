@@ -21,7 +21,7 @@ from __future__ import annotations
 from dataclasses import replace
 
 from .models import Assignment, AssignmentKind as K, NightType, Posture, ShiftRecord, barrier_single
-from .profiles import make_record, options_for
+from .profiles import make_record
 
 HOUR = lambda t: f"{(18 + t) % 24:02d}시"  # noqa: E731
 
@@ -31,13 +31,14 @@ def _rows(record):
 
 
 def _rebuild(record: ShiftRecord, employee_id: str, slot: int, source) -> object:
-    """Row for (employee, slot) doing what ``source`` displayed."""
+    """Row for (employee, slot) doing what ``source`` displayed.
+
+    2026-10-21 사용자 확정: 실제 근무 수정은 규칙으로 막지 않는다 — 그 시간에 운영하지 않는 포스트도 옮길 수 있고,
+    피로도·실근무는 옮겨 간 시간 기준으로 다시 계산한다. 차단봉 담당은 10/09 이후 날짜면 교환 뒤 _rebarrier가 정한다."""
     label = source.displayed_assignment.label
-    allowed = {r.displayed_assignment.label for r in options_for(record.context, employee_id, slot,
-                                                                 patrol_standing=True)}
-    if label not in allowed:
-        raise ValueError(f"{HOUR(slot)}에는 '{label}' 근무가 없어서 옮길 수 없습니다.")
-    install, remove = source.barrier_install_flag, source.barrier_remove_flag
+    single = barrier_single(record.context)
+    install = False if single else source.barrier_install_flag
+    remove = False if single else source.barrier_remove_flag
     if (install and slot != 2) or (remove and slot != 10):
         raise ValueError("차단봉 설치·철수는 정해진 시간(20시·04시) 밖으로 옮길 수 없습니다.")
     try:
@@ -45,6 +46,20 @@ def _rebuild(record: ShiftRecord, employee_id: str, slot: int, source) -> object
                            patrol_standing=True)
     except ValueError as exc:
         raise ValueError(f"{HOUR(slot)} '{label}' 배치를 만들 수 없습니다: {exc}") from exc
+
+
+def _rebarrier(record: ShiftRecord, rows: dict, slots) -> None:
+    """15-0 단독 담당(10/09 야간부터): 바뀐 표에서 20시 G2(없으면 I1) 근무자가 설치, 04시 I1 근무자가 철수."""
+    for slot in {s for s in slots if s in (2, 10)}:
+        at = [k for k in rows if k[1] == slot and rows[k].displayed_assignment.kind != K.UNAVAILABLE]
+        labels = {rows[k].displayed_assignment.label for k in at}
+        want = ("G2" if "G2" in labels else "I1") if slot == 2 else "I1"
+        holder = next((k for k in sorted(at) if rows[k].displayed_assignment.label == want), None)
+        for k in at:
+            r, flag = rows[k], k == holder
+            if (r.barrier_install_flag if slot == 2 else r.barrier_remove_flag) != flag:
+                rows[k] = make_record(record.context, k[0], slot, r.displayed_assignment.label,
+                                      install=flag and slot == 2, remove=flag and slot == 10, patrol_standing=True)
 
 
 def _swap(record: ShiftRecord, a, b) -> ShiftRecord:
@@ -56,6 +71,8 @@ def _swap(record: ShiftRecord, a, b) -> ShiftRecord:
     new_a = _rebuild(record, ka[0], ka[1], rb)
     new_b = _rebuild(record, kb[0], kb[1], ra)
     rows[ka], rows[kb] = new_a, new_b
+    if barrier_single(record.context):
+        _rebarrier(record, rows, (ka[1], kb[1]))
     return replace(record, assignments=tuple(rows[(r.employee_id, r.slot.index)] for r in record.assignments))
 
 
@@ -242,3 +259,82 @@ def actual_checks(record: ShiftRecord) -> list[dict]:
                 and rows[13].actual_rest_time_value != 1):
             add("8-3", manager, [13], "관리자 07시 휴게 아님 (07시 일반근무자 4명이면 8-3-1 허용)")
     return found
+
+
+ACCOUNTING_RULES = {"§3/§4", "§4/§6–§11"}      # 회계 재계산 차이(휴게성·피로도 주석 수정)는 규칙 위반이 아님
+
+
+def strong_soft_checks(record: ShiftRecord) -> list[dict]:
+    """강한 권장 이상 소프트 규칙만 (2026-10-21): H-06 입식·좌식 3연속, H-06-1 실휴게 4시간 연속,
+    H-08 4시간 연속 실제근무, 8-10-1 관리자 04시 실근무, 17-4 통제A 00시 이후 연속 휴게 2시간 없음."""
+    names = {e.employee_id: e.name for e in record.context.employees}
+    present = {a.employee_id: a for a in record.context.attendance if a.present}
+    manager = next((p for p, a in present.items() if a.acts_as_manager), None)
+    by = {}
+    for r in record.assignments:
+        by.setdefault(r.employee_id, [None] * 14)[r.slot.index] = r
+    found = []
+
+    def add(rule, person, slots, text):
+        found.append({"rule": rule, "person": names.get(person, person),
+                      "time": f"{HOUR(slots[0])}~{HOUR(slots[-1])}" if len(slots) > 1 else HOUR(slots[0]),
+                      "detail": text})
+
+    for person, rows in by.items():
+        work = [bool(r and (r.actual_work_time_value == 1 or r.actual_post_or_work_type.kind == K.PATROL)) for r in rows]
+        rest = [bool(r and r.actual_rest_time_value == 1) for r in rows]
+        posture = [r.posture_or_mode if r and work[i] else None for i, r in enumerate(rows)]
+        posture = [Posture.STANDING if r and r.actual_post_or_work_type.kind == K.PATROL else p
+                   for r, p in zip(rows, posture)]
+        for s in range(12):
+            for kind, text in ((Posture.STANDING, "입식 3시간 연속"), (Posture.SEATED, "좌식 3시간 연속")):
+                if all(p == kind for p in posture[s:s + 3]) and not (s > 0 and posture[s - 1] == kind):
+                    add("H-06", person, list(range(s, s + 3)), text)
+        for s in range(11):
+            if all(rest[s:s + 4]) and not (s > 0 and rest[s - 1]):
+                add("H-06-1", person, list(range(s, s + 4)), "실휴게 4시간 이상 연속")
+            if all(work[s:s + 4]) and not (s > 0 and work[s - 1]):
+                add("H-08", person, list(range(s, s + 4)), "4시간 연속 실제근무")
+    if manager:
+        rows = by.get(manager, [None] * 14)
+        if rows[10] and rows[10].actual_work_time_value == 1:
+            add("8-10-1", manager, [10], "관리자 04시 실근무")
+        if manager == "A" and not any(rows[t] and rows[t + 1] and rows[t].actual_rest_time_value == 1
+                                      and rows[t + 1].actual_rest_time_value == 1 for t in range(6, 13)):
+            add("17-4", manager, [6, 13], "통제A 00시 이후 연속 휴게 2시간 없음")
+    return found
+
+
+def edit_violations(plan: ShiftRecord, actual: ShiftRecord) -> list[str]:
+    """실제 근무 수정으로 새로 생긴 위반만 짧게 (최초 저장본에 없던 것, 하드·강한 권장만, 2026-10-21 사용자 확정).
+    실제 근무 저장은 막지 않는다 — 이 목록은 특이사항·비고 기록용."""
+    if plan.assignments == actual.assignments:
+        return []
+    from .models import HistoryInput
+    from .schedule_edit import explain_errors
+    from .validator import validate_first_trial
+
+    def hard(record):
+        try:
+            errors = validate_first_trial(record, HistoryInput((), ()), rules_v220=True)
+        except Exception:                     # 검사 실패가 화면·저장을 막지 않게
+            return {}
+        return {(e.get("rule"), str(e.get("detail"))): e for e in errors if e.get("rule") not in ACCOUNTING_RULES}
+
+    before, after = hard(plan), hard(actual)
+    new_hard = [e for k, e in after.items() if k not in before]
+    hints = {"H-18": "일반근무자 사이 실근무 시간 차이가 1시간을 넘습니다"}   # 화면에는 코드 대신 뜻만
+    lines = []
+    for error in new_hard:
+        text = explain_errors([error], actual.context)[0].split("] ", 1)[-1]
+        if error.get("rule") in hints:
+            text = text.replace("하드룰을 만족하지 못합니다", hints[error["rule"]])
+        lines.append(f"하드 · {text}")
+    lines = list(dict.fromkeys(lines))
+    old = {(c["rule"], c["person"], c["time"]) for c in strong_soft_checks(plan)}
+    soft = [c for c in strong_soft_checks(actual) if (c["rule"], c["person"], c["time"]) not in old]
+    # 같은 사람의 연속근무가 이미 하드로 적혔으면 4시간 연속 근무 권장 줄은 생략
+    hard_h08 = {line.split(": ")[0][5:] for line in lines if "연속근무 제한" in line}
+    lines += [f"강한 권장 · {c['person']} {c['time']} {c['detail']}" for c in soft
+              if not (c["rule"] == "H-08" and c["person"] in hard_h08)]
+    return lines

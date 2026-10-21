@@ -6,6 +6,7 @@ from datetime import date, datetime
 
 from night_shift import fatigue_ledger as ledger
 from night_shift.models import HistoryInput, Mode, NightType, RecordKind
+from night_shift.profiles import make_record
 from night_shift.service import HistorySelection, ShiftRequest, SolveOptions, StaffInput, calculate_all_stats, run_schedule
 from night_shift.validator import validate_first_trial
 
@@ -64,8 +65,13 @@ class ProxyLowestTests(unittest.TestCase):
         r = self.vac2
         f = fatigue(r)
         top = max((p for p in NAMES if p not in ("2", "6")), key=lambda p: f[p])
-        if f[top] > f["6"]:
-            self.assertIn("대행준호-최저피로도", rules(swap_rows(r.record, "6", top)))
+        # 맞바꾸기만 하면 차이 1점 표에서 검증기 재계산 기준 동점(허용)이 될 수 있어, 준호 휴게 1칸을 G2로 바꿔 확실히 최저 초과로 만든다
+        bad = swap_rows(r.record, "6", top)
+        rows = list(bad.assignments)
+        i = next(i for i, a in enumerate(rows)
+                 if a.employee_id == "6" and 1 <= a.slot.index <= 12 and a.actual_post_or_work_type.label == "휴게")
+        rows[i] = make_record(bad.context, "6", rows[i].slot.index, "G2")
+        self.assertIn("대행준호-최저피로도", rules(replace(bad, assignments=tuple(rows))))
         self.assertNotIn("대행준호-최저피로도", rules(r.record))
 
     def test_vacancy_day_manager_not_above_every_general(self):

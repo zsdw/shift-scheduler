@@ -1568,10 +1568,17 @@ def flexible_note_numbers(reasons: list[str], record) -> tuple[list[str], object
 
 
 def render_balance_notes(reasons: list[str], monthly_rows: list[dict], duties=None, shift_date=None, record=None,
-                         view_key: str | None = None, caption: str | None = None, extras=()) -> None:
-    """Page bottom: why someone gained or lost balance, and the monthly direction."""
+                         view_key: str | None = None, caption: str | None = None, extras=(),
+                         violations=()) -> None:
+    """Page bottom: why someone gained or lost balance, and the monthly direction.
+    violations: 실제 근무 수정으로 새로 생긴 하드·강한 권장 위반 (2026-10-21, 맨 위 짧은 줄, PC·폰 공통)."""
     st.divider()
     st.markdown("#### 📝 특이사항 · 비고")
+    if violations:
+        items = "".join(f"<li>{escape(line)}</li>" for line in violations)
+        st.markdown("<div style='border:1px solid #FDBA74;background:#FFF7ED;border-radius:8px;padding:6px 10px;"
+                    "margin-bottom:8px;font-size:.88rem'><b>⚠️ 실제 수정으로 생긴 규칙 위반</b>"
+                    f"<ul style='margin:2px 0 0 0;padding-left:18px'>{items}</ul></div>", unsafe_allow_html=True)
     if shift_date is not None:
         from night_shift.fatigue_ledger_ui import render as render_ledger
         render_ledger(store_dir(), shift_date, current=record)
@@ -2017,9 +2024,10 @@ def _night_page(mobile: bool, side, title_slot, badge_slot) -> None:
                 extras.append(("🔎 현재 규칙으로 참고 검사(업로드 원본은 생성 규칙 검사 대상 아님)",
                                (checked or ["현재 규칙 기준 위반 없음."])
                                + ([f"(업로드 당시 규칙으로 적힌 경고 {hidden}줄은 숨겼습니다.)"] if hidden else [])))
+            from night_shift.actual_edit import edit_violations    # 2026-10-21: 수정은 막지 않고 새 위반만 기록
             render_balance_notes(note_lines + body, monthly_rows,
                 duty_frame(shift_date, record), shift_date, record, view_key=f"saved_fmview_{shift_date}",
-                caption=caption, extras=extras)
+                caption=caption, extras=extras, violations=edit_violations(plan, record))
         return
     if not schedule_results:
         with badge_slot:

@@ -60,14 +60,18 @@ class HistoryTests(unittest.TestCase):
         self.assertTrue(i1 and all(r.actual_work_time_value == 0 and r.actual_rest_time_value == 1 for r in i1))
         self.assertIsInstance(actual_checks(relaxed), list)
 
-    def test_cross_hour_swap_rejects_impossible_moves(self):
+    def test_cross_hour_swap_is_allowed_and_recounted(self):
+        # 2026-10-21 사용자 확정: 실제 근무 수정은 규칙으로 막지 않는다(순찰 없는 시간으로 옮겨도 저장 가능, 피로도는 다시 계산)
         plan = self.base.record
         patroller = next(r.employee_id for r in plan.assignments
                          if r.slot.index == 7 and r.displayed_assignment.kind == AssignmentKind.PATROL)
         other = next(r.employee_id for r in plan.assignments
                      if r.slot.index == 0 and r.employee_id != patroller)
-        with self.assertRaises(ValueError):
-            apply_edits(plan, [{"type": "swap", "a": [patroller, 7], "b": [other, 0]}])
+        actual = apply_edits(plan, [{"type": "swap", "a": [patroller, 7], "b": [other, 0]}])
+        moved = next(r for r in actual.assignments if (r.employee_id, r.slot.index) == (other, 0))
+        self.assertEqual(moved.actual_post_or_work_type.kind, AssignmentKind.PATROL)
+        self.assertEqual(calculate_all_stats(actual)[other].fatigue_value,
+                         sum(r.fatigue_value for r in actual.assignments if r.employee_id == other))
 
     def test_cycle_weights_and_weighted_totals(self):
         self.assertEqual(history_store.cycle_weights(4), (0.25, 0.25, 0.25, 0.25))
