@@ -27,12 +27,25 @@ class LatestUploadReferenceTests(unittest.TestCase):
             source.publish_uploaded(store,book(value='2',days=(('26년10월11일(야)','C'),)),'new.xlsx')
             self.assertFalse(old.exists())
             with patch.object(source,'latest_file',side_effect=AssertionError('old folder fallback')):
-                self.assertEqual(source.reference_sources(store,date(2026,1,1)),{})
+                self.assertEqual(source.reference_sources(store,date(2026,1,1))['day']['team'],'B')   # 새 파일에 없는 날짜도 기억 (10/22)
                 self.assertEqual(source.reference_sources(store,date(2026,10,11))['night']['cells']['18']['G1'],'2')
             self.assertEqual(len(list((store/'source_files').iterdir())),1)
             snapshot=(store/'order_source'/source.UPLOAD_REFERENCE).read_bytes()
             with self.assertRaises(Exception):source.publish_uploaded(store,b'invalid','bad.xlsx')
             self.assertEqual((store/'order_source'/source.UPLOAD_REFERENCE).read_bytes(),snapshot)
+
+    def test_reference_remembers_all_dates_and_teams_across_uploads(self):
+        """모든 조 근무표를 다 기억 (2026-10-22 사용자 확정): 다른 파일에 있던 날짜·근무를 지우지 않고 쌓는다."""
+        with tempfile.TemporaryDirectory() as folder:
+            store=Path(folder)
+            source.publish_uploaded(store,book(days=(('26년10월22일(주)','C'),('26년10월22일(야)','A'))),'first.xlsx')
+            count=source.publish_uploaded(store,book(value='2',days=(('26년10월22일(야)','A'),('26년10월23일(주)','B'),('26년10월23일(야)','D'))),'second.xlsx')
+            self.assertEqual(count,2)
+            day22=source.reference_sources(store,date(2026,10,22))
+            self.assertEqual((day22['day']['team'],day22['night']['cells']['18']['G1']),('C','2'))   # 주간은 첫 파일, 야간은 새 파일
+            day23=source.reference_sources(store,date(2026,10,23))
+            self.assertEqual((day23['day']['team'],day23['night']['team']),('B','D'))
+            self.assertTrue({date(2026,10,22),date(2026,10,23)}<=source.days_with_data(store))
 
     def test_latest_original_global_keeps_reference_and_records(self):
         with tempfile.TemporaryDirectory() as folder:

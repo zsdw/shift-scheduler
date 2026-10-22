@@ -28,11 +28,16 @@ def parse_uploaded(data, filename):
 
 
 def publish_uploaded(store,data,filename,parsed=None):
-    sources=parse_uploaded(data,filename) if parsed is None else parsed
+    """올린 편성표의 모든 조 주·야 시트를 참조 자료에 쌓는다 (2026-10-22 사용자 확정: 모든 조 근무표를 다 기억).
+    새 파일에 있는 날짜·근무만 새 시트로 바꾸고, 새 파일에 없는 날짜는 전에 올린 자료를 그대로 둔다."""
+    parsed=parse_uploaded(data,filename) if parsed is None else parsed
     path=Path(store)/'order_source'/UPLOAD_REFERENCE
     path.parent.mkdir(parents=True,exist_ok=True)
     before=json.loads(path.read_text(encoding='utf-8')).get('sources',{}) if path.exists() else {}
-    payload={'file':Path(filename).name,'sources':sources}
+    sources={iso:dict(shifts) for iso,shifts in before.items()}
+    for iso,shifts in parsed.items():
+        sources[iso]={**sources.get(iso,{}),**shifts}
+    payload={'file':Path(filename).name,'sources':dict(sorted(sources.items()))}
     tmp=path.with_suffix('.tmp');tmp.write_text(json.dumps(payload,ensure_ascii=False,indent=1),encoding='utf-8');tmp.replace(path)
     # 번호별 이름 고침: 그 날짜·근무의 원본 명단이 그대로면 유지(프로그램에서 고친 것 무시하지 않음, 2026-10-11),
     # 원본 명단이 바뀌었으면(작성자가 고쳤으면) 버린다.
@@ -49,7 +54,7 @@ def publish_uploaded(store,data,filename,parsed=None):
         if cached.resolve().parent==path.parent.resolve():cached.unlink()
     from .source_attachment import stash
     stash(store,data,filename)
-    return len(sources)
+    return len(parsed)
 
 
 def days_with_data(store):
