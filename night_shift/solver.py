@@ -8,7 +8,7 @@ from itertools import permutations
 from math import lcm
 from ortools.sat.python import cp_model
 from .models import BIG_REST_SLOTS, BIG_REST_STARTS, barrier_history_counts, barrier_single, barrier_v2, mode_at, AssignmentKind as K, HistoryInput, Mode, Posture, RecordKind, ShiftRecord
-from .soft_history import lower_patrol_wait, recent_six_fatigue_averages, recent_six_records, rest_tie_groups
+from .soft_history import lower_patrol_wait, recent_six_records, rest_priority_key
 from .common import compile_common_policy, forbidden_same_post_pair, _actual_key
 from .profiles import options_for
 from .soft_history import debt_weight
@@ -1659,15 +1659,13 @@ def solve_first_trial(context, history: HistoryInput, seconds=30, *, compensatio
                 idx = max((i for i, r in enumerate(records_for_p) if check_fn(r)), default=-1)
                 return (0, -len(records_for_p)) if idx < 0 else (1, -(len(records_for_p) - 1 - idx))
 
-            rest_averages = recent_six_fatigue_averages(last_rest_records, context.shift_start_date)
-
             recent_six = recent_six_records(last_rest_records, context.shift_start_date)
 
-            def _rest_ties(prefix, group, got, got_record):
-                # 같은 순번: 최근 6근무 수혜 횟수 적은 사람 → 평균 피로도 높은 사람 (2026-10-22 사용자 확정)
-                counts = {p: sum(1 for rec in recent_six if got_record(rec, p)) for p in group}
-                return [(f'{prefix}_avg_{i}', -sum(got(p) for p in peers))
-                        for i, peers in enumerate(rest_tie_groups(group, rest_averages, counts))]
+            def _rest_key(attended, pid, received):
+                # 2026-10-22: 최근6근무 수혜 횟수 먼저, 같으면 마지막 수혜 뒤 본인 출근 횟수.
+                count = sum(received(rec, pid) for rec in recent_six)
+                last = max((i for i, rec in enumerate(attended) if received(rec, pid)), default=-1)
+                return rest_priority_key(count, len(attended), last)
 
             def _had_big_rest(rec, pid):
                 if rec.context.manager_handover and not rec.context.manager_handover_reverse:
@@ -1706,11 +1704,10 @@ def solve_first_trial(context, history: HistoryInput, seconds=30, *, compensatio
                                             if barrier_history_counts(r.context) and r.context.shift_start_date < context.shift_start_date
                                             and any(a.employee_id == p and a.present and a.is_general_worker for a in r.context.attendance)),
                                            key=lambda r: r.context.shift_start_date)
-                            big_groups.setdefault(_turn_key(att_b, lambda r, p=p: _had_big_rest(r, p)), []).append(p)
+                            big_groups.setdefault(_rest_key(att_b, p, _had_big_rest), []).append(p)
                         for key, group in sorted(big_groups.items()):
                             if len(big_groups) > 1:
-                                big_rest_priorities.append((f"big_rest_oldest_{key[0]}_{-key[1]}", -sum(big_vars[p] for p in group)))
-                            big_rest_priorities += _rest_ties(f'big_rest_oldest_{key[0]}_{-key[1]}', group, big_vars.__getitem__, _had_big_rest)
+                                big_rest_priorities.append((f"big_rest_oldest_{key[0]}_{key[1][0]}_{-key[1][1]}", -sum(big_vars[p] for p in group)))
 
             if not last_rest_records:
                 objectives = lower_priorities + big_rest_priorities + objectives
@@ -1728,15 +1725,13 @@ def solve_first_trial(context, history: HistoryInput, seconds=30, *, compensatio
                             model.add(expression(p,13,lambda r:r.actual_rest_time_value==1)==0)
                         continue
                     if not next(a for a in context.attendance if a.employee_id==p).is_available(13):continue
-                    groups.setdefault(_turn_key(attended, lambda r, p=p: any(
-                        x.employee_id == p and x.slot.index == 13 and x.actual_rest_time_value == 1 for x in r.assignments)), []).append(p)
+                    groups.setdefault(_rest_key(attended, p, lambda rec, pid: any(
+                        x.employee_id == pid and x.slot.index == 13 and x.actual_rest_time_value == 1
+                        for x in rec.assignments)), []).append(p)
                 priorities = []
                 for key, group in sorted(groups.items()):
-                    prefix = f'last_rest_oldest_{key[0]}_{-key[1]}'
+                    prefix = f'last_rest_oldest_{key[0]}_{key[1][0]}_{-key[1][1]}'
                     priorities.append((prefix, sum(1 - expression(p, 13, lambda r: r.actual_rest_time_value == 1) for p in group)))
-                    priorities += _rest_ties(prefix, group, lambda p: expression(p, 13, lambda r: r.actual_rest_time_value == 1),
-                                             lambda rec, p: any(x.employee_id == p and x.slot.index == 13 and x.actual_rest_time_value == 1
-                                                                for x in rec.assignments))
                 # 15-8 (2026-10-19 사용자 확정): 차단봉 설치·철수 중 아무거나 마지막으로 한 날이 오래된 사람부터,
                 # 막타임 다음 최우선. 10/04 야간 이후 저장된 실제 야간 전체, 이력에 없으면 가장 오래 기다린 그룹.
                 barrier_groups = {}

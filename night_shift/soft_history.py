@@ -32,19 +32,10 @@ def recent_six_fatigue_averages(records, before):
     return {pid: sum(values) / len(values) for pid, values in totals.items()}
 
 
-def rest_tie_groups(group, averages, counts=None):
-    """동일 순번 안의 우선 묶음(앞 묶음부터 먼저 받음).
-    2026-10-22 사용자 확정: ① 최근 3싸이클(6근무) 수혜 횟수 적은 사람 먼저(counts) → ② 평균 피로도 높은 사람 먼저
-    (10/21 '낮은 평균'에서 변경). 평균 기록 없는 사람이 섞이면 ②는 쓰지 않는다. 마지막(가장 뒤) 묶음은 반환하지 않는다."""
-    use_average = all(p in averages for p in group)
-    if counts is None and not use_average:
-        return []
-    def key(p):
-        return ((counts.get(p, 0) if counts is not None else 0), (-averages[p] if use_average else 0))
-    values = sorted({key(p) for p in group})
-    if len(values) < 2:
-        return []
-    return [[p for p in group if key(p) == value] for value in values[:-1]]
+def rest_priority_key(receipt_count, attended_count, last_received_index):
+    """휴게 순서: 최근 6근무 수혜 횟수 → 마지막 수혜 후 실제 출근 횟수(미수혜 먼저)."""
+    wait = (0, -attended_count) if last_received_index < 0 else (1, -(attended_count - 1 - last_received_index))
+    return (receipt_count, wait)
 
 
 def debt_weight(debt, rule, employee_id):
