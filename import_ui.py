@@ -112,7 +112,7 @@ def render_bulk(data,file_name):
             st.session_state['upload_reference_key']=reference_key
         references=st.session_state['upload_references']
     except (ValueError,OSError) as exc:st.error(f'전체 참조 자료를 읽지 못했습니다: {exc}');return
-    st.caption(f'전체 {len(references)}일의 모든 조 자료를 일보·명령서 참조용으로 교체합니다. 실제 근무표는 A조만 저장합니다.')
+    st.caption(f'전체 {len(references)}일의 모든 조 주·야간 자료를 일보·명령서 참조용으로 보관합니다. 새 파일에 없는 날짜·주야간은 유지하고, 포함된 근무만 갱신합니다. 실제 근무표는 A조만 저장합니다.')
     start=st.date_input('이 날짜부터 가져오기',date(2026,9,1),key='bulk_start')
     roster=load_roster(store_dir()/'day_roster.json')
     entries=leave_schedule.load(store_dir())

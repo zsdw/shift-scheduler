@@ -25,7 +25,14 @@ class NightExcelViewsTests(unittest.TestCase):
             self.assertEqual(selections[0].get('activeCell'),'A1')
         book=load_workbook(BytesIO(data));sheet=book.active
         self.assertIsNone(sheet.freeze_panes)
+        self.assertLessEqual(sheet.max_column,68)  # BP: 본표 끝
+        self.assertTrue(all(r.max_col<=68 for r in sheet.merged_cells.ranges))
+        self.assertIn('$A$1:$BP$24',str(sheet.print_area))
         expected=field_cells(record)
+        names=expected['names']
+        if not names[0]:
+            names=[name for name in names if name]+['']*names.count('')
+        self.assertEqual([sheet[f'{col}5'].value or '' for col in FORM_COLUMNS[1:8]],names)
         for t,row in enumerate(expected['rows']):
             for col,value in zip(FORM_COLUMNS,row):
                 stored=sheet[f'{col}{8+t}'].value

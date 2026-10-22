@@ -1774,6 +1774,16 @@ def main() -> None:
             leave_view_ui.page()
         mobile_ui.view_switch()
         return
+    team = st.segmented_control("근무조", ("A", "B", "C"), default="A",
+                                format_func=lambda value: value + "조", key="schedule_team") or "A"
+    if team != "A":
+        import importlib
+        import team_schedule_analysis, team_schedule_ui, team_schedule_export, team_schedule_view
+        for module in (team_schedule_analysis, team_schedule_ui, team_schedule_export, team_schedule_view):
+            importlib.reload(module)
+        team_schedule_view.page(team, store_dir())
+        mobile_ui.view_switch()
+        return
     global _CHECK_SLOT
     _CHECK_SLOT = st.container()                 # 날짜를 고르면 문서 대조 결과 (맨 위, 2026-10-07)
     title_slot = st.empty()                      # 날짜를 고른 뒤 주간/야간 제목으로 채움

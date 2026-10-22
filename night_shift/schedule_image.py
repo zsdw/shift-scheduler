@@ -61,7 +61,7 @@ def field_cells(record, cp=None):
     return {'names':names,'cps':cps,'rows':rows,'notes':field_duty_notes(record,token)}
 
 
-def render_png(record, cp=None):
+def render_png(record, cp=None, *, team='A', cells=None):
     """cp = {'1': 이름, '2': 이름, '3': 이름} (CP 근무표 기본값, 없으면 CP 칸 빈칸)."""
     from PIL import Image,ImageDraw,ImageFont
     regular=Path('C:/Windows/Fonts/malgun.ttf');bold=Path('C:/Windows/Fonts/malgunbd.ttf')
@@ -79,13 +79,13 @@ def render_png(record, cp=None):
         d.text((x,y),value,font=f,fill='#001c48')
     c=record.context;day=c.shift_start_date
     box(0,0,880,57);text(0,0,880,57,'야간 근무 편성표',28,True)
-    box(0,57,880,108);text(0,57,880,108,f'{day:%Y년 %m월 %d일} {"월화수목금토일"[day.weekday()]}요일 근무조 : A조',23,True)
+    box(0,57,880,108);text(0,57,880,108,f'{day:%Y년 %m월 %d일} {"월화수목금토일"[day.weekday()]}요일 근무조 : {team}조',23,True)
     box(880,0,929,108,'#c0c0c0');text(880,0,929,108,'결\n재',15)
     for a,b,label in [(929,1017,'담 당'),(1017,1111,'팀 장')]:
         box(a,0,b,32,'#c0c0c0');text(a,0,b,32,label,15,True);box(a,32,b,108)
     xs=[0,80,160,240,320,400,480,560,640,720,800,880,960,1111]
     box(0,108,80,170,'#c0c0c0');text(0,108,80,170,'근무자명')
-    cells=field_cells(record,cp)
+    cells=field_cells(record,cp) if cells is None else cells
     for j in range(12):
         box(xs[j+1],108,xs[j+2],139,'#c0c0c0');text(xs[j+1],108,xs[j+2],139,cells['names'][j] if j<7 else '',12)
         box(xs[j+1],139,xs[j+2],170,'#c0c0c0')
@@ -144,7 +144,7 @@ def parasol(record,token,who):
 FORM_COLUMNS=['A','F','K','P','U','Z','AE','AJ','AO','AT','AY','BD','BI']   # 원본 야간 시트의 칸 (근무시간~휴게)
 
 
-def render_xlsx(record, cp=None):
+def render_xlsx(record, cp=None, *, team='A', cells=None):
     """원본 편성표 야간 시트와 같은 양식의 엑셀 (2026-10-11 사용자 요청). 양식(templates/field_night.xlsx)은
     원본 시트의 병합·글꼴·테두리·열 너비를 그대로 둔 빈 틀이고, 이미지와 같은 칸 내용만 채운다."""
     from openpyxl import load_workbook
@@ -156,11 +156,26 @@ def render_xlsx(record, cp=None):
     ws.freeze_panes=None                             # 원본 시트엔 틀 고정이 없다 (양식에 남은 F8 고정 해제)
     from openpyxl.worksheet.views import Selection
     ws.sheet_view.selection=[Selection(activeCell='A1',sqref='A1')]
-    cells=field_cells(record,cp)
+    # 다운로드에는 본표(A:BP)만 남긴다. 원본의 우측 보조 양식은 제거한다.
+    from openpyxl.utils import column_index_from_string
+    last_col=column_index_from_string('BP')
+    for merged in list(ws.merged_cells.ranges):
+        if merged.min_col>last_col:
+            ws.unmerge_cells(str(merged))
+    if ws.max_column>last_col:
+        ws.delete_cols(last_col+1,ws.max_column-last_col)
+    for col in list(ws.column_dimensions):
+        if column_index_from_string(col)>last_col:
+            del ws.column_dimensions[col]
+    ws.print_area='A1:BP24'
+    cells=field_cells(record,cp) if cells is None else cells
     ws['A1']='야간 근무 편성표';ws['BD1']='결 제';ws['BG1']='담 당';ws['BL1']='팀 장'
-    ws['A3']=f'{day:%Y년 %m월 %d일} {"월화수목금토일"[day.weekday()]}요일 근무조 : A조'
+    ws['A3']=f'{day:%Y년 %m월 %d일} {"월화수목금토일"[day.weekday()]}요일 근무조 : {team}조'
     ws['A5']='근무자명'
-    for col,name in zip(FORM_COLUMNS[1:8],cells['names']):
+    names=cells['names']
+    if not names[0]:
+        names=[name for name in names if name]+['']*names.count('')
+    for col,name in zip(FORM_COLUMNS[1:8],names):
         ws[f'{col}5']=name or None
     for col,name in zip(FORM_COLUMNS[1:4],cells['cps']):
         ws[f'{col}6']=name or None

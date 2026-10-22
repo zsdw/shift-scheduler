@@ -32,6 +32,9 @@ def publish_uploaded(store,data,filename,parsed=None):
     path=Path(store)/'order_source'/UPLOAD_REFERENCE
     path.parent.mkdir(parents=True,exist_ok=True)
     before=json.loads(path.read_text(encoding='utf-8')).get('sources',{}) if path.exists() else {}
+    # 모든 조의 참조자료를 누적한다. 새 파일에 없는 날짜·주야간은 보존한다.
+    sources={iso:{**shifts,**sources.get(iso,{})} for iso,shifts in before.items()} | {
+        iso:shifts for iso,shifts in sources.items() if iso not in before}
     payload={'file':Path(filename).name,'sources':sources}
     tmp=path.with_suffix('.tmp');tmp.write_text(json.dumps(payload,ensure_ascii=False,indent=1),encoding='utf-8');tmp.replace(path)
     # 번호별 이름 고침: 그 날짜·근무의 원본 명단이 그대로면 유지(프로그램에서 고친 것 무시하지 않음, 2026-10-11),
@@ -58,7 +61,7 @@ def days_with_data(store):
     path=store/'order_source'/UPLOAD_REFERENCE
     if path.exists():
         found|={date.fromisoformat(d) for d,v in json.loads(path.read_text(encoding='utf-8')).get('sources',{}).items() if v}
-    for folder in (store,store/'day'):
+    for folder in (store,store/'day',store/'weekend_day'):
         for f in folder.glob('????-??-??.json'):
             try:found.add(date.fromisoformat(f.stem))
             except ValueError:pass

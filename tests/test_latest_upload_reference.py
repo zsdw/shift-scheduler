@@ -14,7 +14,20 @@ def book(team='B',value='1',days=(('26년01월01일(주)','B'),('26년10월11일
     out=io.BytesIO();w.save(out);w.close();return out.getvalue()
 
 class LatestUploadReferenceTests(unittest.TestCase):
-    def test_all_dates_teams_replace_and_no_old_folder_fallback(self):
+    def test_non_a_day_and_night_survive_partial_upload(self):
+        with tempfile.TemporaryDirectory() as folder:
+            store=Path(folder);day=date(2026,10,23)
+            source.publish_uploaded(store,book(days=(('26년10월23일(주)','B'),('26년10월23일(야)','C'))),'all.xlsx')
+            source.save_name_fix(store,day,'night',{'1':'정정'})
+            source.publish_uploaded(store,book(value='2',days=(('26년10월23일(주)','B'),)),'day.xlsx')
+            saved=source.reference_sources(store,day)
+            self.assertTrue(source.document_available(store,day))
+            self.assertIn(day,source.days_with_data(store))
+            self.assertEqual(saved['day']['cells']['8']['G1'],'2')
+            self.assertEqual(saved['night']['team'],'C')
+            self.assertEqual(source.load_name_fixes(store)[day.isoformat()]['night'],{'1':'정정'})
+
+    def test_all_dates_teams_accumulate_and_no_old_folder_fallback(self):
         with tempfile.TemporaryDirectory() as folder:
             store=Path(folder);data=book()
             oldcache=store/'order_source'/'2026-10-11.json';oldcache.parent.mkdir();oldcache.write_text('{}')
@@ -27,7 +40,7 @@ class LatestUploadReferenceTests(unittest.TestCase):
             source.publish_uploaded(store,book(value='2',days=(('26년10월11일(야)','C'),)),'new.xlsx')
             self.assertFalse(old.exists())
             with patch.object(source,'latest_file',side_effect=AssertionError('old folder fallback')):
-                self.assertEqual(source.reference_sources(store,date(2026,1,1)),{})
+                self.assertEqual(source.reference_sources(store,date(2026,1,1))['day']['team'],'B')
                 self.assertEqual(source.reference_sources(store,date(2026,10,11))['night']['cells']['18']['G1'],'2')
             self.assertEqual(len(list((store/'source_files').iterdir())),1)
             snapshot=(store/'order_source'/source.UPLOAD_REFERENCE).read_bytes()
