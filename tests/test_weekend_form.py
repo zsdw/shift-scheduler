@@ -84,6 +84,20 @@ class WeekendFormTests(unittest.TestCase):
         self.assertEqual((ws["F8"].value, ws["AY8"].value, ws["K5"].value), (1, "E.2.CP3", "1준호"))
         self.assertGreater(len(ws.merged_cells.ranges), 200)                  # 원본 양식 병합 그대로
 
+    def test_excel_opens_without_repair(self):
+        """양식의 옛 외부 링크가 어긋난 관계 번호로 저장돼 엑셀 복구 창이 뜨던 문제 (2026-10-22)."""
+        import re
+        import zipfile
+        book = zipfile.ZipFile(io.BytesIO(wf.to_xlsx(self.s, self.store, CP)))
+        self.assertFalse([n for n in book.namelist() if "externalLink" in n])
+        workbook = book.read("xl/workbook.xml").decode("utf-8")
+        self.assertNotIn("externalReference", workbook)
+        self.assertNotIn("_Sort", workbook)
+        self.assertIn("Print_Area", workbook)                                 # 인쇄 범위는 그대로
+        rels = book.read("xl/_rels/workbook.xml.rels").decode("utf-8")
+        for rid in re.findall(r'r:id="(rId\d+)"', workbook):
+            self.assertIn(f'Id="{rid}"', rels)
+
 
 class CompactSheetTests(unittest.TestCase):
     """폰 주간·휴일 표: 가로 스크롤 없이 (최소 너비 없음), 내용은 PC 표와 같음 (2026-10-12)."""

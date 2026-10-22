@@ -167,12 +167,24 @@ def draw(schedule, store, cp: dict | None, review: dict | None = None) -> bytes:
                  colored=False)
 
 
+def _drop_external_links(wb) -> None:
+    """양식에 딸려 온 옛 외부 링크(업무.XLS)와 그것만 가리키는 숨은 이름(_Sort)을 뺀다. openpyxl이 저장할 때
+    외부 링크 관계 번호를 어긋나게 써서 엑셀이 '내용에 문제가 있습니다'(복구) 창을 띄우던 원인 (2026-10-22)."""
+    wb._external_links = []
+    for name in [n for n, d in wb.defined_names.items() if "[" in str(d.attr_text)]:
+        del wb.defined_names[name]
+    for ws in wb.worksheets:
+        for name in [n for n, d in ws.defined_names.items() if "[" in str(d.attr_text)]:
+            del ws.defined_names[name]
+
+
 def to_xlsx(schedule, store, cp: dict | None, review: dict | None = None, team: str = "A") -> bytes:
     """원본 휴일 주간 시트와 같은 엑셀 (양식 서식 그대로, 이미지와 같은 칸 내용만)."""
     import openpyxl
     from openpyxl.cell.cell import MergedCell
     spec = build_spec(schedule, store, cp, review, team)
     wb = openpyxl.load_workbook(FORM)
+    _drop_external_links(wb)
     ws = wb.worksheets[0]
     d = date.fromisoformat(str(schedule.day))
     ws.title = f"{d:%y}년{d:%m}월{d:%d}일(주)"
