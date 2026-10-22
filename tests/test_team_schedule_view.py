@@ -15,6 +15,21 @@ def source():
 
 
 class TeamScheduleTests(TestCase):
+    def test_a_style_components_are_readonly_and_keep_view_buttons(self):
+        from team_schedule_components import night_payload,day_html
+        payload=night_payload(source(),'유도리',True)
+        self.assertTrue(payload['readonly'])
+        self.assertTrue(payload['view_toggle'])
+        self.assertEqual(payload['sheet']['heads'][0][0],'C')
+        self.assertFalse(payload['cell_click'])
+        self.assertTrue(all(not c['movable'] for r in payload['rows'] for c in r['cells']))
+        s={**source(),'shift':'day','day':'2026-10-24'}
+        html=day_html(s,'유도리',True)
+        self.assertIn('class="dsheet"',html)
+        self.assertIn('data-view="FM"',html)
+        self.assertIn('data-view="유도리"',html)
+        self.assertNotIn('draggable=',html)
+        self.assertNotIn('data-edit',html)
     def test_counts_multi_digit_cp_and_missing_slots(self):
         rows={r['근무자']:r for r in view.metrics(source())}
         self.assertEqual(rows['승회']['차단봉 철수'],1)

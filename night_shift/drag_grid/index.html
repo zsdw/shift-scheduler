@@ -348,9 +348,9 @@ body.compact .note { font-size: .55rem; }
       }).join("") + "</tr>";
     });
     if (ranges.length) out += "<tr><td class='legend' colspan='" + n + "'><b style='color:#D400FF'>자홍색 테두리</b> = 유도리 적용 · " + esc(ranges.join(" · ")) + "</td></tr>";
-    out += "<tr><td class='legend' colspan='" + n + "'>번호 끌기 → 같은 시간 교환 · " +
+    out += "<tr><td class='legend' colspan='" + n + "'>" + (data.readonly ? "번호·이름에 마우스를 올리면 그 사람의 하루 칸 강조" : "번호 끌기 → 같은 시간 교환 · " +
       (data.cell_click ? "번호 누르기 → 피로도·사유 기록 · " : "") + "📝 → 주석 · 빨간 테두리 = 계획과 달라진 칸 · 빗금 = LOCK" +
-      (band ? " · 자홍색 테두리: I1 04시까지 · G1 00~04시(표시 범위)" : "") + "</td></tr>";
+      (band ? " · 자홍색 테두리: I1 04시까지 · G1 00~04시(표시 범위)" : "")) + "</td></tr>";
     return out;
   }
 

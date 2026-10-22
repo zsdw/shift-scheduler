@@ -27,7 +27,7 @@ def _expected_operation(context, label, t, mode):
 
 
 def validate_first_trial(record, history, *, refinement=False, rules_v22=False, vacancy_policy=False, rules_v26=False, rules_v27=False, rules_v29=False, rules_v210=False, rules_v212=False, rules_v215=False, rules_v216=False, rules_v218=False, rules_v219=False, rules_v220=False, reoptimization=False, forbid_patrol_exclusion_ids=(), post_cap=None, work_spread=True, half_day_ids=None, locked_cells=(), manager_a_end_slot=14, manager_a_start_slot=0, patrol_actuals=(), patrol_events=(), last_rest_records=(),
-                        emergency_leaver_cells=()):
+                        emergency_leaver_cells=(), test_manager_relief=False):
     # H-17 (2026-10-05): None = v2.20 검사에 포함. 2명 완전결원 일시 해제·LOCK 과거 초과 시 서비스가 False를 넘긴다.
     post_cap = rules_v220 if post_cap is None else post_cap
     if rules_v220:
@@ -716,17 +716,20 @@ def validate_first_trial(record, history, *, refinement=False, rules_v22=False, 
                       "user-A-00-05", f"Manager three consecutive actual work hours at {t}")
         # (옛 버전용) 04 I1 선호는 검증 오류로 보지 않았다. v2.20은 통제A 04시 I1 금지(8-10 블록)로 대체.
     if rules_v22:
+        # 🧪 테스트 규칙(2026-10-23, 테스트 생성 버튼 전용 — 적용 여부는 서비스가 판정): H-15 3시간, 8-4-2 4~6점 낮게
+        relief = bool(test_manager_relief) and rules_v220 and not manager_is_proxy and profile_absence <= 1
         a_work = sum(facts[manager, t]["work"] for t in range(14))
         for p in general:
             work = sum(facts[p, t]["work"] for t in range(14))
             if (not rules_v215 or p not in partial_general) and not manager_vacancy_policy:
-                check(abs(work - a_work) <= 2, "H-15", f"A/general work gap over two hours: {p}/{work}/{a_work}")
+                work_limit = 3 if relief else 2
+                check(abs(work - a_work) <= work_limit, "H-15", f"A/general work gap over {work_limit} hours: {p}/{work}/{a_work}")
             if headcount in (5, 6) and not (rules_v218 and profile_absence == 2) and switch is None and (not rules_v215 or p not in partial_general):
                 a_fatigue = sum(facts[manager, t]["fatigue"] for t in range(14))
                 p_fatigue = sum(facts[p, t]["fatigue"] for t in range(14))
                 if rules_v219 and not manager_is_proxy:
-                    limit = 3 if rules_v220 else 2
-                    check(0 <= p_fatigue - a_fatigue <= limit, "8-4-2", f"A fatigue must be 0-{limit} below general: {p}/{p_fatigue}/{a_fatigue}")
+                    low, limit = (4, 6) if relief else (0, 3 if rules_v220 else 2)
+                    check(low <= p_fatigue - a_fatigue <= limit, "8-4-2", f"A fatigue must be {low}-{limit} below general: {p}/{p_fatigue}/{a_fatigue}")
                 else:
                     check(abs(p_fatigue - a_fatigue) <= 4, "8-4-2", f"A/general fatigue gap over four points: {p}/{p_fatigue}/{a_fatigue}")
         def proxy_total(key):

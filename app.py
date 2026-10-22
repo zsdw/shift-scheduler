@@ -380,9 +380,56 @@ def rotate_display_numbers() -> None:
     st.session_state["display_numbers"] = random_display_numbers(a_present, presence)
 
 
-def request_night_regeneration() -> None:
+def request_night_regeneration(test: bool = False) -> None:
     rotate_display_numbers()
     st.session_state["night_regenerate_requested"] = True
+    st.session_state["night_regenerate_test"] = test       # 🧪 테스트 후보의 재생성은 테스트 규칙으로 (2026-10-23)
+
+
+TEST_RULES_HELP = ("🧪 테스트 규칙(2026-10-23 사용자 요청, 저장 안 됨): 다음날 평일·통제A 온전 출근·결원 0\\~1명인 날만 "
+                   "H-15 통제A·일반근무자 실근무 차이 3시간 이내, 통제A 피로도 = 각 일반근무자보다 4\\~6점 낮게, "
+                   "결원 0명은 03시 통제A 휴게성 권장(04시 다음·대폭 휴게보다 앞). 그 밖의 날은 지금 규칙 그대로 만듭니다.")
+
+
+def big_rest_names(record) -> list[str]:
+    """대폭 휴게(23시~07시 전 3시간 이상 연속 실휴게) 받은 사람 — 테스트 표 요약용, 표에서 직접 센다."""
+    from night_shift.models import BIG_REST_SLOTS
+    rest = {(r.employee_id, r.slot.index) for r in record.assignments if r.actual_rest_time_value == 1}
+    names = {e.employee_id: ("통제" if e.employee_id == "A" else e.name) for e in record.context.employees}
+    out = []
+    for pid in names:
+        run = best = 0
+        for t in BIG_REST_SLOTS:
+            run = run + 1 if (pid, t) in rest else 0
+            best = max(best, run)
+        if best >= 3:
+            out.append(names[pid])
+    return out
+
+
+def test_rules_summary(result) -> str:
+    """🧪 테스트 후보 위 한 줄: 적용 여부·통제A 격차(FM/유도리)·대폭 휴게자."""
+    from night_shift.service import flexible_view
+    record = result.record
+    full = {a.employee_id for a in record.context.attendance
+            if a.present and a.is_general_worker and all(a.is_available(t) for t in range(14))}
+
+    def gap(rec):
+        f = {}
+        for r in rec.assignments:
+            f[r.employee_id] = f.get(r.employee_id, 0) + r.fatigue_value
+        values = [f[p] - f.get("A", 0) for p in full if p in f]
+        if not values or "A" not in f:
+            return "-"
+        return f"{min(values)}점" if min(values) == max(values) else f"{min(values)}\\~{max(values)}점"
+    fm_big, flex_big = big_rest_names(record), big_rest_names(flexible_view(record))
+    a_big = "통제" in fm_big                              # 대폭 휴게 인원은 일반근무자만 세고 통제A는 따로
+    fm_big, flex_big = [n for n in fm_big if n != "통제"], [n for n in flex_big if n != "통제"]
+    head = ("🧪 테스트 규칙 적용 표 (저장 안 됨)" if result.test_manager_relief
+            else "🧪 테스트 버튼으로 만들었지만 적용 범위(다음날 평일·통제A 온전 출근·결원 0\\~1명) 밖이라 지금 규칙 그대로입니다 (저장 안 됨)")
+    return (f"{head}  \n통제A가 일반근무자보다 낮은 피로도: FM {gap(record)} · 유도리 {gap(flexible_view(record))}  \n"
+            f"대폭 휴게(일반근무자) {len(fm_big)}명" + (f" ({', '.join(fm_big)})" if fm_big else "")
+            + f" · 유도리로 보면 {len(flex_big)}명" + (" · 통제A도 대폭 휴게" if a_big else ""))
 
 
 def restore_generated_schedule(index, on_change=None) -> None:
@@ -433,9 +480,14 @@ def candidate_reasons(selected_result, selected_index) -> list[str]:
 
 
 def confirm_and_regenerate(result, index, params, history, options) -> None:
+    test = getattr(result, "test_requested", False)
     with mobile_ui.action_columns(f"night_{index}", spec=3) as (confirm_col, reset_col, regenerate_col):
         with confirm_col:
-            confirm_button(result, f"confirm_{index}", notes=lambda: candidate_reasons(result, index))
+            if test:                                      # 🧪 테스트 표는 보기·비교만 (이력·장부에 섞이지 않게)
+                st.button("🧪 테스트 표는 저장 안 됨", key=f"confirm_test_{index}", width="stretch", disabled=True,
+                          help=TEST_RULES_HELP)
+            else:
+                confirm_button(result, f"confirm_{index}", notes=lambda: candidate_reasons(result, index))
         with reset_col:
             if st.button("↩ 초기 생성표로", key=f"restore_initial_{index}", width="stretch",
                          disabled=index not in st.session_state.get("generated_originals", {}),
@@ -454,8 +506,9 @@ def confirm_and_regenerate(result, index, params, history, options) -> None:
                     regenerate_lock_only(index, lock_start, history, options)
             else:
                 st.button("🔁 근무표 재생성", key=f"regenerate_{index}", width="stretch",
-                          on_click=request_night_regeneration,
-                          help="현재 생성 조건으로 이전 후보와 다른 근무표를 만듭니다.")
+                          on_click=request_night_regeneration, args=(test,),
+                          help=("테스트 규칙으로 이전 테스트 후보와 다른 근무표를 만듭니다." if test
+                                else "현재 생성 조건으로 이전 후보와 다른 근무표를 만듭니다."))
 
 def person_ui_label(person) -> str:
     if person.is_manager and person.employee_id == "A":
@@ -1406,7 +1459,7 @@ def select_schedule(index: int) -> None:
 
 
 def schedule_choice_label(index: int, result: ServiceResult) -> str:
-    label = f"근무표 {index + 1}"
+    label = f"근무표 {index + 1}" + (" · 🧪 테스트" if getattr(result, "test_requested", False) else "")
     if result.rebalance_info:
         info = result.rebalance_info
         person = result.employee_stats.get(info.unavailable_employee_id)
@@ -1778,8 +1831,8 @@ def main() -> None:
                                 format_func=lambda value: value + "조", key="schedule_team") or "A"
     if team != "A":
         import importlib
-        import team_schedule_analysis, team_schedule_ui, team_schedule_export, team_schedule_view
-        for module in (team_schedule_analysis, team_schedule_ui, team_schedule_export, team_schedule_view):
+        import team_schedule_analysis, team_schedule_ui, team_schedule_export, team_schedule_components, team_schedule_view
+        for module in (team_schedule_analysis, team_schedule_ui, team_schedule_export, team_schedule_components, team_schedule_view):
             importlib.reload(module)
         team_schedule_view.page(team, store_dir())
         mobile_ui.view_switch()
@@ -1968,6 +2021,8 @@ def _night_page(mobile: bool, side, title_slot, badge_slot) -> None:
         extra_south, south_confirmed = extra_south_input(shift_date, night_name)
         generate = st.button("근무표 생성", type="primary", width="stretch", key="generate_button",
                              on_click=rotate_display_numbers, disabled=not south_confirmed)
+        test_generate = st.button("🧪 테스트 규칙으로 생성", width="stretch", key="test_generate_button",
+                                  on_click=rotate_display_numbers, disabled=not south_confirmed, help=TEST_RULES_HELP)
         if not mobile:
             render_trash("side")
 
@@ -1992,10 +2047,13 @@ def _night_page(mobile: bool, side, title_slot, badge_slot) -> None:
         for key in [k for k in st.session_state if str(k).startswith("night_fmview_") and not str(k).endswith("_nonce")]:
             del st.session_state[key]                      # 새 조건 → 처음 보기는 FM (2026-10-13)
     regenerate_requested = st.session_state.pop("night_regenerate_requested", False)
-    if generate or regenerate_requested:
+    use_test = test_generate or (regenerate_requested and st.session_state.pop("night_regenerate_test", False))
+    if generate or regenerate_requested or test_generate:
         prior_results = st.session_state.get("schedule_results", [])
         st.session_state.pop(f"night_fmview_{len(prior_results)}", None)   # 새로 생성한 표는 FM 보기부터
-        excluded = exclusion_payloads(prior_results) or None
+        # 다른 해 조건은 같은 종류 후보끼리만(테스트 ↔ 일반 후보는 규칙이 달라 서로 막지 않는다)
+        excluded = exclusion_payloads([item for item in prior_results
+                                       if getattr(item, "test_requested", False) == bool(use_test)]) or None
         st.session_state["run_state"] = "생성 중"
         st.session_state["run_error"] = None
         started = perf_counter()
@@ -2004,7 +2062,10 @@ def _night_page(mobile: bool, side, title_slot, badge_slot) -> None:
                 runner = (run_schedule_manager_early_half if st.session_state.get("manager_state") == MANAGER_EARLY_HALF
                           else run_schedule_manager_half if st.session_state.get("manager_state") == MANAGER_LATE_HALF
                           else run_schedule)               # A 후반부 반차: 01시부터 준호 관리자 대행 (10/18)
-                outcome = runner(request, history, replace(options, exclude_assignments=excluded))
+                outcome = runner(request, history, replace(options, exclude_assignments=excluded,
+                                                           test_manager_relief=bool(use_test)))
+                if use_test:
+                    outcome = replace(outcome, test_requested=True)
             st.session_state["elapsed"] = perf_counter() - started
             if outcome.valid:
                 st.session_state["schedule_results"] = [*prior_results, outcome]
@@ -2230,6 +2291,9 @@ def _night_page(mobile: bool, side, title_slot, badge_slot) -> None:
                     st.error(friendly_exception_message(exc, "긴급 재편성"))
 
             spreads = selected_result.dual_spreads or {}
+            if getattr(selected_result, "test_requested", False) and selected_result.record is not None:
+                (st.info if selected_result.test_manager_relief else st.warning)(test_rules_summary(selected_result))
+                st.caption(TEST_RULES_HELP)
 
             def spread_text(mode):
                 values = spreads.get(mode, {})

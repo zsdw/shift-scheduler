@@ -118,6 +118,8 @@ class SolveOptions:
     # 충돌 진단 전용 (2026-10-18): 끌 하드 규칙 묶음, 목표 없이 해 유무만 보기. 실제 생성에서는 기본값 그대로.
     disabled_rule_groups: tuple[str, ...] = ()
     feasibility_only: bool = False
+    # 🧪 테스트 생성 버튼 전용(2026-10-23 사용자 요청): 관리자 우대 확대 시험 규칙. 실제 생성에서는 항상 False.
+    test_manager_relief: bool = False
 
 
 @dataclass(frozen=True)
@@ -283,6 +285,10 @@ class ServiceResult:
     dual_spreads: Mapping[str, Mapping[str, int]] | None = None
     # H-17(같은 포스트 최대 3번)을 2명 완전결원 예외로 이 회차만 해제했는지
     post_cap_relaxed: bool = False
+    # 🧪 테스트 규칙이 이 표에 실제로 적용됐는지(다음날 평일·통제A 온전 출근·결원 0~1명일 때만)
+    test_manager_relief: bool = False
+    # 🧪 테스트 생성 버튼으로 만든 후보(규칙 적용 여부와 무관) — 화면에서 확정 저장을 막는다
+    test_requested: bool = False
 
     @property
     def record(self) -> ShiftRecord | None:
@@ -556,6 +562,21 @@ RULE_FLAGS = {"2.6": "rules_v26", "2.10": "rules_v210", "2.12": "rules_v212",
               "2.17": "rules_v217", "2.18": "rules_v218", "2.19": "rules_v219", "2.20": "rules_v220"}
 
 
+def test_relief_applies(context: ShiftContext, config: "SolveOptions") -> bool:
+    """🧪 테스트 규칙 적용 범위(2026-10-23 사용자 확정): 다음날 평일(N1·N3), 통제A 본인 온전 출근, 결원 0~1명,
+    반차·교대·긴급 재편성·부분 가용 없음. 그 밖의 날은 테스트 버튼이어도 지금 규칙 그대로."""
+    if not config.test_manager_relief or config.rules_version != "2.20":
+        return False
+    present = [a for a in context.attendance if a.present]
+    a_on_duty = any(a.employee_id == "A" and a.acts_as_manager and a.display_number is None for a in present)
+    return (context.night_type in (NightType.N1, NightType.N3) and a_on_duty
+            and 7 - len(present) <= 1 and not context.partial_vacancy_profile
+            and context.manager_handover is None and context.flexible_from_slot is None
+            and config.locked_assignments is None and not config.half_day_ids
+            and config.manager_a_start_slot == 0 and config.manager_a_end_slot == 14
+            and all(a.is_available(t) for a in present for t in range(14)))
+
+
 def validator_flags_for(rules_version: str, reoptimization: bool) -> dict:
     """Independent validator flags for a rules version (shared by revalidation)."""
     if rules_version == "2.13":
@@ -601,6 +622,7 @@ def revalidate(result: "ServiceResult", record: ShiftRecord) -> "ServiceResult":
                    and result.rebalance_info.unavailable_from_index <= result.rebalance_info.reoptimization_start_index
                    else set()))))),
         emergency_leaver_cells=_manager_leaver_cells(result),
+        test_manager_relief=result.test_manager_relief,
         **validator_flags_for(result.rules_version, result.rebalance_info is not None))
     if record.context.manager_handover and not errors:
         k, proxy = record.context.manager_handover
@@ -699,6 +721,7 @@ def _run_schedule_modes(context: ShiftContext, history: HistorySelection | None,
         last_rest_records=dual.prepared_inputs.last_rest_records,
             post_cap=_post_cap(config)[1], work_spread=False,   # H-18은 실제 운영 모드(FM) 표만 본다
             half_day_ids=config.half_day_ids, emergency_leaver_cells=config.emergency_leaver_cells,
+            test_manager_relief=dual.test_manager_relief,
             **validator_flags_for(config.rules_version, config.locked_assignments is not None))
         if flexible_errors:
             continue
@@ -743,6 +766,7 @@ def _run_schedule_once(context: ShiftContext, history: HistorySelection | None, 
                              "reoptimization": config.locked_assignments is not None}
                        if config.rules_version in ("2.18", "2.19", "2.20")
                        else solver_flags)
+    relief = test_relief_applies(context, config)
     solved = solve_first_trial(
         context, prepared.engine_history, seconds=config.seconds,
         manager_a_end_slot=config.manager_a_end_slot, manager_a_start_slot=config.manager_a_start_slot,
@@ -772,10 +796,11 @@ def _run_schedule_once(context: ShiftContext, history: HistorySelection | None, 
         post_cap=_post_cap(config)[0], half_day_ids=config.half_day_ids,
         emergency_leaver_cells=config.emergency_leaver_cells,
         disabled_rule_groups=frozenset(config.disabled_rule_groups), feasibility_only=config.feasibility_only,
+        test_manager_relief=relief,
         **solver_flags,
     )
     if solved.record is None:
-        return ServiceResult(context, solved, (), {}, prepared, config.rules_version)
+        return ServiceResult(context, solved, (), {}, prepared, config.rules_version, test_manager_relief=relief)
     errors = validate_first_trial(solved.record, prepared.engine_history,
                                   manager_a_end_slot=config.manager_a_end_slot, manager_a_start_slot=config.manager_a_start_slot,
                                   locked_cells=tuple((r.employee_id, r.slot.index) for r in config.locked_assignments or ()),
@@ -785,10 +810,11 @@ def _run_schedule_once(context: ShiftContext, history: HistorySelection | None, 
         last_rest_records=prepared.last_rest_records,
                                   post_cap=_post_cap(config)[1], half_day_ids=config.half_day_ids,
                                   emergency_leaver_cells=config.emergency_leaver_cells,
+                                  test_manager_relief=relief,
                                   **validator_flags)
     stats = calculate_all_stats(solved.record) if not errors else {}
     return ServiceResult(solved.record.context, solved, tuple(errors), stats, prepared,
-                         config.rules_version)
+                         config.rules_version, test_manager_relief=relief)
 
 
 def _hour(slot_index: int) -> str:
