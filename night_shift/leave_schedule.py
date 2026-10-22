@@ -185,12 +185,21 @@ def load(store: Path, year: int = 2026) -> dict[date, list[dict]]:
         end = min(end, date(year, 12, 31))
         while current <= end:
             entries[current] = [e for e in entries.get(current, []) if e["name"] != item["name"]]
-            entries[current].append({**item, "manual": True})
+            if item.get("kind") != HIDE_KIND:              # 원본 숨김(10/23): 그날 그 사람 일정을 지우기만 한다
+                entries[current].append({**item, "manual": True})
             current += timedelta(days=1)
     return entries
 
 
 MANUAL_FILE = "manual_leave.json"
+# 연차일정 달력에서 원본(파일) 일정을 지울 때 남기는 직접 등록 종류 (2026-10-23 사용자 확정): 원본 파일은 고치지 않고
+# 그 사람·그 날짜 일정을 숨긴다. 새 연차일정 파일을 올리면 다른 직접 등록처럼 초기화된다.
+HIDE_KIND = "원본 숨김"
+
+
+def hide_original(store: Path, name: str, team: str, day: date) -> str:
+    """원본 일정 하루 숨김 = 그날만 '원본 숨김' 직접 등록 (기간 일정이면 나머지 날은 그대로)."""
+    return save_manual(store, name, team, day, day, HIDE_KIND, note="달력에서 삭제")
 
 
 def refresh_manual_inputs(state, store: Path, day: date, mode: str) -> bool:

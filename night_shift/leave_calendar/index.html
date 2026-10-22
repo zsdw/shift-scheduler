@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<style>
+  /* 연차일정 달력 (2026-10-23 사용자 요청): 칩을 누르면 수정·삭제 창, 날짜 칸 ＋는 그 날짜 일정 추가.
+     표 HTML은 leave_view_ui가 만들어 넘기고, 여기서는 누른 것만 돌려준다. */
+  body { margin: 0; font-family: "Source Sans Pro", "Noto Sans KR", sans-serif; color: #111827; background: transparent; }
+  [data-chip] { cursor: pointer; }
+  [data-chip]:hover { filter: brightness(.93); box-shadow: 0 0 0 1px #64748b; }
+  .add { float: right; cursor: pointer; border: 1px solid #cbd5e1; border-radius: 6px; background: #fff; color: #475569;
+         font-size: .72rem; line-height: 1; padding: 2px 5px; margin-left: 2px; }
+  .add:hover { background: #eef2ff; border-color: #6366f1; color: #3730a3; }
+  body.dark .note { color: #cbd5e1; }
+</style>
+</head>
+<body>
+<div id="root"></div>
+<script>
+  function send(type, payload) {
+    window.parent.postMessage(Object.assign({ isStreamlitMessage: true, apiVersion: 1, type: type }, payload || {}), "*");
+  }
+  function setHeight() { send("streamlit:setFrameHeight", { height: document.body.scrollHeight + 4 }); }
+  function emit(value) {
+    value.nonce = Date.now() + "-" + Math.random().toString(36).slice(2);
+    send("streamlit:setComponentValue", { value: value, dataType: "json" });
+  }
+  let lastHtml = null;
+  window.addEventListener("message", event => {
+    const msg = event.data;
+    if (!msg || msg.type !== "streamlit:render") return;
+    document.body.classList.toggle("dark", !!(msg.theme && msg.theme.base === "dark"));
+    const html = msg.args.data.html;
+    if (html !== lastHtml) {
+      lastHtml = html;
+      const root = document.getElementById("root");
+      root.innerHTML = html;
+      root.querySelectorAll("[data-chip]").forEach(el => el.addEventListener("click", e => {
+        e.stopPropagation(); emit({ kind: "chip", key: el.dataset.chip, date: el.dataset.date });
+      }));
+      root.querySelectorAll("[data-add]").forEach(el => el.addEventListener("click", e => {
+        e.stopPropagation(); emit({ kind: "add", date: el.dataset.add });
+      }));
+    }
+    setHeight();
+  });
+  window.addEventListener("resize", setHeight);
+  send("streamlit:componentReady");
+</script>
+</body>
+</html>

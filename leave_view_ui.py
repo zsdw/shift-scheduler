@@ -13,7 +13,10 @@ import mobile_ui
 from history_ui import store_dir
 from night_shift import daily_report as dr
 from night_shift.calendar_info import holiday_name, is_off_day
-from night_shift.leave_schedule import load, save_text, replace_uploaded_text, load_manual, save_manual, delete_manual
+from night_shift.leave_schedule import (load, save_text, replace_uploaded_text, load_manual, save_manual, delete_manual,
+                                       hide_original, HIDE_KIND)
+
+KINDS = ["연차", "오전반차", "오후반차", "전반야 반차", "후반야 반차", "교육", "훈련", "야간지원", "주간지원", "휴무", "병가", "출근", "퇴사", "기타"]
 
 
 def manual_box(store) -> None:
@@ -34,7 +37,7 @@ def manual_box(store) -> None:
         if not names:
             st.info("근태관리일보에서 조별 근무자 명단을 먼저 등록하세요.")
             return
-        kinds = ["연차", "오전반차", "오후반차", "전반야 반차", "후반야 반차", "교육", "훈련", "야간지원", "주간지원", "휴무", "병가", "출근", "퇴사", "기타"]
+        kinds = list(KINDS)
         kind = item.get("kind", "연차")
         if kind not in kinds:
             kinds.append(kind)
@@ -171,6 +174,118 @@ def upload_box(store, key: str) -> None:
             st.rerun()
 
 
+_LEAVE_CALENDAR = None
+
+
+def leave_calendar(store, html: str, chips: dict, key: str) -> None:
+    """누를 수 있는 연차일정 달력(2026-10-23 사용자 요청): 칩 → 수정·삭제 창, ＋ → 그 날짜 추가 창. PC·폰 공통."""
+    global _LEAVE_CALENDAR
+    if _LEAVE_CALENDAR is None:
+        import streamlit.components.v1 as components
+        from pathlib import Path
+        _LEAVE_CALENDAR = components.declare_component(
+            "leave_calendar", path=str(Path(__file__).resolve().parent / "night_shift" / "leave_calendar"))
+    event = _LEAVE_CALENDAR(data={"html": html}, key=f"leave_calendar_{key}", default=None)
+    if isinstance(event, dict) and event.get("nonce") and event["nonce"] != st.session_state.get("leave_calendar_nonce"):
+        st.session_state["leave_calendar_nonce"] = event["nonce"]
+        open_leave_dialog(store, event, chips)
+
+
+def open_leave_dialog(store, event: dict, chips: dict) -> None:
+    entry = chips.get((event.get("key"), event.get("date"))) if event.get("kind") == "chip" else None
+    from uuid import uuid4                        # 창마다 입력칸을 새로(직전 창 값이 남지 않게)
+    st.session_state["leave_dialog"] = {"event": event, "entry": entry, "mode": "menu" if entry else "add",
+                                        "token": uuid4().hex[:8]}
+    leave_dialog(store)
+
+
+@st.dialog("연차일정")
+def leave_dialog(store) -> None:
+    state = st.session_state.get("leave_dialog") or {}
+    event, entry, mode = state.get("event", {}), state.get("entry"), state.get("mode")
+    token = state.get("token", "")
+    day = date.fromisoformat(event.get("date") or date.today().isoformat())
+    roster = dr.load_roster(store)
+    if mode == "menu" and entry:
+        label = f"{entry['name']} {entry['kind']}" + (f" · {entry['note']}" if entry.get("note") else "")
+        if entry.get("manual"):
+            span = entry["start"] if entry["start"] == entry["end"] else f"{entry['start']} ~ {entry['end']}"
+            st.markdown(f"**{label}** [직접 등록]  \n{span}")
+        else:
+            st.markdown(f"**{label}** (연차일정 파일 원본)  \n{day:%Y-%m-%d}")
+        c1, c2 = st.columns(2)
+        if c1.button("✏️ 수정", key=f"leave_dlg_edit_{token}", width="stretch"):
+            state["mode"] = "edit"
+            st.rerun(scope="fragment")
+        if c2.button("🗑️ 삭제", key=f"leave_dlg_delete_{token}", width="stretch"):
+            if entry.get("manual"):
+                if entry.get("kind") == "퇴사":            # 퇴사 취소 = 명단 종료일도 지움
+                    dr.set_last_day(store, entry["name"], None)
+                delete_manual(store, entry["id"])
+                message = (f"{entry['name']} {entry['kind']} 직접 등록을 지웠습니다"
+                           + (f"({entry['start']} ~ {entry['end']} 전체)." if entry["start"] != entry["end"] else ".")
+                           + " 원본 일정이 있으면 다시 보입니다.")
+            else:
+                group = next((r["소속"] for r in roster if r["이름"] == entry["name"]), "")
+                try:
+                    hide_original(store, entry["name"], dr.TEAM_LETTER.get(group, entry.get("team", "")), day)
+                except ValueError as exc:
+                    st.error(str(exc))
+                    return
+                message = f"{day:%m/%d} {entry['name']} {entry['kind']} 일정을 지웠습니다(원본 파일은 그대로, 이날만 숨김)."
+            st.session_state["leave_dialog"] = None
+            st.session_state["manual_leave_message"] = message
+            st.rerun()
+        if entry.get("manual") and entry["start"] != entry["end"]:
+            st.caption("기간으로 등록한 직접 일정은 수정·삭제가 기간 전체에 적용됩니다.")
+        return
+    item = entry if entry and entry.get("manual") else {}
+    names = list(dict.fromkeys(r["이름"] for r in roster))
+    default_name = (entry or {}).get("name")
+    if default_name and default_name not in names:
+        names.append(default_name)
+    if not names:
+        st.info("근태관리일보에서 조별 근무자 명단을 먼저 등록하세요.")
+        return
+    kinds = list(KINDS)
+    default_kind = (entry or {}).get("kind", "연차")
+    if default_kind not in kinds:
+        kinds.append(default_kind)
+    st.markdown("**일정 수정**" if entry else f"**{day:%m/%d} 일정 추가**")
+    name = st.selectbox("인원", names, index=names.index(default_name) if default_name else 0, key=f"leave_dlg_name_{token}")
+    kind = st.selectbox("일정 종류", kinds, index=kinds.index(default_kind), key=f"leave_dlg_kind_{token}")
+    retire = kind == "퇴사"
+    first = date.fromisoformat(item["start"]) if item else day
+    if retire:
+        start = end = st.date_input("마지막 근무일", value=first, format="YYYY-MM-DD", key=f"leave_dlg_last_{token}")
+        presence = "출근"
+    else:
+        start = st.date_input("시작일", value=first, format="YYYY-MM-DD", key=f"leave_dlg_start_{token}")
+        end = st.date_input("종료일", value=date.fromisoformat(item["end"]) if item else day, format="YYYY-MM-DD",
+                            key=f"leave_dlg_end_{token}")
+        options = ["자동", "출근", "미출근"]
+        presence = st.selectbox("출근 여부", options, index=options.index(item.get("presence", "자동")) if item else 0,
+                                key=f"leave_dlg_presence_{token}")
+    note = st.text_input("비고", value=item.get("note", "") if item else (entry or {}).get("note", ""), key=f"leave_dlg_note_{token}")
+    if entry and not item:
+        st.caption(f"원본 일정은 파일을 고치지 않고 직접 등록으로 덮어씁니다(기간을 바꾸면 그 기간 전체).")
+    if st.button("저장", type="primary", key=f"leave_dlg_save_{token}", width="stretch"):
+        if kind == "기타" and presence == "자동":
+            st.error("기타 일정은 출근 또는 미출근을 선택하세요.")
+            return
+        group = next((r["소속"] for r in roster if r["이름"] == name), "")
+        try:
+            save_manual(store, name, dr.TEAM_LETTER.get(group, ""), start, end, kind, note, presence, item.get("id"))
+        except ValueError as exc:
+            st.error(str(exc))
+            return
+        if retire:
+            dr.set_last_day(store, name, start)
+        st.session_state["leave_dialog"] = None
+        st.session_state["manual_leave_message"] = f"{name} {kind} 일정을 저장했습니다. 달력에 [직접 등록]으로 표시됩니다."
+        st.rerun()
+
+
 def page() -> None:
     st.title("연차일정")
     store = store_dir()
@@ -217,10 +332,15 @@ def page() -> None:
         days = calendar.Calendar(firstweekday=6).monthdatescalendar(year, month)   # 일요일 시작 (앱 달력과 같음)
         month_entries = {d: [e for e in entries.get(d, []) if shown(e)] for week in days for d in week if d.month == month}
 
-        def chip(e):
+        chips = {}                       # (칩 키, 날짜) → 일정 — 누른 칩을 찾는다 (10/23)
+
+        def chip(e, d):
             bg, fg = TONES[tone(e["kind"])]
             tag = SHORT.get(team(e), "")
-            return (f"<span style='display:inline-block;background:{bg};color:{fg};border:1px solid #e5e7eb;"
+            key = f"m:{e['id']}" if e.get("manual") else f"o:{e['name']}:{e['kind']}"
+            chips[key, d.isoformat()] = e
+            return (f"<span data-chip='{escape(key, quote=True)}' data-date='{d.isoformat()}' "
+                    f"title='누르면 수정·삭제' style='display:inline-block;background:{bg};color:{fg};border:1px solid #e5e7eb;"
                     f"border-radius:6px;padding:1px 5px;margin:1px;font-size:.74rem;line-height:1.3'>"
                     f"{('<b>' + escape(tag) + '</b> ') if tag else ''}{escape(e['name'])} {escape(e['kind'])}"
                     f"{(' · ' + escape(e['note'])) if e.get('note') else ''}{' [직접 등록]' if e.get('manual') else ''}</span>")
@@ -230,7 +350,8 @@ def page() -> None:
             teams = dr.teams_for(d)
             hol = holiday_name(d)
             mark = " style='outline:2px solid #2563eb;outline-offset:-2px'" if d == today else ""
-            return (f"<div{mark}><b style='color:{'#dc2626' if red else '#111827'}'>{d.day}</b>"
+            return (f"<div{mark}><span class='add' data-add='{d.isoformat()}' title='이 날짜에 일정 추가'>＋</span>"
+                    f"<b style='color:{'#dc2626' if red else '#111827'}'>{d.day}</b>"
                     + (f" <span style='color:#dc2626;font-size:.7rem'>{escape(hol)}</span>" if hol else "")
                     + (" <span title='웨딩 있음' style='font-size:.72rem;background:#FCE7F3;color:#9D174D;border-radius:6px;padding:0 4px'>💒 웨딩</span>"
                        if d in weddings else "")
@@ -242,16 +363,19 @@ def page() -> None:
                                                  ("입사·퇴사·편입", TONES["인사"])))
         st.markdown(legend + " <span style='font-size:.75rem;color:#6b7280'>· 주/야 = 그날 주간조·야간조</span>",
                     unsafe_allow_html=True)
-        if mobile:                       # 폰: 항목 있는 날만 날짜 목록
-            any_day = False
-            for d, items in month_entries.items():
-                if not items and d not in weddings:
-                    continue
-                any_day = True
-                st.markdown(f"<div style='background:#fff;color:#111827;border-radius:8px;padding:6px 8px;margin:4px 0'>"
-                            f"{day_head(d)}{''.join(chip(e) for e in items)}</div>", unsafe_allow_html=True)
-            if not any_day:
+        st.caption("일정 칩을 누르면 수정·삭제, 날짜 칸의 ＋를 누르면 그 날짜에 일정을 추가합니다. "
+                   "원본(연차일정 파일) 일정을 고치거나 지우면 [직접 등록]으로 덮어쓰고, 새 연차일정 파일을 올리면 초기화됩니다.")
+        if mobile:                       # 폰: 항목 있는 날만 날짜 목록 (빈 날은 위 '＋ 일정 추가')
+            if st.button("＋ 일정 추가", key="leave_add_any", width="stretch"):
+                open_leave_dialog(store, {"kind": "add", "date": (today if (today.year, today.month) == (year, month)
+                                                                    else date(year, month, 1)).isoformat()}, {})
+            html = "".join(f"<div style='background:#fff;color:#111827;border-radius:8px;padding:6px 8px;margin:4px 0'>"
+                           f"{day_head(d)}{''.join(chip(e, d) for e in items)}</div>"
+                           for d, items in month_entries.items() if items or d in weddings)
+            if not html:
                 st.caption("이 달에 표시할 항목이 없습니다.")
+            else:
+                leave_calendar(store, html, chips, f"m_{year}_{month}")
         else:                            # PC: 한 달 달력
             head = "".join(f"<th style='padding:4px;color:{'#dc2626' if i in (0, 6) else '#111827'}'>{w}</th>"
                            for i, w in enumerate("일월화수목금토"))
@@ -260,12 +384,12 @@ def page() -> None:
                 body += "<tr>" + "".join(
                     (f"<td style='vertical-align:top;border:1px solid #d1d5db;padding:4px;height:92px;"
                      f"background:{'#fff7f7' if is_off_day(d) else '#fff'}'>{day_head(d)}"
-                     + "".join(chip(e) for e in month_entries.get(d, [])) + "</td>")
+                     + "".join(chip(e, d) for e in month_entries.get(d, [])) + "</td>")
                     if d.month == month else "<td style='border:1px solid #e5e7eb;background:#f3f4f6'></td>"
                     for d in week) + "</tr>"
-            st.markdown("<div style='overflow-x:auto'><table style='border-collapse:collapse;width:100%;table-layout:fixed;"
-                        "background:#fff;color:#111827'><tr style='background:#e5e7eb'>" + head + "</tr>" + body
-                        + "</table></div>", unsafe_allow_html=True)
+            leave_calendar(store, "<div style='overflow-x:auto'><table style='border-collapse:collapse;width:100%;table-layout:fixed;"
+                           "background:#fff;color:#111827'><tr style='background:#e5e7eb'>" + head + "</tr>" + body
+                           + "</table></div>", chips, f"p_{year}_{month}")
         # 사람별 이번 달 합계
         counts: dict[str, Counter] = defaultdict(Counter)
         for d, items in month_entries.items():

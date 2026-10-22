@@ -109,7 +109,8 @@ def field_duty_notes(record,token):
     - 흡연장 파라솔: parasol() 참고 (2026-10-11 변경)
     - 21시 폐문 및 차단봉 설치: 20시 G2 근무자, G2가 없으면 20시 I1 근무자 (2026-10-06 사용자 확정)
     - 21시 라이브러리 시건: 21시 L3 / 24시 폐문(2차) 및 차단봉 설치: 24시 I1
-    - 05시 개문 및 차단봉 공조실 이동: 04시 I1(철수자) / 05시 0호기 1층 이동: 항상 A / 06시 라이브러리 시건 해제: 06시 L3"""
+    - 05시 개문 및 차단봉 공조실 이동: 04시 I1(철수자) / 05시 0호기 1층 이동: 05시 관리자(통제A, A 결근이면 대행 준호,
+      반차·승계 날은 그 시간 관리자 자리, 2026-10-23 사용자 지적) / 06시 라이브러리 시건 해제: 06시 L3"""
     cells={(r.employee_id,r.slot.index):r for r in record.assignments}
     def who(slot,label):
         found=[token(r.employee_id) for (e,t),r in cells.items() if t==slot and r.displayed_assignment.label==label]
@@ -120,8 +121,22 @@ def field_duty_notes(record,token):
     left=[f'흡연장 파라솔 - {parasol(record,token,who)}',f'21시 폐문 및 차단봉 설치 - {closing}',
           f'21시 라이브러리 시건 - {who(3,"L3")}',f'24시 폐문 및 차단봉 설치 - {who(6,"I1")}',
           f'05시 개문 및 차단봉 공조실 이동 - {who(10,"I1")}']
-    right=['05시 0호기 1층 이동 - A',f'06시 라이브러리 시건 해제 - {who(12,"L3")}']
+    right=[f'05시 0호기 1층 이동 - {manager_at(record,token,11)}',f'06시 라이브러리 시건 해제 - {who(12,"L3")}']
     return left,right
+
+
+def manager_at(record,token,slot):
+    """그 시간 관리자 표기: 통제A 출근이면 A, 하루 종일 A 결근이면 대행 준호 번호, 반차·승계 교대가 있으면 교대 시점 기준."""
+    context=record.context
+    handover=getattr(context,'manager_handover',None)
+    if handover:
+        k,proxy=handover
+        acting=proxy if (slot<k if getattr(context,'manager_handover_reverse',False) else slot>=k) else 'A'
+        return token(acting)
+    present={a.employee_id for a in context.attendance if a.present}
+    if 'A' in present:return 'A'
+    proxy=next((a.employee_id for a in context.attendance if a.present and getattr(a,'acts_as_manager',False)),None)
+    return token(proxy) if proxy else '-'
 
 
 def parasol(record,token,who):

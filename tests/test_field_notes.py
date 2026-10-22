@@ -96,6 +96,20 @@ class FieldNotesTests(unittest.TestCase):
         left = field_duty_notes(record, token(record))[0]
         self.assertEqual(left[1], f"21시 폐문 및 차단봉 설치 - {at(record, 2, 'I1')}")  # G2 없으면 20시 I1
 
+    def test_zero_elevator_follows_manager_on_duty(self):
+        # 2026-10-23 사용자 지적: 05시 0호기 1층 이동은 그 시간 관리자 — A 결근이면 대행 준호, 승계 날은 교대 기준
+        from types import SimpleNamespace as N
+        from night_shift.schedule_image import manager_at
+        def ctx(a_present=True, handover=None, reverse=False):
+            attendance = [N(employee_id="A", present=a_present, display_number=None, acts_as_manager=a_present),
+                          N(employee_id="6", present=True, display_number=6, acts_as_manager=not a_present)]
+            return N(context=N(attendance=attendance, manager_handover=handover, manager_handover_reverse=reverse))
+        tok = lambda e: "A" if e == "A" else e
+        self.assertEqual(manager_at(ctx(), tok, 11), "A")
+        self.assertEqual(manager_at(ctx(a_present=False), tok, 11), "6")
+        self.assertEqual(manager_at(ctx(handover=(7, "6")), tok, 11), "6")                # 후반부 반차·긴급 승계: 01시부터 준호
+        self.assertEqual(manager_at(ctx(handover=(7, "6"), reverse=True), tok, 11), "A")  # 전반부 반차: 01시부터 A
+
 
 if __name__ == "__main__":
     unittest.main()
