@@ -209,3 +209,5 @@
 - 8-14 통제A 야간I1 최소1회: `solver.solve_first_trial`, `validator.validate_first_trial`, `tests/test_a_i1_once.py`.
 
 - 8-15 통제A 대기 최대2회: `solver.solve_first_trial`, `validator.validate_first_trial`, `tests/test_a_standby_cap.py`.
+
+현재추가조항(2026-10-22): H-21 실제같은포스트4시간중3회금지 / H-22 온전출근 결원0~1명4연속실근무금지 / 8-10-2 관리자04시하드(결원1·반차·긴급예외). solver.py·validator.py·service.RULE_GROUPS·test_same_post_window/test_four_run_hard. 휴게순번은soft_history.rest_priority_key·solver.py(횟수→실제출근대기).
