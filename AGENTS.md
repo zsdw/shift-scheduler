@@ -5,6 +5,8 @@
 
 ## 0. 위치·문서 지도
 
+- GitHub 첫 화면·문서 갱신 기준은 `README.md`. 모든 AI는 이 파일과 `다음세션_인수인계.md`를 읽고 실제 Git 상태를 확인한다. Claude 진입 안내는 `CLAUDE.md`, Gemini 진입 안내는 `GEMINI.md`(자동 로딩 여부는 각 실행 도구 설정에 따라 다름).
+
 - 코드·테스트·가상환경 원본: `C:\Users\LJH\Documents\Codex\shift-scheduler`. **git 사용(2026-10-18~)**: 원격 `github.com/zsdw/shift-scheduler`(main, **현재 공개 저장소** — 2026-10-23 확인, 사용자 결정으로 비공개 전환은 보류). 작업 묶음 끝에 커밋, 올리기는 사용자 요청 시. 강제 푸시 금지. git 실행 파일 `C:\Program Files\Git\cmd\git.exe`, `C:\Program Files\GitHub CLI\gh.exe`(PATH에 없을 수 있음). 큰 수정 전 `backup/<주제>_<날짜>/` 복사도 계속.
 
 ## 0-0. "최신화" 요청 = GitHub + 바탕화면 문서 폴더 동시 처리 (2026-10-18 사용자 확정, 모든 세션·모든 AI 공통)
@@ -15,12 +17,13 @@
    - 폴더 최상위 ← `AGENTS.md`, `CHANGELOG.md`, `다음세션_인수인계.md`, `배포_안내.md`, `전체검사_결과.md`, `docs/RULE_INDEX.md`, `docs/야간근무_룰북_v2.21.txt`, `docs/업무문서_계산기준.md`, `docs/주말_주간_룰북_v1.0.md`, `docs/평일_주간근무_룰북_v1.0.txt`
    - 폴더 안 `docs` ← `docs/RULE_INDEX.md`, `docs/야간근무_룰북_v2.21.txt`, `docs/주말_주간_룰북_v1.0.md`
    - 그 전에 이번 작업이 `CHANGELOG.md`(맨 위 날짜 항목)·`다음세션_인수인계.md`·이 파일에 반영돼 있는지 확인하고, 빠졌으면 먼저 정리한다(작업노트에만 있으면 최신화가 아님).
+   - 공통 진입 문서 `README.md`·`CLAUDE.md`·`GEMINI.md`도 같은 폴더 최상위에 복사한다(2026-10-23 문서 지도 정리).
 3. 폰용 배포 폴더(`Documents\Codex\shift-scheduler-deploy`, `make_deploy_copy.ps1`)는 사용자가 따로 말할 때만.
 4. 끝나면 커밋 번호, 푸시 결과, 폴더에서 바뀐 파일 목록을 짧게 보고한다.
 
-## 0-1. 두 AI 병행 작업 규칙 (2026-10-18~, 사용자 확정: Claude = 야간, Codex = 주말 주간)
+## 0-1. AI 병행 작업 규칙 (Claude = 야간, Codex = 주말 주간; Gemini 포함 공통)
 
-같은 폴더를 두 AI가 동시에 고친다. git이 있어도 **같은 파일 동시 수정은 나중 저장이 앞 수정을 덮는다**.
+같은 폴더를 여러 AI가 동시에 고칠 수 있다. Gemini의 고정 담당 영역은 미지정이므로 작업 시작 때 현재 담당·파일을 확인한다. git이 있어도 **같은 파일 동시 수정은 나중 저장이 앞 수정을 덮는다**.
 - **Codex(주말 주간 — 긴급 통제A 반차 등)만 수정**: `night_shift/weekend_day.py`, `weekend_day_ui.py`, `night_shift/weekend_form.py`, `tests/test_weekend_*.py`, `docs/주말_주간_룰북_v1.0.md`.
 - **Claude(야간 — 미리 정한 통제A 반차 등)만 수정**: `night_shift/solver.py`·`validator.py`·`service.py`·`models.py`·`profiles.py`·`presentation.py`·`schedule_edit.py`·`balance_notes.py`, `app.py`, `docs/야간근무_룰북_v2.21.txt`, 야간 검사 파일.
 - **공용 — 고치기 전에 사용자에게 알리고 한쪽만**: `history_ui.py`, `night_shift/day_grid/`·`drag_grid/`, `night_shift/history_store.py`·`patrol_history.py`·`leave_schedule.py`, `mobile_ui.py`, `.gitignore`, `run_tests_parallel.py`.

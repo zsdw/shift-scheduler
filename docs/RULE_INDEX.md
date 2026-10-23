@@ -183,7 +183,7 @@
 | 현장 양식 특이사항 칸·흡연장 파라솔 | schedule_image `field_duty_notes`·`parasol` | tests/test_field_notes.py |
 
 - 8-13: 공휴일 전날 관리자(통제A·준호 대행) 06시 G1 금지 — solver.solve_first_trial / validator.validate_first_trial / tests.test_manager_holiday_g1
-- 17-6: 최근 2싸이클 야간 1점 보상 — service.prepare_engine_inputs / solver.solve_first_trial / balance_notes.history_influence_lines / tests.test_night_compensation
+- 장기 손해 보상(10/20): 최근4회 격차1 발동 보상 대체. `docs/장기_피로도_손해장부.md`, `night_shift/fatigue_ledger.py`, service 준비 입력·solver 장기 장부 목표 참고. 옛 검사 파일명은 현재 보상 정책을 뜻하지 않는다.
 
 - H-19: 마지막 05·06·07시 3연속 실휴게 금지(통제A·준호 관리자대행 예외) — solver.solve_first_trial / validator.validate_first_trial / tests.test_last_three_rest
 - 관리자 교대 경계(준호 연속근무, 0-4-3·0-4-4): solver handover_boundary(하드, rule_off '교대 경계(준호 연속근무)') / 독립 검사 service.handover_boundary_issues / tests.test_manager_late_half·test_manager_early_half
@@ -202,7 +202,7 @@
 
 - 12-4 비포스트3시간 연속휴게2칸·전체 대기부담 분산: `solver.solve_first_trial`(plain_rest_left/right, standby_total_load), `validator.validate_first_trial`(12-block), `tests/test_standby_three_block.py`.
 
-- 12-5 결원2명 외18~05시 대기 최소1명: `solver.solve_first_trial`(required_standby_slots), `validator.validate_first_trial`(12-required), `tests/test_required_standby.py`.
+- 12-5 18~05시 대기 최소1명(결원0명 HARD·결원1명 권장·결원2명 제외): `solver.solve_first_trial`(required_standby_slots), `validator.validate_first_trial`(12-required), `tests/test_required_standby.py`.
 
 - 12-6 통제A 제외 대기 횟수 차이<=1: `solver.solve_first_trial`(standby_totals/standby_total_load), `validator.validate_first_trial`(12-gap), `tests/test_standby_gap.py`.
 
@@ -211,3 +211,5 @@
 - 8-15 통제A 대기 최대2회: `solver.solve_first_trial`, `validator.validate_first_trial`, `tests/test_a_standby_cap.py`.
 
 현재추가조항(2026-10-22): H-21 실제같은포스트4시간중3회금지 / H-22 온전출근 결원0~1명4연속실근무금지 / 8-10-2 관리자04시하드(결원1·반차·긴급예외). solver.py·validator.py·service.RULE_GROUPS·test_same_post_window/test_four_run_hard. 휴게순번은soft_history.rest_priority_key·solver.py(횟수→실제출근대기).
+
+- 시험용 관리자 우대(10/23, 정식 룰북과 별도): `service.test_relief_applies`, `SolveOptions.test_manager_relief`, solver·validator 테스트 스위치, `tests/test_test_manager_relief.py`. 적용·저장 제한은 AGENTS §3.
